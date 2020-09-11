@@ -1,4 +1,4 @@
-# zacc
+# zaalang
 > Peter Niekamp, 2016 - 2020
 
 A fledgling new programming language in the vein of c++

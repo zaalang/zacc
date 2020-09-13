@@ -1005,6 +1005,30 @@ namespace
     throw logic_error("invalid literal expression");
   }
 
+  //|///////////////////// codegen_global ///////////////////////////////////
+  void codegen_global(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue const &value)
+  {
+    auto literal = std::visit([&](auto &v) { return static_cast<Expr*>(v); }, value.get<MIR::RValue::Constant>());
+
+    if (!is_concrete_type(fx.mir.locals[dst].type))
+    {
+      ctx.diag.error("unresolved literal type", fx.fn, literal->loc());
+      return;
+    }
+
+    if (auto value = llvm_constant(ctx, fx, fx.mir.locals[dst].type, literal))
+    {
+      auto global = new llvm::GlobalVariable(ctx.module, value->getType(), fx.mir.locals[dst].flags & MIR::Local::Const, llvm::GlobalValue::InternalLinkage, value);
+
+      global->setAlignment(llvm::Align(alignof_type(fx.mir.locals[dst].type)));
+
+      if (fx.locals[dst].alloca)
+        llvm::cast<llvm::AllocaInst>(fx.locals[dst].alloca)->eraseFromParent();
+
+      fx.locals[dst].alloca = global;
+    }
+  }
+
   //|///////////////////// codegen_constant /////////////////////////////////
   void codegen_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, VoidLiteralExpr *literal)
   {
@@ -3939,6 +3963,13 @@ namespace
         else if (fx.locals[i].value)
           ctx.di.insertDbgValueIntrinsic(fx.locals[i].value, parmvar, ctx.di.createExpression(), llvm_diloc(ctx, fx, fx.fn->loc()), fx.blocks[0].bx);
       }
+    }
+
+    // statics
+
+    for(auto &[arg, value] : fx.mir.statics)
+    {
+      codegen_global(ctx, fx, arg, value);
     }
 
     // blocks

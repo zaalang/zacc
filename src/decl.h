@@ -334,6 +334,7 @@ class VarDecl : public Decl
     {
       Const = 0x02,
       Literal = 0x10,
+      Static = 0x20,
     };
 
   public:

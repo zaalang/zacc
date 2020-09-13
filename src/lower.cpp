@@ -5758,7 +5758,28 @@ namespace
 
     auto arg = ctx.add_variable();
 
-    if (is_reference_type(vardecl->type))
+    if (vardecl->flags & VarDecl::Static)
+    {
+      if (!(value.type.flags & MIR::Local::Literal))
+      {
+        ctx.diag.error("non literal static value", ctx.stack.back(), vardecl->loc());
+        return;
+      }
+
+      if (is_reference_type(vardecl->type))
+      {
+        ctx.diag.error("invalid reference type", ctx.stack.back(), vardecl->loc());
+        return;
+      }
+
+      ctx.mir.statics.emplace_back(arg, std::move(value.value));
+
+      if (!(vardecl->flags & VarDecl::Const))
+        value.type.flags &= ~MIR::Local::Const;
+
+      value.type.flags |= MIR::Local::Reference;
+    }
+    else if (is_reference_type(vardecl->type))
     {
       if (!(value.type.flags & MIR::Local::Reference))
       {

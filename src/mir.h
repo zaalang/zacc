@@ -347,6 +347,8 @@ class MIR
     std::vector<Local> locals;
     std::vector<Block> blocks;
 
+    std::vector<std::tuple<local_t, RValue>> statics;
+
   public:
 
     bool throws;

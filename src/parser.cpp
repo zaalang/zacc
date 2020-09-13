@@ -1960,6 +1960,10 @@ namespace
         var->flags |= VarDecl::Literal;
         break;
 
+      case Token::kw_static:
+        var->flags |= VarDecl::Static;
+        break;
+
       default:
         assert(false);
     }
@@ -3064,6 +3068,7 @@ namespace
       case Token::kw_let:
       case Token::kw_var:
       case Token::kw_const:
+      case Token::kw_static:
         stmt->decl = parse_var_declaration(ctx, sema);
         break;
 
@@ -3537,6 +3542,7 @@ namespace
       {
         case Token::kw_fn:
         case Token::kw_const:
+        case Token::kw_static:
         case Token::kw_import:
         case Token::kw_using:
         case Token::kw_struct:

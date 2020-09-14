@@ -1006,7 +1006,36 @@ namespace
   }
 
   //|///////////////////// codegen_global ///////////////////////////////////
-  void codegen_global(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue const &value)
+  void codegen_global(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, llvm::Constant *value, llvm::GlobalValue::LinkageTypes linkage)
+  {
+    auto global = new llvm::GlobalVariable(ctx.module, value->getType(), fx.mir.locals[dst].flags & MIR::Local::Const, linkage, value);
+
+    global->setAlignment(llvm::Align(alignof_type(fx.mir.locals[dst].type)));
+
+    if (ctx.genopts.debuginfo == GenOpts::DebugInfo::Yes)
+    {
+      auto i = dst;
+
+      if (fx.locals[i].info && fx.locals[i].alloca)
+      {
+        auto ditype = llvm_ditype(ctx, fx.mir.locals[i]);
+
+        auto varexpr = ctx.di.createGlobalVariableExpression(fx.discopes.front(), fx.locals[i].info->name, llvm::StringRef(), fx.difile, fx.locals[i].info->loc.lineno, ditype, false);
+
+        global->addDebugInfo(varexpr);
+      }
+    }
+
+    fx.locals[dst].info = nullptr;
+
+    if (fx.locals[dst].alloca)
+      llvm::cast<llvm::AllocaInst>(fx.locals[dst].alloca)->eraseFromParent();
+
+    fx.locals[dst].alloca = global;
+  }
+
+  //|///////////////////// codegen_static ///////////////////////////////////
+  void codegen_static(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue const &value)
   {
     auto literal = std::visit([&](auto &v) { return static_cast<Expr*>(v); }, value.get<MIR::RValue::Constant>());
 
@@ -1018,14 +1047,7 @@ namespace
 
     if (auto value = llvm_constant(ctx, fx, fx.mir.locals[dst].type, literal))
     {
-      auto global = new llvm::GlobalVariable(ctx.module, value->getType(), fx.mir.locals[dst].flags & MIR::Local::Const, llvm::GlobalValue::InternalLinkage, value);
-
-      global->setAlignment(llvm::Align(alignof_type(fx.mir.locals[dst].type)));
-
-      if (fx.locals[dst].alloca)
-        llvm::cast<llvm::AllocaInst>(fx.locals[dst].alloca)->eraseFromParent();
-
-      fx.locals[dst].alloca = global;
+      codegen_global(ctx, fx, dst, value, llvm::GlobalValue::InternalLinkage);
     }
   }
 
@@ -1137,14 +1159,7 @@ namespace
 
     if (auto value = llvm_constant(ctx, fx, fx.mir.locals[dst].type, literal))
     {
-      auto global = new llvm::GlobalVariable(ctx.module, value->getType(), true, llvm::GlobalValue::PrivateLinkage, value);
-
-      global->setAlignment(llvm::Align(16));
-
-      if (fx.locals[dst].alloca)
-        llvm::cast<llvm::AllocaInst>(fx.locals[dst].alloca)->eraseFromParent();
-
-      fx.locals[dst].alloca = global;
+      codegen_global(ctx, fx, dst, value, llvm::GlobalValue::PrivateLinkage);
     }
   }
 
@@ -1161,14 +1176,7 @@ namespace
 
     if (auto value = llvm_constant(ctx, fx, fx.mir.locals[dst].type, literal))
     {
-      auto global = new llvm::GlobalVariable(ctx.module, value->getType(), true, llvm::GlobalValue::PrivateLinkage, value);
-
-      global->setAlignment(llvm::Align(16));
-
-      if (fx.locals[dst].alloca)
-        llvm::cast<llvm::AllocaInst>(fx.locals[dst].alloca)->eraseFromParent();
-
-      fx.locals[dst].alloca = global;
+      codegen_global(ctx, fx, dst, value, llvm::GlobalValue::PrivateLinkage);
     }
   }
 
@@ -3549,9 +3557,11 @@ namespace
 
       if (fx.locals[i].info && fx.locals[i].alloca)
       {
-        fx.discopes.push_back(ctx.di.createLexicalBlock(fx.discopes.back(), fx.difile, fx.locals[i].info->loc.lineno, fx.locals[i].info->loc.charpos));
+        auto ditype = llvm_ditype(ctx, fx.mir.locals[i]);
 
-        auto autovar = ctx.di.createAutoVariable(fx.discopes.back(), fx.locals[i].info->name, fx.difile, fx.locals[i].info->loc.lineno, llvm_ditype(ctx, fx.mir.locals[i]));
+        auto autovar = ctx.di.createAutoVariable(fx.discopes.back(), fx.locals[i].info->name, fx.difile, fx.locals[i].info->loc.lineno, ditype);
+
+        fx.discopes.push_back(ctx.di.createLexicalBlock(fx.discopes.back(), fx.difile, fx.locals[i].info->loc.lineno, fx.locals[i].info->loc.charpos));
 
         ctx.di.insertDeclare(fx.locals[i].alloca, autovar, ctx.di.createExpression(), llvm_diloc(ctx, fx, fx.locals[i].info->loc), ctx.builder.GetInsertBlock());
       }
@@ -3969,7 +3979,7 @@ namespace
 
     for(auto &[arg, value] : fx.mir.statics)
     {
-      codegen_global(ctx, fx, arg, value);
+      codegen_static(ctx, fx, arg, value);
     }
 
     // blocks

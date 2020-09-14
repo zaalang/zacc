@@ -5777,7 +5777,7 @@ namespace
       if (!(vardecl->flags & VarDecl::Const))
         value.type.flags &= ~MIR::Local::Const;
 
-      value.type.flags |= MIR::Local::Reference;
+      value.type.flags &= ~MIR::Local::Literal;
     }
     else if (is_reference_type(vardecl->type))
     {
@@ -5807,7 +5807,7 @@ namespace
     ctx.mir.locals[arg].flags |= MIR::Local::LValue;
     ctx.mir.locals[arg].flags &= ~MIR::Local::RValue;
 
-    if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
+    if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference) && !(vardecl->flags & VarDecl::Static))
       realise_destructor(ctx, arg, vardecl->loc());
 
     ctx.mir.add_varinfo(arg, vardecl->name, vardecl->loc());

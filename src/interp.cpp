@@ -2936,6 +2936,11 @@ namespace
       fx.locals.push_back(alloc(ctx, mir.locals[i]));
     }
 
+    for(auto &[arg, value] : mir.statics)
+    {
+      eval_constant(ctx, fx, arg, value.get<MIR::RValue::Constant>());
+    }
+
     for(size_t block = 0; block < mir.blocks.size(); )
     {
       if (auto &terminator = mir.blocks[block].terminator; terminator.kind == MIR::Terminator::Catch)

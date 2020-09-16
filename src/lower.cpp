@@ -1893,21 +1893,18 @@ namespace
 
         if (auto j = fx.find_type(type_cast<TypeArgType>(lhs)->decl); j != fx.typeargs.end() && j->second != lhs)
         {
-          if (j->second == rhs)
-            return true;
+          promote_type(ctx, rhs, j->second);
 
-          if (deduce_type(ctx, tx, scope, fx, j->second, rhs))
+          if (j->second == rhs)
             return true;
 
           if (auto k = scope.find_type(type_cast<TypeArgType>(lhs)->decl); k != scope.typeargs.end())
             return false;
 
-          if (!promote_type(ctx, j->second, rhs))
+          promote_type(ctx, j->second, rhs);
+
+          if (j->second != rhs)
             return false;
-
-          fx.set_type(type_cast<TypeArgType>(lhs)->decl, j->second);
-
-          return true;
         }
 
         if (tx.depth > 1 && is_const_type(rhs))
@@ -3281,11 +3278,8 @@ namespace
   }
 
   //|///////////////////// promote_type /////////////////////////////////////
-
-  bool promote_type(LowerContext &ctx, DeduceContext &tx, Type *&lhs, Type *rhs)
+  bool promote_type(LowerContext &ctx, Type *&lhs, Type *rhs)
   {
-    tx.depth += 1;
-
     if (lhs == rhs)
       return true;
 
@@ -3301,9 +3295,7 @@ namespace
     {
       case Type::Const:
 
-        tx.constdepth += 1;
-
-        if (auto type = type_cast<ConstType>(lhs)->type; promote_type(ctx, tx, type, rhs))
+        if (auto type = type_cast<ConstType>(lhs)->type; promote_type(ctx, type, remove_const_type(rhs)))
         {
           lhs = ctx.typetable.find_or_create<ConstType>(type);
 
@@ -3314,9 +3306,7 @@ namespace
 
       case Type::QualArg:
 
-        tx.constdepth += 1;
-
-        if (auto type = type_cast<QualArgType>(lhs)->type; promote_type(ctx, tx, type, rhs))
+        if (auto type = type_cast<QualArgType>(lhs)->type; promote_type(ctx, type, remove_const_type(rhs)))
         {
           lhs = ctx.typetable.find_or_create<QualArgType>(type_cast<QualArgType>(lhs)->qualifiers, type);
 
@@ -3327,15 +3317,13 @@ namespace
 
       case Type::Pointer:
 
-        tx.pointerdepth += 1;
-
         if (rhs == type(Builtin::Type_PtrLiteral))
           return true;
 
         if (!is_pointer_type(rhs) && !is_reference_type(rhs))
           return false;
 
-        if (auto type = type_cast<PointerType>(lhs)->type; promote_type(ctx, tx, type, remove_pointference_type(rhs)))
+        if (auto type = type_cast<PointerType>(lhs)->type; promote_type(ctx, type, remove_pointference_type(rhs)))
         {
           lhs = ctx.typetable.find_or_create<PointerType>(type);
 
@@ -3346,12 +3334,10 @@ namespace
 
       case Type::Reference:
 
-        tx.pointerdepth += 1;
-
         if (!is_pointer_type(rhs) && !is_reference_type(rhs))
           return false;
 
-        if (auto type = type_cast<ReferenceType>(lhs)->type; promote_type(ctx, tx, type, remove_pointference_type(rhs)))
+        if (auto type = type_cast<ReferenceType>(lhs)->type; promote_type(ctx, type, remove_pointference_type(rhs)))
         {
           lhs = ctx.typetable.find_or_create<ReferenceType>(type);
 
@@ -3360,38 +3346,29 @@ namespace
 
         return false;
 
-      case Type::Tuple:
+      default: {
 
-        if (deduce_type(ctx, tx, ctx.stack.back(), ctx.mir.fx, rhs, lhs))
+        FnSig fx;
+        DeduceContext tx;
+
+        if (deduce_type(ctx, tx, ctx.stack.back(), fx, rhs, lhs))
         {
-          auto defns = type_cast<TupleType>(lhs)->defns;
-          auto fields = type_cast<TupleType>(rhs)->fields;
+          if (lhs->klass() == Type::Tuple)
+          {
+            auto defns = type_cast<TupleType>(lhs)->defns;
+            auto fields = type_cast<TupleType>(rhs)->fields;
 
-          lhs = ctx.typetable.find_or_create<TupleType>(defns, fields);
+            rhs = ctx.typetable.find_or_create<TupleType>(defns, fields);
+          }
 
-          return true;
-        }
-
-        return false;
-
-      default:
-
-        if (deduce_type(ctx, tx, ctx.stack.back(), ctx.mir.fx, rhs, lhs))
-        {
           lhs = rhs;
 
           return true;
         }
 
         return false;
+      }
     }
-  }
-
-  bool promote_type(LowerContext &ctx, Type *&lhs, Type *rhs)
-  {
-    DeduceContext tx;
-
-    return promote_type(ctx, tx, lhs, rhs);
   }
 
   //|///////////////////// lower_expr ///////////////////////////////////////
@@ -5335,8 +5312,28 @@ namespace
     {
       promote_type(ctx, lhs.type.type, rhs.type.type);
 
-      if (rhs.type.type != lhs.type.type)
+      if (lhs.type.type != rhs.type.type)
+      {
         promote_type(ctx, rhs.type.type, lhs.type.type);
+
+        if (lhs.type.type != rhs.type.type)
+        {
+          FnSig fx;
+          DeduceContext tx;
+
+          if (deduce_type(ctx, tx, ctx.stack.back(), fx, lhs.type.type, rhs.type.type))
+            rhs.type.type = lhs.type.type;
+
+          if (lhs.type.type != rhs.type.type)
+          {
+            FnSig fx;
+            DeduceContext tx;
+
+            if (deduce_type(ctx, tx, ctx.stack.back(), fx, rhs.type.type, lhs.type.type))
+              lhs.type.type = rhs.type.type;
+          }
+        }
+      }
     }
 
     if (lhs.type.type != rhs.type.type || (lhs.type.flags & MIR::Local::Reference) != (rhs.type.flags & MIR::Local::Reference))

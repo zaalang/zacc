@@ -893,9 +893,7 @@ namespace
       auto len = ctx.builder.getInt64(literal->value().size());
       auto str = ctx.builder.CreateGlobalStringPtr(literal->value());
 
-      vector<llvm::Constant*> elements = { len, str };
-
-      return llvm::ConstantStruct::get(llvm::cast<llvm::StructType>(llvm_type(ctx, type)), elements);
+      return llvm::ConstantStruct::get(llvm::cast<llvm::StructType>(llvm_type(ctx, type)), { len, str });
     }
     else
     {

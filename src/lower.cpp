@@ -4598,7 +4598,75 @@ namespace
     auto size = resolve_type(ctx, arrayliteral->size);
 
     result.type = MIR::Local(ctx.typetable.find_or_create<ArrayType>(type, size), MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
-    result.value = arrayliteral;
+
+    if (all_of(arrayliteral->elements.begin(), arrayliteral->elements.end(), [](auto &k) { return is_literal_expr(k); }))
+    {
+      result.value = arrayliteral;
+      return;
+    }
+
+    vector<MIR::Fragment> values(arrayliteral->elements.size());
+
+    for(size_t i = 0; i < values.size(); ++i)
+    {
+      if (!lower_expr(ctx, values[i], arrayliteral->elements[i]))
+        return;
+    }
+
+    if (all_of(values.begin(), values.end(), [](auto &k) { return k.type.flags & MIR::Local::Literal; }))
+    {
+      vector<Expr*> elements;
+
+      for(auto &value : values)
+      {
+        elements.push_back(std::visit([&](auto &v) { return static_cast<Expr*>(v); }, value.value.get<MIR::RValue::Constant>()));
+      }
+
+      result.value = ctx.mir.make_expr<ArrayLiteralExpr>(elements, size, arrayliteral->loc());
+      return;
+    }
+
+    auto arg = ctx.add_temporary();
+
+    auto typeref = ctx.typetable.find_or_create<ReferenceType>(type);
+
+    for(auto &value : values)
+    {
+      auto index = size_t(&value - &values.front());
+
+      auto dst = ctx.add_temporary(typeref, MIR::Local::LValue);
+      auto res = ctx.add_temporary();
+
+      ctx.add_statement(MIR::Statement::assign(dst, MIR::RValue::field(MIR::RValue::Ref, arg, MIR::RValue::Field{ MIR::RValue::Ref, index }, value.value.loc())));
+
+      MIR::Fragment result;
+
+      vector<MIR::Fragment> parms = { value };
+      map<string_view, MIR::Fragment> namedparms;
+
+      auto callee = find_callee(ctx, type, parms, namedparms);
+
+      if (!callee)
+      {
+        ctx.diag.error("cannot resolve array element constructor", ctx.stack.back(), value.value.loc());
+        diag_callee(ctx, callee, parms, namedparms);
+        return;
+      }
+
+      lower_call(ctx, result, callee.fx, parms, namedparms, value.value.loc());
+
+      realise_as_value(ctx, Place(Place::Fer, res), result);
+
+      commit_type(ctx, res, result.type.type, result.type.flags);
+    }
+
+    commit_type(ctx, arg, result.type.type, MIR::Local::RValue);
+
+    if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
+      realise_destructor(ctx, arg, arrayliteral->loc());
+
+    result.type.flags &= ~MIR::Local::Literal;
+    result.value = MIR::RValue::local(MIR::RValue::Val, arg, arrayliteral->loc());
   }
 
   //|///////////////////// lower_compound ///////////////////////////////////
@@ -8326,14 +8394,16 @@ namespace
         if (statement.src.kind() == MIR::RValue::Constant)
         {
           if (dst.type == ctx.intliteraltype)
-          {
             changed |= promote_type(ctx, statement.dst, type(Builtin::Type_I32));
-          }
 
           if (dst.type == ctx.floatliteraltype)
-          {
             changed |= promote_type(ctx, statement.dst, type(Builtin::Type_F64));
-          }
+
+          if (dst.type->klass() == Type::Array && type_cast<ArrayType>(dst.type)->type == ctx.intliteraltype)
+            changed |= promote_type(ctx, statement.dst, ctx.typetable.find_or_create<ArrayType>(type(Builtin::Type_I32), type_cast<ArrayType>(dst.type)->size));
+
+          if (dst.type->klass() == Type::Array && type_cast<ArrayType>(dst.type)->type == ctx.floatliteraltype)
+            changed |= promote_type(ctx, statement.dst, ctx.typetable.find_or_create<ArrayType>(type(Builtin::Type_F64), type_cast<ArrayType>(dst.type)->size));
         }
       }
     }

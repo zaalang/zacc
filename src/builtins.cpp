@@ -535,6 +535,8 @@ namespace Builtin
     make_function(memcpy, "pub fn __memcpy(void mut *, void*, usize) -> void mut *", __LINE__);
     make_function(memmove, "pub fn __memmove(void mut *, void*, usize) -> void mut *", __LINE__);
     make_function(memfind, "pub fn __memfind(void*, u8, usize) -> usize", __LINE__);
+
+    make_function(__site__, "pub const fn __site__() -> (#string, int, int, #string)", __LINE__);
   }
 
   //|///////////////////// type /////////////////////////////////////////////

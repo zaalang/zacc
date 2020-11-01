@@ -509,7 +509,7 @@ namespace
     auto arraylen = array_len(type_cast<ArrayType>(type));
 
     for(auto &element : value->elements)
-    {      
+    {
       store(ctx, address, elemtype, element);
 
       address = (void*)((size_t)address + elemsize);
@@ -535,6 +535,10 @@ namespace
 
     for(size_t i = 0; i < fields.size(); ++i)
     {
+      auto alignment = alignof_type(fields[i]);
+
+      address = (void*)(((size_t)address + alignment - 1) & -alignment);
+
       store(ctx, address, fields[i], value->fields[i]);
 
       address = (void*)((size_t)address + sizeof_type(fields[i]));
@@ -875,7 +879,7 @@ namespace
     auto &[callee, args, loc] = call;
 
     if (is_int(fx.locals[args[0]].type))
-    {     
+    {
       bool ok = false;
       Numeric::Int result;
 
@@ -1518,7 +1522,7 @@ namespace
       store(ctx, arg, argtype, result);
     }
     else if (is_pointference_type(argtype) && is_int_type(fx.locals[args[1]].type))
-    {      
+    {
       void *result;
 
       auto lhs = load_ptr(ctx, arg, argtype);
@@ -2808,6 +2812,9 @@ namespace
       dump_mir(mir);
 #endif
 
+      if (ctx.diag.has_errored())
+        return false;
+
       vector<FunctionContext::Local> parms;
 
       if (callee.throwtype)
@@ -3110,6 +3117,10 @@ namespace
 
       for(auto &field : type_cast<CompoundType>(type)->fields)
       {
+        auto alignment = alignof_type(field);
+
+        alloc = (void*)(((size_t)alloc + alignment - 1) & -alignment);
+
         fields.push_back(make_expr(ctx, alloc, field, loc));
 
         alloc = (void*)((size_t)alloc + sizeof_type(field));

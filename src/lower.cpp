@@ -217,8 +217,11 @@ namespace
 
     vector<Scope> stack;
 
-    TranslationUnitDecl *translationunit;
     ModuleDecl *module;
+    TranslationUnitDecl *translationunit;
+
+    SourceLocation site;
+    SourceLocation site_override{ -1, -1 };
 
     TypeTable &typetable;
 
@@ -268,6 +271,7 @@ namespace
   bool promote_type(LowerContext &ctx, Type *&lhs, Type *rhs);
   bool lower_expr(LowerContext &ctx, MIR::Fragment &result, Expr *expr);
   void lower_statement(LowerContext &ctx, Stmt *stmt);
+  void lower_expression(LowerContext &ctx, Expr *expr);
 
   //|///////////////////// child_scope //////////////////////////////////////
   Scope child_scope(LowerContext &ctx, Scope const &parent, Decl *decl, vector<Decl*> const &declargs, size_t &k, vector<MIR::Local> const &args, map<string_view, MIR::Local> const &namedargs = {})
@@ -2563,7 +2567,36 @@ namespace
 
               else if (parm->defult)
               {
-                fx.set_type(parm, ctx.typetable.find_or_create<TypeLitType>(parm->defult));
+                auto value = parm->defult;
+
+                if (value->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(value)->op() == UnaryOpExpr::Literal)
+                {
+                  // This roundabout approach is to get __site__ to evaluate to the callsite
+
+                  LowerContext cttx(ctx.typetable, ctx.diag, ctx.flags);
+
+                  seed_stack(cttx.stack, fnscope);
+
+                  cttx.translationunit = ctx.translationunit;
+                  cttx.module = ctx.module;
+                  cttx.symbols = ctx.symbols;
+                  cttx.site_override = ctx.site;
+
+                  lower_expression(cttx, expr_cast<UnaryOpExpr>(value)->subexpr);
+
+                  if (auto expr = evaluate(fnscope, cttx.mir, ctx.typetable, ctx.diag, parm->defult->loc()))
+                  {
+                    value = expr.value;
+                  }
+                }
+
+                if (!is_literal_expr(value))
+                {
+                  ctx.diag.error("non literal default parameter", fnscope, parm->defult->loc());
+                  break;
+                }
+
+                fx.set_type(parm, ctx.typetable.find_or_create<TypeLitType>(value));
               }
             }
 
@@ -3806,6 +3839,20 @@ namespace
     result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, tupletype->fields.size()), loc);
   }
 
+  //|///////////////////// lower_site ///////////////////////////////////////
+  void lower_site(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
+  {
+    vector<Expr*> fields;
+
+    fields.push_back(ctx.mir.make_expr<StringLiteralExpr>(ctx.module->file(), loc));
+    fields.push_back(ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(ctx.site_override.lineno != -1 ? ctx.site_override.lineno : ctx.site.lineno), loc));
+    fields.push_back(ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(ctx.site_override.charpos != -1 ? ctx.site_override.charpos : ctx.site.charpos), loc));
+    fields.push_back(ctx.mir.make_expr<StringLiteralExpr>(ctx.mir.fx.fn ? ctx.mir.fx.fn->name : string_view(), loc));
+
+    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+    result.value = ctx.mir.make_expr<CompoundLiteralExpr>(fields, loc);
+  }
+
   //|///////////////////// lower_ref ////////////////////////////////////////
   void lower_ref(LowerContext &ctx, MIR::Fragment &result, MIR::Fragment &expr)
   {
@@ -3847,6 +3894,7 @@ namespace
     }
 
     result.type = expr.type;
+    result.type.flags &= ~MIR::Local::Literal;
     result.type.flags |= MIR::Local::Reference;
     result.value = MIR::RValue::field(op, arg, std::move(fields), loc);
   }
@@ -3894,6 +3942,7 @@ namespace
     result.type = expr.type;
     result.type.flags |= MIR::Local::LValue;
     result.type.flags &= ~MIR::Local::RValue;
+    result.type.flags &= ~MIR::Local::Literal;
     result.type.flags &= ~MIR::Local::Reference;
     result.value = MIR::RValue::field(op, arg, std::move(fields), loc);
   }
@@ -4192,9 +4241,10 @@ namespace
         else
         {
           vector<Scope> stack;
-          seed_stack(stack, scope);
+          seed_stack(stack, scope);          
 
           swap(stack, ctx.stack);
+          swap(loc, ctx.site_override);
 
           MIR::Fragment expr;
 
@@ -4210,6 +4260,9 @@ namespace
 
           parms.push_back(std::move(expr));
 
+          parmtype = parms[k].type.type;
+
+          swap(ctx.site_override, loc);
           swap(ctx.stack, stack);
         }
       }
@@ -4305,6 +4358,10 @@ namespace
 
         case Builtin::TupleLen:
           lower_tuple_len(ctx, result, callee, parms[0], loc);
+          return true;
+
+        case Builtin::__site__:
+          lower_site(ctx, result, callee, loc);
           return true;
 
         default:
@@ -5708,6 +5765,8 @@ namespace
   //|///////////////////// lower_expr ///////////////////////////////////////
   bool lower_expr(LowerContext &ctx, MIR::Fragment &result, Expr *expr)
   {
+    ctx.site = expr->loc();
+
     switch (expr->kind())
     {
       case Expr::VoidLiteral:
@@ -8027,16 +8086,31 @@ namespace
     }
   }
 
+  //|///////////////////// lower_expression /////////////////////////////////
+  void lower_expression(LowerContext &ctx, Expr *expr)
+  {
+    ctx.add_local();
+
+    auto sm = ctx.push_barrier();
+
+    MIR::Fragment result;
+
+    if (!lower_expr(ctx, result, expr))
+      return;
+
+    realise_as_value(ctx, 0, result);
+
+    commit_type(ctx, 0, result.type.type, result.type.flags);
+
+    ctx.retire_barrier(sm);
+
+    ctx.add_block(MIR::Terminator::returner());
+  }
+
   //|///////////////////// lower_function ///////////////////////////////////
   void lower_function(LowerContext &ctx, FnSig const &fx)
   {
     auto fn = fx.fn;
-
-    seed_stack(ctx.stack, Scope(fx.fn, fx.typeargs));
-
-    ctx.mir.fx = fx;
-    ctx.translationunit = decl_cast<TranslationUnitDecl>(get<Decl*>(ctx.stack[0].owner));
-    ctx.module = decl_cast<ModuleDecl>(get<Decl*>(ctx.stack[1].owner));
 
     ctx.add_local();
 
@@ -8458,6 +8532,12 @@ MIR lower(FnSig const &fx, TypeTable &typetable, Diag &diag, long flags)
 {
   LowerContext ctx(typetable, diag, flags);
 
+  seed_stack(ctx.stack, Scope(fx.fn, fx.typeargs));
+
+  ctx.mir.fx = fx;
+  ctx.translationunit = decl_cast<TranslationUnitDecl>(get<Decl*>(ctx.stack[0].owner));
+  ctx.module = decl_cast<ModuleDecl>(get<Decl*>(ctx.stack[1].owner));
+
   lower_function(ctx, fx);
 
 #if 0
@@ -8486,27 +8566,11 @@ MIR lower(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fragment> co
 
   seed_stack(ctx.stack, scope);
 
-  ctx.mir.fx = nullptr;
-  ctx.symbols = symbols;
   ctx.translationunit = decl_cast<TranslationUnitDecl>(get<Decl*>(ctx.stack[0].owner));
   ctx.module = decl_cast<ModuleDecl>(get<Decl*>(ctx.stack[1].owner));
+  ctx.symbols = symbols;
 
-  ctx.add_local();
-
-  auto sm = ctx.push_barrier();
-
-  MIR::Fragment result;
-
-  if (!lower_expr(ctx, result, expr))
-    return ctx.mir;
-
-  realise_as_value(ctx, 0, result);
-
-  commit_type(ctx, 0, result.type.type, result.type.flags);
-
-  ctx.retire_barrier(sm);
-
-  ctx.add_block(MIR::Terminator::returner());
+  lower_expression(ctx, expr);
 
 #if 0
   dump_mir(ctx.mir);

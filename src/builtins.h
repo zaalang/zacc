@@ -180,6 +180,8 @@ namespace Builtin
     memmove,
     memfind,
 
+    __site__,
+
     Module,
   };
 

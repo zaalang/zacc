@@ -2583,6 +2583,7 @@ namespace
             decl = parse_using_or_alias_declaration(ctx, sema);
             break;
 
+          case Token::kw_void:
           case Token::l_paren:
           case Token::identifier:
             if (tok.text == strct->name)

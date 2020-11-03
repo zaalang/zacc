@@ -85,27 +85,6 @@ namespace
 
       module.setTargetTriple(genopts.triple);
 
-#ifndef NDEBUG
-      string error;
-      auto target = llvm::TargetRegistry::lookupTarget(genopts.triple, error);
-
-      if (!target)
-      {
-        diag << error << '\n';
-        return;
-      }
-
-      auto machine = target->createTargetMachine(genopts.triple, genopts.cpu, genopts.features, {}, {});
-
-      if (!machine)
-      {
-        diag << "could not create target machine" << '\n';
-        return;
-      }
-
-      module.setDataLayout(machine->createDataLayout());
-#endif
-
       voidtype = type(Builtin::Type_Void);
       booltype = type(Builtin::Type_Bool);
     }
@@ -384,12 +363,7 @@ namespace
     auto elemtype = type->type;
     auto arraylen = array_len(type);
 
-    auto array = llvm::ArrayType::get(llvm_type(ctx, elemtype, true), arraylen);
-
-    assert(ctx.module.getDataLayout().getTypeAllocSize(array) == sizeof_type(type));
-    assert(ctx.module.getDataLayout().getABITypeAlignment(array) == alignof_type(type));
-
-    return array;
+    return llvm::ArrayType::get(llvm_type(ctx, elemtype, true), arraylen);
   }
 
   //|///////////////////// llvm_struct //////////////////////////////////////
@@ -411,9 +385,6 @@ namespace
 
     strct->setBody(elements);
 
-    assert(ctx.module.getDataLayout().getTypeAllocSize(strct) == sizeof_type(type));
-    assert(ctx.module.getDataLayout().getABITypeAlignment(strct) == alignof_type(type));
-
     return strct;
   }
 
@@ -431,9 +402,6 @@ namespace
     }
 
     auto strct = llvm::StructType::get(ctx.context, elements);
-
-    assert(ctx.module.getDataLayout().getTypeAllocSize(strct) == sizeof_type(type));
-    assert(ctx.module.getDataLayout().getABITypeAlignment(strct) == alignof_type(type));
 
     ctx.structtypes.emplace(type, strct);
 

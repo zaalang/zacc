@@ -3384,6 +3384,8 @@ namespace
         FnSig fx;
         DeduceContext tx;
 
+        tx.inner += 1;
+
         if (deduce_type(ctx, tx, ctx.stack.back(), fx, rhs, lhs))
         {
           if (lhs->klass() == Type::Tuple)
@@ -3426,8 +3428,11 @@ namespace
   bool lower_call(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, vector<MIR::Fragment> &parms, map<string_view, MIR::Fragment> &namedparms, SourceLocation loc);
 
   //|///////////////////// realise //////////////////////////////////////////
-  void realise(LowerContext &ctx, Place dst, MIR::Fragment &expr)
+  void realise(LowerContext &ctx, Place dst, MIR::Fragment &expr, long flags = 0)
   {
+    if (flags & VarDecl::Const)
+      expr.type.flags |= MIR::Local::Const;
+
     switch (dst.op)
     {
       case Place::Val:
@@ -3486,12 +3491,12 @@ namespace
   }
 
   //|///////////////////// realise_as_reference /////////////////////////////
-  void realise_as_reference(LowerContext &ctx, Place dst, MIR::Fragment &expr)
+  void realise_as_reference(LowerContext &ctx, Place dst, MIR::Fragment &expr, long flags = 0)
   {
     if (!(expr.type.flags & MIR::Local::Reference))
       lower_ref(ctx, expr, expr);
 
-    realise(ctx, dst, expr);
+    realise(ctx, dst, expr, flags);
   }
 
   //|///////////////////// realise_as_value /////////////////////////////////
@@ -3525,12 +3530,9 @@ namespace
       expr.type.flags &= ~MIR::Local::XValue;
     }
 
-    if (flags & VarDecl::Const)
-      expr.type.flags |= MIR::Local::Const;
-
     expr.type.flags &= ~MIR::Local::Literal;
 
-    realise(ctx, dst, expr);
+    realise(ctx, dst, expr, flags);
   }
 
   //|///////////////////// collapse_returns /////////////////////////////////
@@ -5095,6 +5097,42 @@ namespace
         auto lhs = remove_pointference_type(parms[0].type.type);
         auto rhs = remove_pointference_type(parms[1].type.type);
 
+        if (remove_const_type(lhs) != remove_const_type(rhs))
+        {
+          lhs = remove_const_type(lhs);
+          rhs = remove_const_type(rhs);
+
+          while (is_struct_type(lhs) && is_struct_type(rhs))
+          {
+            if (type_cast<TagType>(lhs)->decl == type_cast<TagType>(rhs)->decl)
+              break;
+
+            if (!decl_cast<StructDecl>(type_cast<TagType>(rhs)->decl)->basetype)
+              break;
+
+            rhs = type_cast<TagType>(rhs)->fields[0];
+          }
+
+          auto arg = ctx.add_temporary();
+
+          realise_as_value(ctx, arg, parms[1]);
+
+          commit_type(ctx, arg, parms[1].type.type, parms[1].type.flags);
+
+          if (is_const_type(remove_pointference_type(parms[1].type.type)))
+            rhs = ctx.typetable.find_or_create<ConstType>(rhs);
+
+          if (is_pointer_type(parms[1].type.type))
+            parms[1].type.type = ctx.typetable.find_or_create<PointerType>(rhs);
+
+          if (is_reference_type(parms[1].type.type))
+            parms[1].type.type = ctx.typetable.find_or_create<ReferenceType>(rhs);
+
+          parms[1].value = MIR::RValue::cast(arg, parms[1].value.loc());
+
+          lhs = remove_pointference_type(parms[0].type.type);
+        }
+
         if (is_const_type(lhs) && !is_const_type(rhs))
         {
           if (is_pointer_type(parms[1].type.type))
@@ -5491,9 +5529,10 @@ namespace
     if (call->expr)
     {
       type = find_type(ctx, ctx.stack, call->expr).type;
-    }
 
-    assert(type);
+      if (!type)
+        return;
+    }
 
     result.type = MIR::Local(ctx.intliteraltype, MIR::Local::RValue);
     result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, sizeof_type(type)), call->loc());
@@ -5512,9 +5551,10 @@ namespace
     if (call->expr)
     {
       type = find_type(ctx, ctx.stack, call->expr).type;
-    }
 
-    assert(type);
+      if (!type)
+        return;
+    }
 
     result.type = MIR::Local(ctx.intliteraltype, MIR::Local::RValue);
     result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, alignof_type(type)), call->loc());
@@ -5917,7 +5957,7 @@ namespace
         return;
       }
 
-      realise_as_reference(ctx, arg, value);
+      realise_as_reference(ctx, arg, value, vardecl->flags & VarDecl::Const);
 
       value.type = resolve_as_value(ctx, value.type);
     }

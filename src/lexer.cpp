@@ -586,8 +586,8 @@ namespace
       case 'a':
         if (identifier == "alignof")
           type = Token::kw_alignof;
-        if (identifier == "addressof")
-          type = Token::kw_addressof;
+        if (identifier == "await")
+          type = Token::kw_await;
         break;
 
       case 'b':
@@ -709,6 +709,11 @@ namespace
       case 'w':
         if (identifier == "while")
           type = Token::kw_while;
+        break;
+
+      case 'y':
+        if (identifier == "yield")
+          type = Token::kw_yield;
         break;
     }
 

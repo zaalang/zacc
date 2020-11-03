@@ -144,7 +144,6 @@ struct Token
     kw_sizeof,
     kw_alignof,
     kw_typeof,
-    kw_addressof,
     kw_static,
     kw_cast,
     kw_this,
@@ -161,6 +160,8 @@ struct Token
     kw_concept,
     kw_import,
     kw_enum,
+    kw_yield,
+    kw_await,
   };
 
   Type type = unknown;

@@ -3506,7 +3506,15 @@ namespace
   {
     auto dst = statement.dst;
 
-    fx.locals[dst].alloca = ctx.builder.CreatePointerCast(load(ctx, fx, dst - 1), llvm_type(ctx, fx.mir.locals[dst].type, true)->getPointerTo());
+    auto addr = load(ctx, fx, dst - 1);
+
+    if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
+    {
+      if (is_pointer_type(fx.mir.locals[dst-1].type))
+        codegen_assert_deref(ctx, fx, ctx.builder.CreateICmpEQ(addr, llvm_zero(addr->getType())));
+    }
+
+    fx.locals[dst].alloca = ctx.builder.CreatePointerCast(addr, llvm_type(ctx, fx.mir.locals[dst].type, true)->getPointerTo());
 
     codegen_assign_statement(ctx, fx, statement);
 

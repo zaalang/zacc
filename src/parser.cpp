@@ -2018,34 +2018,69 @@ namespace
       return nullptr;
   }
 
-  //|///////////////////// parse_field_declaration //////////////////////////
-  Decl *parse_field_declaration(ParseContext &ctx, Sema &sema)
+  //|///////////////////// parse_requires_declaration ///////////////////////
+  Decl *parse_requires_declaration(ParseContext &ctx, Sema &sema)
   {
-    auto field = sema.field_declaration(ctx.tok.loc);
+    auto fn = sema.requires_declaration(ctx.tok.loc);
 
-    if (ctx.try_consume_token(Token::kw_pub))
-      field->flags |= FieldVarDecl::Public;
+    ctx.consume_token(Token::identifier);
 
-    field->type = parse_type(ctx, sema);
-
-    if (!field->type)
+    if (ctx.try_consume_token(Token::less))
     {
-      ctx.diag.error("expected type", ctx.text, ctx.tok.loc);
-      goto resume;
+      fn->args = parse_args_list(ctx, sema);
+
+      if (!ctx.try_consume_token(Token::greater))
+      {
+        ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
     }
 
-    if (is_const_type(field->type))
+    if (ctx.try_consume_token(Token::l_paren))
     {
-      field->flags |= VarDecl::Const;
-      field->type = remove_const_type(field->type);
+      fn->parms = parse_parms_list(ctx, sema);
+
+      if (!ctx.try_consume_token(Token::r_paren))
+      {
+        ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
     }
 
-    field->name = ctx.tok.text;
-
-    if (!ctx.try_consume_token(Token::identifier))
+    if (ctx.tok == Token::l_brace)
     {
-      ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
-      goto resume;
+      fn->flags |= RequiresDecl::Expression;
+
+      fn->body = parse_compound_statement(ctx, sema);
+
+      if (ctx.try_consume_token(Token::arrow))
+      {
+        fn->returntype = parse_type(ctx, sema);
+
+        if (!fn->returntype)
+        {
+          ctx.diag.error("expected requires type", ctx.text, ctx.tok.loc);
+          goto resume;
+        }
+      }
+    }
+    else
+    {
+      fn->flags |= RequiresDecl::Condition;
+
+      auto retrn = sema.return_statement(ctx.tok.loc);
+
+      retrn->expr = parse_expression(ctx, sema);
+
+      if (!retrn->expr)
+      {
+        ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
+
+      fn->body = retrn;
+
+      fn->returntype = Builtin::type(Builtin::Type_Bool);
     }
 
     if (!ctx.try_consume_token(Token::semi))
@@ -2054,7 +2089,76 @@ namespace
       goto resume;
     }
 
-    return field;
+    return fn;
+
+    resume:
+      ctx.comsume_til_resumable();
+      return nullptr;
+  }
+
+  //|///////////////////// parse_concept_declaration ////////////////////////
+  Decl *parse_concept_declaration(ParseContext &ctx, Sema &sema)
+  {
+    auto koncept = sema.concept_declaration(ctx.tok.loc);
+
+    if (ctx.try_consume_token(Token::kw_pub))
+      koncept->flags |= FunctionDecl::Public;
+
+    ctx.consume_token(Token::kw_concept);
+
+    koncept->name = ctx.tok.text;
+
+    ctx.consume_token(Token::identifier);
+
+    if (ctx.try_consume_token(Token::less))
+    {
+      koncept->args = parse_args_list(ctx, sema);
+
+      if (!ctx.try_consume_token(Token::greater))
+      {
+        ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
+    }
+
+    if (!ctx.try_consume_token(Token::semi))
+    {
+      if (!ctx.try_consume_token(Token::l_brace))
+      {
+        ctx.diag.error("expected brace", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
+
+      Decl *decl = nullptr;
+
+      while (ctx.tok != Token::r_brace && ctx.tok != Token::eof)
+      {
+        switch(ctx.tok.type)
+        {
+          case Token::identifier:
+            if (ctx.tok.text == "requires")
+              decl = parse_requires_declaration(ctx, sema);
+            break;
+
+          default:
+            ctx.diag.error("expected concept declaration", ctx.text, ctx.tok.loc);
+            goto resume;
+        }
+
+        if (!decl)
+          break;
+
+        koncept->decls.push_back(decl);
+      }
+    }
+
+    if (!ctx.try_consume_token(Token::r_brace))
+    {
+      ctx.diag.error("expected brace", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
+
+    return koncept;
 
     resume:
       ctx.comsume_til_resumable();
@@ -2484,6 +2588,50 @@ namespace
       return nullptr;
   }
 
+
+  //|///////////////////// parse_field_declaration //////////////////////////
+  Decl *parse_field_declaration(ParseContext &ctx, Sema &sema)
+  {
+    auto field = sema.field_declaration(ctx.tok.loc);
+
+    if (ctx.try_consume_token(Token::kw_pub))
+      field->flags |= FieldVarDecl::Public;
+
+    field->type = parse_type(ctx, sema);
+
+    if (!field->type)
+    {
+      ctx.diag.error("expected type", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
+
+    if (is_const_type(field->type))
+    {
+      field->flags |= VarDecl::Const;
+      field->type = remove_const_type(field->type);
+    }
+
+    field->name = ctx.tok.text;
+
+    if (!ctx.try_consume_token(Token::identifier))
+    {
+      ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
+
+    if (!ctx.try_consume_token(Token::semi))
+    {
+      ctx.diag.error("expected semi", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
+
+    return field;
+
+    resume:
+      ctx.comsume_til_resumable();
+      return nullptr;
+  }
+
   //|///////////////////// parse_struct_declaration /////////////////////////
   Decl *parse_struct_declaration(ParseContext &ctx, Sema &sema)
   {
@@ -2577,6 +2725,10 @@ namespace
 
           case Token::kw_enum:
             decl = parse_enum_declaration(ctx, sema);
+            break;
+
+          case Token::kw_concept:
+            decl = parse_concept_declaration(ctx, sema);
             break;
 
           case Token::kw_using:
@@ -2886,153 +3038,6 @@ namespace
     }
 
     return enumm;
-
-    resume:
-      ctx.comsume_til_resumable();
-      return nullptr;
-  }
-
-  //|///////////////////// parse_requires_declaration ///////////////////////
-  Decl *parse_requires_declaration(ParseContext &ctx, Sema &sema)
-  {
-    auto fn = sema.requires_declaration(ctx.tok.loc);
-
-    ctx.consume_token(Token::identifier);
-
-    if (ctx.try_consume_token(Token::less))
-    {
-      fn->args = parse_args_list(ctx, sema);
-
-      if (!ctx.try_consume_token(Token::greater))
-      {
-        ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
-        goto resume;
-      }
-    }
-
-    if (ctx.try_consume_token(Token::l_paren))
-    {
-      fn->parms = parse_parms_list(ctx, sema);
-
-      if (!ctx.try_consume_token(Token::r_paren))
-      {
-        ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-        goto resume;
-      }
-    }
-
-    if (ctx.tok == Token::l_brace)
-    {
-      fn->flags |= RequiresDecl::Expression;
-
-      fn->body = parse_compound_statement(ctx, sema);
-
-      if (ctx.try_consume_token(Token::arrow))
-      {
-        fn->returntype = parse_type(ctx, sema);
-
-        if (!fn->returntype)
-        {
-          ctx.diag.error("expected requires type", ctx.text, ctx.tok.loc);
-          goto resume;
-        }
-      }
-    }
-    else
-    {
-      fn->flags |= RequiresDecl::Condition;
-
-      auto retrn = sema.return_statement(ctx.tok.loc);
-
-      retrn->expr = parse_expression(ctx, sema);
-
-      if (!retrn->expr)
-      {
-        ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-        goto resume;
-      }
-
-      fn->body = retrn;
-
-      fn->returntype = Builtin::type(Builtin::Type_Bool);
-    }
-
-    if (!ctx.try_consume_token(Token::semi))
-    {
-      ctx.diag.error("expected semi", ctx.text, ctx.tok.loc);
-      goto resume;
-    }
-
-    return fn;
-
-    resume:
-      ctx.comsume_til_resumable();
-      return nullptr;
-  }
-
-  //|///////////////////// parse_concept_declaration ////////////////////////
-  Decl *parse_concept_declaration(ParseContext &ctx, Sema &sema)
-  {
-    auto koncept = sema.concept_declaration(ctx.tok.loc);
-
-    if (ctx.try_consume_token(Token::kw_pub))
-      koncept->flags |= FunctionDecl::Public;
-
-    ctx.consume_token(Token::kw_concept);
-
-    koncept->name = ctx.tok.text;
-
-    ctx.consume_token(Token::identifier);
-
-    if (ctx.try_consume_token(Token::less))
-    {
-      koncept->args = parse_args_list(ctx, sema);
-
-      if (!ctx.try_consume_token(Token::greater))
-      {
-        ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
-        goto resume;
-      }
-    }
-
-    if (!ctx.try_consume_token(Token::semi))
-    {
-      if (!ctx.try_consume_token(Token::l_brace))
-      {
-        ctx.diag.error("expected brace", ctx.text, ctx.tok.loc);
-        goto resume;
-      }
-
-      Decl *decl = nullptr;
-
-      while (ctx.tok != Token::r_brace && ctx.tok != Token::eof)
-      {
-        switch(ctx.tok.type)
-        {
-          case Token::identifier:
-            if (ctx.tok.text == "requires")
-              decl = parse_requires_declaration(ctx, sema);
-            break;
-
-          default:
-            ctx.diag.error("expected concept declaration", ctx.text, ctx.tok.loc);
-            goto resume;
-        }
-
-        if (!decl)
-          break;
-
-        koncept->decls.push_back(decl);
-      }
-    }
-
-    if (!ctx.try_consume_token(Token::r_brace))
-    {
-      ctx.diag.error("expected brace", ctx.text, ctx.tok.loc);
-      goto resume;
-    }
-
-    return koncept;
 
     resume:
       ctx.comsume_til_resumable();

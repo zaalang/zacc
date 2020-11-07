@@ -530,6 +530,15 @@ namespace
         return;
       }
 
+      if (usein->flags & Decl::Public)
+      {
+        if (any_of(decls.begin(), decls.end(), [&](auto *decl) { return get_module(decl) == get_module(usein); }))
+        {
+          ctx.diag.error("recursive public using", usein, usein->loc());
+          return;
+        }
+      }
+
       if (!all_of(decls.begin(), decls.end(), [](auto *decl) { return decl->kind() == Decl::Function || decl->kind() == Decl::DeclScoped; }))
       {
         decls.erase(remove_if(decls.begin(), decls.end(), [](auto *decl) { return decl->kind() == Decl::Function || decl->kind() == Decl::DeclScoped; }), decls.end());
@@ -578,6 +587,15 @@ namespace
         {
           ctx.diag.error("no such scope found", usein, declref->loc());
           return;
+        }
+
+        if (usein->flags & Decl::Public)
+        {
+          if (get_module(decls[0]) == get_module(usein))
+          {
+            ctx.diag.error("recursive public using", usein, usein->loc());
+            return;
+          }
         }
 
         if (decls[0]->kind() == Decl::Import || decls[0]->kind() == Decl::Module)

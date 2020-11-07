@@ -548,22 +548,22 @@ namespace
     return false;
   }
 
+  //|///////////////////// is_constant //////////////////////////////////////
+  bool is_constant(LowerContext &ctx, MIR::Fragment const &condition)
+  {
+    return condition.value.kind() == MIR::RValue::Constant;
+  }
+
   //|///////////////////// is_true_constant /////////////////////////////////
   bool is_true_constant(LowerContext &ctx, MIR::Fragment const &condition)
   {
-    if (condition.value.kind() != MIR::RValue::Constant)
-      return false;
-
-    return get<BoolLiteralExpr*>(condition.value.get<MIR::RValue::Constant>())->value();
+    return is_constant(ctx, condition) && get<BoolLiteralExpr*>(condition.value.get<MIR::RValue::Constant>())->value() == true;
   }
 
   //|///////////////////// is_false_constant ////////////////////////////////
   bool is_false_constant(LowerContext &ctx, MIR::Fragment const &condition)
   {
-    if (condition.value.kind() != MIR::RValue::Constant)
-      return false;
-
-    return !get<BoolLiteralExpr*>(condition.value.get<MIR::RValue::Constant>())->value();
+    return is_constant(ctx, condition) && get<BoolLiteralExpr*>(condition.value.get<MIR::RValue::Constant>())->value() == false;
   }
 
   //|///////////////////// is_int_literal ///////////////////////////////////
@@ -575,10 +575,7 @@ namespace
   //|///////////////////// is_int_literal ///////////////////////////////////
   bool is_int_literal(LowerContext &ctx, MIR::Fragment const &value)
   {
-    if (!(value.type.flags & MIR::Local::Literal))
-      return false;
-
-    return get_if<IntLiteralExpr*>(&value.value.get<MIR::RValue::Constant>());
+    return is_constant(ctx, value) && get_if<IntLiteralExpr*>(&value.value.get<MIR::RValue::Constant>());
   }
 
   //|///////////////////// resolve_defn /////////////////////////////////////
@@ -835,14 +832,19 @@ namespace
         continue;
       }
 
+      ++i;
+    }
+
+    for(size_t i = 0; i < results.size(); ++i)
+    {
+      auto decl = results[i];
+
       if (decl->kind() == Decl::Import)
       {
         results.erase(remove_if(results.begin() + i + 1, results.end(), [&](auto &decl) {
           return decl->kind() == Decl::Import;
         }), results.end());
       }
-
-      ++i;
     }
   }
 
@@ -1746,6 +1748,11 @@ namespace
   {
     assert(sig.typeargs.empty());
 
+    for(auto &[arg, type] : scope.typeargs)
+    {
+      sig.set_type(arg, type);
+    }
+
     for(auto &[arg, type] : args)
     {
       if (!is_typearg_type(type))
@@ -1879,8 +1886,8 @@ namespace
         if (rhs->klass() == Type::Reference)
           return deduce_type(ctx, tx, scope, fx, type_cast<PointerType>(lhs)->type, type_cast<ReferenceType>(rhs)->type);
 
-        if (is_function_type(remove_const_type(type_cast<PointerType>(lhs)->type)) && is_lambda_type(rhs))
-          return deduce_type(ctx, tx, scope, fx, type_cast<PointerType>(lhs)->type, rhs);
+        if (is_const_type(type_cast<PointerType>(lhs)->type) && is_function_type(remove_const_type(type_cast<PointerType>(lhs)->type)) && is_lambda_type(rhs))
+          return deduce_type(ctx, tx, scope, fx, remove_const_type(type_cast<PointerType>(lhs)->type), rhs);
 
         return false;
 
@@ -1903,7 +1910,7 @@ namespace
             return true;
 
           if (auto k = scope.find_type(type_cast<TypeArgType>(lhs)->decl); k != scope.typeargs.end())
-            return false;
+            return deduce_type(ctx, tx, scope, fx, j->second, rhs);
 
           promote_type(ctx, j->second, rhs);
 
@@ -3127,6 +3134,22 @@ namespace
 
     if (is_tag_scope(basescope))
     {
+      if (tx.name.substr(0, 1) == "~")
+      {
+        auto j = find_if(stack.back().typeargs.begin(),stack.back().typeargs.end(), [&](auto &k) {
+          return decl_cast<TypeArgDecl>(k.first)->name == tx.name.substr(1);
+        });
+
+        if (j != stack.back().typeargs.end() && is_tag_type(j->second))
+        {
+          for(auto &decl : type_cast<TagType>(j->second)->decls)
+          {
+            if (decl->kind() == Decl::Function && (decl->flags & FunctionDecl::Destructor))
+              tx.name = decl_cast<FunctionDecl>(decl)->name;
+          }
+        }
+      }
+
       for(auto scope = basescope; scope; scope = base_scope(ctx, scope))
       {
         find_overloads(ctx, tx, scope, parms, namedparms, callee.overloads);
@@ -4192,6 +4215,38 @@ namespace
     return true;
   }
 
+  //|///////////////////// lower_unpack /////////////////////////////////////
+  bool lower_unpack(LowerContext &ctx, vector<MIR::Fragment> &parms, Expr *parm, MIR::Fragment &expr)
+  {
+    auto arg = ctx.add_temporary();
+
+    realise_as_reference(ctx, arg, expr);
+
+    commit_type(ctx, arg, expr.type.type, expr.type.flags);
+
+    auto pack = type_cast<TupleType>(expr.type.type);
+
+    for(size_t index = 0; index < pack->fields.size(); ++index)
+    {
+      MIR::Fragment field;
+      field.type = MIR::Local(pack->fields[index], pack->defns[index], expr.type.flags);
+      field.value = MIR::RValue::field(MIR::RValue::Ref, arg, MIR::RValue::Field{ MIR::RValue::Val, index }, parm->loc());
+
+      if (!lower_expr_deref(ctx, field))
+        return false;
+
+      if (expr_cast<UnaryOpExpr>(parm)->subexpr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr_cast<UnaryOpExpr>(parm)->subexpr)->op() == UnaryOpExpr::Fwd)
+      {
+        if (field.type.flags & MIR::Local::XValue)
+          field.type.flags = (field.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
+      }
+
+      parms.push_back(std::move(field));
+    }
+
+    return true;
+  }
+
   //|///////////////////// lower_call ///////////////////////////////////////
   bool lower_call(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, vector<MIR::Fragment> &parms, map<string_view, MIR::Fragment> &namedparms, SourceLocation loc)
   {
@@ -4466,6 +4521,14 @@ namespace
 
       if (!lower_expr(ctx, expr, parm))
         return false;
+
+      if (parm->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(parm)->op() == UnaryOpExpr::Unpack)
+      {
+        if (!lower_unpack(ctx, callparms, parm, expr))
+          return false;
+
+        continue;
+      }
 
       callparms.push_back(std::move(expr));
     }
@@ -5090,61 +5153,36 @@ namespace
   //|///////////////////// lower_binaryop ///////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, BinaryOpExpr::OpCode binaryop, vector<MIR::Fragment> &parms, map<string_view, MIR::Fragment> &namedparms, SourceLocation loc)
   {
-    if (binaryop == BinaryOpExpr::Assign)
+    auto callee = find_callee(ctx, ctx.stack, binaryop, parms, namedparms);
+
+    if (!callee && binaryop == BinaryOpExpr::Assign)
     {
-      if (is_pointference_type(parms[0].type.type) && is_pointference_type(parms[1].type.type))
+      if (!(parms[0].type.flags & MIR::Local::Const) && is_pointference_type(parms[0].type.type) && is_pointference_type(parms[1].type.type))
       {
         auto lhs = remove_pointference_type(parms[0].type.type);
         auto rhs = remove_pointference_type(parms[1].type.type);
 
-        if (remove_const_type(lhs) != remove_const_type(rhs))
+        if (is_const_type(lhs))
         {
           lhs = remove_const_type(lhs);
           rhs = remove_const_type(rhs);
-
-          while (is_struct_type(lhs) && is_struct_type(rhs))
-          {
-            if (type_cast<TagType>(lhs)->decl == type_cast<TagType>(rhs)->decl)
-              break;
-
-            if (!decl_cast<StructDecl>(type_cast<TagType>(rhs)->decl)->basetype)
-              break;
-
-            rhs = type_cast<TagType>(rhs)->fields[0];
-          }
-
-          auto arg = ctx.add_temporary();
-
-          realise_as_value(ctx, arg, parms[1]);
-
-          commit_type(ctx, arg, parms[1].type.type, parms[1].type.flags);
-
-          if (is_const_type(remove_pointference_type(parms[1].type.type)))
-            rhs = ctx.typetable.find_or_create<ConstType>(rhs);
-
-          if (is_pointer_type(parms[1].type.type))
-            parms[1].type.type = ctx.typetable.find_or_create<PointerType>(rhs);
-
-          if (is_reference_type(parms[1].type.type))
-            parms[1].type.type = ctx.typetable.find_or_create<ReferenceType>(rhs);
-
-          parms[1].value = MIR::RValue::cast(arg, parms[1].value.loc());
-
-          lhs = remove_pointference_type(parms[0].type.type);
         }
 
-        if (is_const_type(lhs) && !is_const_type(rhs))
+        while (is_struct_type(lhs) && is_struct_type(rhs))
         {
-          if (is_pointer_type(parms[1].type.type))
-            parms[1].type.type = ctx.typetable.find_or_create<PointerType>(ctx.typetable.find_or_create<ConstType>(rhs));
+          if (type_cast<TagType>(lhs)->decl == type_cast<TagType>(rhs)->decl)
+            break;
 
-          if (is_reference_type(parms[1].type.type))
-            parms[1].type.type = ctx.typetable.find_or_create<ReferenceType>(ctx.typetable.find_or_create<ConstType>(rhs));
+          if (!decl_cast<StructDecl>(type_cast<TagType>(rhs)->decl)->basetype)
+            break;
+
+          rhs = type_cast<TagType>(rhs)->fields[0];
         }
+
+        if (lhs == rhs)
+          callee.fx = Builtin::fn(ctx.translationunit->builtins, Builtin::Assign, parms[0].type.type);
       }
     }
-
-    auto callee = find_callee(ctx, ctx.stack, binaryop, parms, namedparms);
 
     if (!callee && binaryop == BinaryOpExpr::EQ)
     {
@@ -5351,7 +5389,7 @@ namespace
             return;
           }
 
-          if ((lhs.type.flags & MIR::Local::Literal) && (rhs.type.flags & MIR::Local::Literal))
+          if (is_constant(ctx, lhs) && is_constant(ctx, rhs))
           {
             ctx.rollback_barrier(rm);
             result.type = MIR::Local(ctx.booltype, MIR::Local::RValue);
@@ -5373,7 +5411,7 @@ namespace
             return;
           }
 
-          if ((lhs.type.flags & MIR::Local::Literal) && (rhs.type.flags & MIR::Local::Literal))
+          if (is_constant(ctx, lhs) && is_constant(ctx, rhs))
           {
             ctx.rollback_barrier(rm);
             result.type = MIR::Local(ctx.booltype, MIR::Local::RValue);
@@ -5593,9 +5631,10 @@ namespace
     if (is_reference_type(result.type.type) && (source.type.flags & MIR::Local::Reference))
     {
       result.type = resolve_as_reference(ctx, result.type);
+      result.type.defn = remove_const_type(remove_reference_type(result.type.defn));
 
       if (is_qualarg_type(remove_reference_type(cast->type)))
-        result.type.flags = (result.type.flags & ~(MIR::Local::XValue | MIR::Local::LValue)) | MIR::Local::RValue;
+        result.type.flags |= source.type.flags & (MIR::Local::Const | MIR::Local::XValue);
 
       realise_as_reference(ctx, arg, source);
     }
@@ -5716,31 +5755,8 @@ namespace
 
       if (parm->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(parm)->op() == UnaryOpExpr::Unpack)
       {
-        auto arg = ctx.add_temporary();
-
-        realise_as_reference(ctx, arg, expr);
-
-        commit_type(ctx, arg, expr.type.type, expr.type.flags);
-
-        auto pack = type_cast<TupleType>(expr.type.type);
-
-        for(size_t index = 0; index < pack->fields.size(); ++index)
-        {
-          MIR::Fragment field;
-          field.type = MIR::Local(pack->fields[index], pack->defns[index], expr.type.flags);
-          field.value = MIR::RValue::field(MIR::RValue::Ref, arg, MIR::RValue::Field{ MIR::RValue::Val, index }, call->loc());
-
-          if (!lower_expr_deref(ctx, field))
-            return;
-
-          if (expr_cast<UnaryOpExpr>(parm)->subexpr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr_cast<UnaryOpExpr>(parm)->subexpr)->op() == UnaryOpExpr::Fwd)
-          {
-            if (field.type.flags & MIR::Local::XValue)
-              field.type.flags = (field.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
-          }
-
-          parms.push_back(std::move(field));
-        }
+        if (!lower_unpack(ctx, parms, parm, expr))
+          return;
 
         continue;
       }

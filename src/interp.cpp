@@ -140,13 +140,20 @@ namespace
       case Type::Tag:
 
         for(auto &field : type_cast<TagType>(type)->fields)
+        {
+          if (is_pointference_type(field))
+            continue;
+
           if (!type_resolved(field))
             return false;
+        }
 
         return true;
 
-      case Type::TypeArg:
       case Type::QualArg:
+        return type_resolved(type_cast<QualArgType>(type)->type);
+
+      case Type::TypeArg:
       case Type::TypeRef:
         return false;
 
@@ -1779,7 +1786,15 @@ namespace
   {
     auto &[callee, args, loc] = call;
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, load_ptr(ctx, fx, args[0]));
+    auto lhs = load_ptr(ctx, fx, args[0]);
+
+    if (lhs == nullptr)
+    {
+      ctx.diag.error("null pointer dereference", ctx.dx, loc);
+      return false;
+    }
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, lhs);
 
     return true;
   }
@@ -2564,6 +2579,42 @@ namespace
     return true;
   }
 
+  //|///////////////////// eval_runtime_mem_alloc ///////////////////////////
+  bool eval_runtime_mem_alloc(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto size = load_int(ctx, fx, args[0]);
+
+    struct mem_result
+    {
+      uint32_t erno;
+      uint64_t size;
+      void *addr;
+    };
+
+    mem_result result = {};
+
+    ctx.memory.push_back(vector<uint8_t>(size.value));
+
+    result.size = ctx.memory.back().size();
+    result.addr = ctx.memory.back().data();
+
+    memcpy(fx.locals[dst].alloc, &result, fx.locals[dst].size);
+
+    return true;
+  }
+
+  //|///////////////////// eval_runtime_mem_free ////////////////////////////
+  bool eval_runtime_mem_free(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    //auto &[callee, args, loc] = call;
+
+    //auto addr = load_ptr(ctx, fx, args[0]);
+
+    return true;
+  }
+
   //|///////////////////// eval_runtime_proc_exit ///////////////////////////
   bool eval_runtime_proc_exit(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -2797,6 +2848,12 @@ namespace
       if (callee.fn->name == "fd_close")
         return eval_runtime_fd_close(ctx, fx, dst, call);
 
+      if (callee.fn->name == "mem_alloc")
+        return eval_runtime_mem_alloc(ctx, fx, dst, call);
+
+      if (callee.fn->name == "mem_free")
+        return eval_runtime_mem_free(ctx, fx, dst, call);
+
       if (callee.fn->name == "proc_exit")
         return eval_runtime_proc_exit(ctx, fx, dst, call);
 
@@ -2912,11 +2969,19 @@ namespace
     dest.alloc = load_ptr(ctx, fx.locals[dst - 1].alloc, fx.locals[dst - 1].type);
     dest.size = sizeof_type(dest.type);
 
+    if (dest.alloc == nullptr)
+    {
+      ctx.diag.error("null pointer dereference");
+      return false;
+    }
+
     swap(fx.locals[dst], dest);
 
     eval_assign_statement(ctx, fx, statement);
 
     swap(dest, fx.locals[dst]);
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, dest.alloc);
 
     return true;
   }

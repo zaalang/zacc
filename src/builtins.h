@@ -69,6 +69,8 @@ namespace Builtin
     Tuple_AssignmentEx,
     Tuple_Destructor,
 
+    Builtin_Destructor,
+
     Plus,
     Minus,
     Not,

@@ -273,6 +273,36 @@ namespace
   void lower_statement(LowerContext &ctx, Stmt *stmt);
   void lower_expression(LowerContext &ctx, Expr *expr);
 
+  //|///////////////////// type_scope ///////////////////////////////////////
+  Scope type_scope(LowerContext &ctx, Type const *type)
+  {
+    switch(type = remove_const_type(type); type->klass())
+    {
+      case Type::Tag:
+        return Scope(type_cast<TagType>(type)->decl, type_cast<TagType>(type)->args);
+
+      default:
+        break;
+    }
+
+    return ctx.translationunit->builtins;
+  }
+
+  //|///////////////////// scopeof_type /////////////////////////////////////
+  Scope scopeof_type(LowerContext &ctx, Type const *type)
+  {
+    switch(type = remove_const_type(type); type->klass())
+    {
+      case Type::Tag:
+        return parent_scope(type_scope(ctx, type));
+
+      default:
+        break;
+    }
+
+    return ctx.translationunit->builtins;
+  }
+
   //|///////////////////// child_scope //////////////////////////////////////
   Scope child_scope(LowerContext &ctx, Scope const &parent, Decl *decl, vector<Decl*> const &declargs, size_t &k, vector<MIR::Local> const &args, map<string_view, MIR::Local> const &namedargs = {})
   {
@@ -353,17 +383,17 @@ namespace
         return child_scope(ctx, scope, decl_cast<FunctionDecl>(decl), k, args, namedargs);
 
       case Decl::TypeAlias:
-        if (auto j = resolve_type(ctx, child_scope(ctx, scope, decl_cast<TypeAliasDecl>(decl), k, args, namedargs), decl_cast<TypeAliasDecl>(decl)->type); j && is_tag_type(j))
-          return Scope(type_cast<TagType>(j)->decl, type_cast<TagType>(j)->args);
+        if (auto j = resolve_type(ctx, child_scope(ctx, scope, decl_cast<TypeAliasDecl>(decl), k, args, namedargs), decl_cast<TypeAliasDecl>(decl)->type))
+          return type_scope(ctx, j);
         break;
 
       case Decl::TypeArg:
-        if (auto j = scope.find_type(decl); j != scope.typeargs.end() && is_tag_type(j->second))
-          return Scope(type_cast<TagType>(j->second)->decl, type_cast<TagType>(j->second)->args);
+        if (auto j = scope.find_type(decl); j != scope.typeargs.end())
+          return type_scope(ctx, j->second);
         break;
 
       case Decl::EnumConstant:
-        break;
+        return child_scope(scope, decl_cast<EnumConstantDecl>(decl));
 
       default:
         assert(false);
@@ -393,50 +423,6 @@ namespace
     }
 
     return sx;
-  }
-
-  //|///////////////////// type_scope ///////////////////////////////////////
-  Scope type_scope(LowerContext &ctx, Type const *type)
-  {
-    type = remove_const_type(type);
-
-    switch(type->klass())
-    {
-      case Type::Tag:
-        return Scope(type_cast<TagType>(type)->decl, type_cast<TagType>(type)->args);
-
-      default:
-        assert(false);
-    }
-
-    throw logic_error("unresolved type in type_scope");
-  }
-
-  //|///////////////////// scopeof_type /////////////////////////////////////
-  Scope scopeof_type(LowerContext &ctx, Type const *type)
-  {
-    type = remove_const_type(type);
-
-    switch(type->klass())
-    {
-      case Type::Builtin:
-      case Type::Pointer:
-      case Type::Reference:
-      case Type::Array:
-      case Type::Tuple:
-      case Type::TypeLit:
-      case Type::Function:
-      case Type::TypeArg:
-        return ctx.translationunit->builtins;
-
-      case Type::Tag:
-        return parent_scope(type_scope(ctx, type));
-
-      default:
-        assert(false);
-    }
-
-    throw logic_error("unresolved type in scopeof");
   }
 
   //|///////////////////// eval /////////////////////////////////////////////
@@ -2827,6 +2813,10 @@ namespace
                 rank += s;
                 break;
 
+              case Type::Pack:
+                rank += s + 1;
+                break;
+
               case Type::Array:
                 self(self, type_cast<ArrayType>(type)->type, (s - 1) / 2);
                 self(self, type_cast<ArrayType>(type)->size, (s - 1) / 2);
@@ -2883,13 +2873,16 @@ namespace
               (is_pack_type(parm->type) && is_reference_type(type_cast<PackType>(parm->type)->type) && !is_const_type(type_cast<ReferenceType>(type_cast<PackType>(parm->type)->type)->type))))
           rank += 1;
 
-        if (k < parms.size())
+        if (!is_pack_type(parm->type))
         {
-          rankcast(rankcast, parm->type, parms[k], 100);
-        }
-        else if (auto j = namedparms.find(parm->name); j != namedparms.end())
-        {
-          rankcast(rankcast, parm->type, j->second, 100);
+          if (k < parms.size())
+          {
+            rankcast(rankcast, parm->type, parms[k], 100);
+          }
+          else if (auto j = namedparms.find(parm->name); j != namedparms.end())
+          {
+            rankcast(rankcast, parm->type, j->second, 100);
+          }
         }
 
         k = is_pack_type(parm->type) ? parms.size() : k + 1;
@@ -3129,34 +3122,6 @@ namespace
     if (is_callop)
       tx.name = "()";
 
-    if (tx.name.substr(0, 1) == "~")
-    {
-      auto j = find_if(stack.back().typeargs.begin(),stack.back().typeargs.end(), [&](auto &k) {
-        return decl_cast<TypeArgDecl>(k.first)->name == tx.name.substr(1);
-      });
-
-      if (j != stack.back().typeargs.end())
-      {
-        if (is_tag_type(j->second))
-        {
-          for(auto &decl : type_cast<TagType>(j->second)->decls)
-          {
-            if (decl->kind() == Decl::Function && (decl->flags & FunctionDecl::Destructor))
-              tx.name = decl_cast<FunctionDecl>(decl)->name;
-          }
-        }
-
-        if (is_array_type(j->second))
-          tx.name = "~#array";
-
-        if (is_tuple_type(j->second))
-          tx.name = "~#tuple";
-
-        if (is_builtin_type(j->second) || is_pointer_type(j->second) || is_reference_type(j->second))
-          tx.name = "~#builtin";
-      }
-    }
-
     tx.args = typeargs(ctx, ctx.stack.back(), declref->args);
     tx.namedargs = typeargs(ctx, ctx.stack.back(), declref->namedargs);
 
@@ -3192,6 +3157,34 @@ namespace
     if (Scoped declref = find_scoped(ctx, stack, scoped, queryflags))
     {
       FindContext tx(declref.decl->name, QueryFlags::Functions | QueryFlags::Types | QueryFlags::Usings | queryflags);
+
+      if (tx.name.substr(0, 1) == "~")
+      {
+        auto j = find_if(stack.back().typeargs.begin(),stack.back().typeargs.end(), [&](auto &k) {
+          return decl_cast<TypeArgDecl>(k.first)->name == tx.name.substr(1);
+        });
+
+        if (j != stack.back().typeargs.end())
+        {
+          if (is_tag_type(j->second))
+          {
+            for(auto &decl : type_cast<TagType>(j->second)->decls)
+            {
+              if (decl->kind() == Decl::Function && (decl->flags & FunctionDecl::Destructor))
+                tx.name = decl_cast<FunctionDecl>(decl)->name;
+            }
+          }
+
+          if (is_array_type(j->second))
+            tx.name = "~#array";
+
+          if (is_tuple_type(j->second))
+            tx.name = "~#tuple";
+
+          if (is_builtin_type(j->second) || is_pointer_type(j->second) || is_reference_type(j->second))
+            tx.name = "~#builtin";
+        }
+      }
 
       tx.args = typeargs(ctx, ctx.stack.back(), declref.decl->args);
       tx.namedargs = typeargs(ctx, ctx.stack.back(), declref.decl->namedargs);
@@ -4421,7 +4414,7 @@ namespace
           lower_lit(ctx, result, callee);
           return true;
 
-        case Builtin::Default_Destructor:
+        case Builtin::Builtin_Destructor:
           lower_expr(ctx, result, ctx.mir.make_expr<VoidLiteralExpr>(loc));
           return true;
 
@@ -5027,7 +5020,6 @@ namespace
 
     lower_call(ctx, result, callee.fx, parms, namedparms, declref->loc());
   }
-
 
   //|///////////////////// lower_unaryop ////////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, UnaryOpExpr::OpCode unaryop, vector<MIR::Fragment> &parms, map<string_view, MIR::Fragment> &namedparms, SourceLocation loc)

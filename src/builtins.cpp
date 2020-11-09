@@ -407,6 +407,8 @@ namespace Builtin
     make_function(Tuple_AssignmentEx, "pub fn =<T, U>(T mut &, U&&) -> T mut &", FunctionDecl::Defaulted, __LINE__);
     make_function(Tuple_Destructor, "pub fn ~#tuple<T>(T mut &) -> void", FunctionDecl::Defaulted, __LINE__);
 
+    make_function(Default_Destructor, "pub fn ~#builtin<T>(T mut &) -> void", __LINE__);
+
     make_function(Plus, "pub const fn +<T>(T) -> T", __LINE__);
     make_function(Minus, "pub const fn -<T>(T) -> T", __LINE__);
     make_function(Not, "pub const fn ~<T>(T) -> T", __LINE__);

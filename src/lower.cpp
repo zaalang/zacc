@@ -3129,18 +3129,15 @@ namespace
     if (is_callop)
       tx.name = "()";
 
-    tx.args = typeargs(ctx, ctx.stack.back(), declref->args);
-    tx.namedargs = typeargs(ctx, ctx.stack.back(), declref->namedargs);
-
-    if (is_tag_scope(basescope))
+    if (tx.name.substr(0, 1) == "~")
     {
-      if (tx.name.substr(0, 1) == "~")
-      {
-        auto j = find_if(stack.back().typeargs.begin(),stack.back().typeargs.end(), [&](auto &k) {
-          return decl_cast<TypeArgDecl>(k.first)->name == tx.name.substr(1);
-        });
+      auto j = find_if(stack.back().typeargs.begin(),stack.back().typeargs.end(), [&](auto &k) {
+        return decl_cast<TypeArgDecl>(k.first)->name == tx.name.substr(1);
+      });
 
-        if (j != stack.back().typeargs.end() && is_tag_type(j->second))
+      if (j != stack.back().typeargs.end())
+      {
+        if (is_tag_type(j->second))
         {
           for(auto &decl : type_cast<TagType>(j->second)->decls)
           {
@@ -3148,8 +3145,23 @@ namespace
               tx.name = decl_cast<FunctionDecl>(decl)->name;
           }
         }
-      }
 
+        if (is_array_type(j->second))
+          tx.name = "~#array";
+
+        if (is_tuple_type(j->second))
+          tx.name = "~#tuple";
+
+        if (is_builtin_type(j->second) || is_pointer_type(j->second) || is_reference_type(j->second))
+          tx.name = "~#builtin";
+      }
+    }
+
+    tx.args = typeargs(ctx, ctx.stack.back(), declref->args);
+    tx.namedargs = typeargs(ctx, ctx.stack.back(), declref->namedargs);
+
+    if (is_tag_scope(basescope))
+    {
       for(auto scope = basescope; scope; scope = base_scope(ctx, scope))
       {
         find_overloads(ctx, tx, scope, parms, namedparms, callee.overloads);
@@ -4407,6 +4419,10 @@ namespace
 
         case Builtin::Type_Lit:
           lower_lit(ctx, result, callee);
+          return true;
+
+        case Builtin::Default_Destructor:
+          lower_expr(ctx, result, ctx.mir.make_expr<VoidLiteralExpr>(loc));
           return true;
 
         case Builtin::ArrayLen:

@@ -1992,7 +1992,24 @@ namespace
     auto &[callee, args, loc] = call;
 
     auto T = callee.find_type(callee.fn->args[0])->second;
+
+    if (is_qualarg_type(T))
+    {
+      if (type_cast<QualArgType>(T)->qualifiers & QualArgType::Const)
+        T = ctx.typetable.find_or_create<ConstType>(type_cast<QualArgType>(T)->type);
+      else
+        T = type_cast<QualArgType>(T)->type;
+    }
+
     auto U = callee.find_type(callee.fn->args[1])->second;
+
+    if (is_qualarg_type(U))
+    {
+      if (type_cast<QualArgType>(U)->qualifiers & QualArgType::Const)
+        U = ctx.typetable.find_or_create<ConstType>(type_cast<QualArgType>(U)->type);
+      else
+        U = type_cast<QualArgType>(U)->type;
+    }
 
     store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, T == U);
 

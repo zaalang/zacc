@@ -112,6 +112,9 @@ int main(int argc, char *argv[])
         opts.dump_mir = true;
     }
 
+    if (opts.outputtype != GenOpts::OutputType::EmitObj)
+      opts.linker = false;
+
     ToolChain toolchain(opts.triple);
 
     if (!toolchain)

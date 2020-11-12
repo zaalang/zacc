@@ -4064,7 +4064,7 @@ namespace
       // assert div
 
       auto fntype = llvm::FunctionType::get(ctx.builder.getVoidTy(), { ctx.builder.getInt1Ty() }, false);
-      auto fnprot = llvm::Function::Create(fntype, llvm::Function::InternalLinkage, "checked", ctx.module);
+      auto fnprot = llvm::Function::Create(fntype, llvm::Function::InternalLinkage, "checked_div0", ctx.module);
 
       auto sx = llvm::BasicBlock::Create(ctx.context, "entry", fnprot);
       auto ax = llvm::BasicBlock::Create(ctx.context, "panic", fnprot);
@@ -4090,7 +4090,7 @@ namespace
       // assert carry
 
       auto fntype = llvm::FunctionType::get(ctx.builder.getVoidTy(), { ctx.builder.getInt1Ty() }, false);
-      auto fnprot = llvm::Function::Create(fntype, llvm::Function::InternalLinkage, "checked", ctx.module);
+      auto fnprot = llvm::Function::Create(fntype, llvm::Function::InternalLinkage, "checked_carry", ctx.module);
 
       auto sx = llvm::BasicBlock::Create(ctx.context, "entry", fnprot);
       auto ax = llvm::BasicBlock::Create(ctx.context, "panic", fnprot);
@@ -4116,7 +4116,7 @@ namespace
       // assert deref
 
       auto fntype = llvm::FunctionType::get(ctx.builder.getVoidTy(), { ctx.builder.getInt1Ty() }, false);
-      auto fnprot = llvm::Function::Create(fntype, llvm::Function::InternalLinkage, "checked", ctx.module);
+      auto fnprot = llvm::Function::Create(fntype, llvm::Function::InternalLinkage, "checked_deref", ctx.module);
 
       auto sx = llvm::BasicBlock::Create(ctx.context, "entry", fnprot);
       auto ax = llvm::BasicBlock::Create(ctx.context, "panic", fnprot);

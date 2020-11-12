@@ -1562,7 +1562,7 @@ namespace
         return parse_numeric_literal(ctx, sema);
 
       case Token::string_literal:
-        return parse_string_literal(ctx, sema);
+        return parse_expression_post(ctx, parse_string_literal(ctx, sema), sema);
 
       case Token::l_square:
         return parse_expression_post(ctx, parse_array_literal(ctx, sema), sema);

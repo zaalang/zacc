@@ -18,6 +18,7 @@
 using namespace std;
 
 #define PACK_REFS 1
+#define TRANSATIVE_CONST 1
 
 namespace
 {
@@ -1734,15 +1735,15 @@ namespace
   {
     assert(sig.typeargs.empty());
 
-    for(auto &[arg, type] : scope.typeargs)
+    for(auto &[arg, type] : super_scope(scope, koncept).typeargs)
     {
       sig.set_type(arg, type);
     }
 
     for(auto &[arg, type] : args)
     {
-      if (!is_typearg_type(type))
-        sig.set_type(arg, resolve_type(ctx, scope, type));
+      if (auto argtype = resolve_type(ctx, scope, type); !is_typearg_type(argtype))
+        sig.set_type(arg, argtype);
     }
 
     auto cache_key = make_tuple(koncept, sig.typeargs, type);
@@ -1784,7 +1785,7 @@ namespace
       {
         if (fn->returntype)
         {
-          if (!deduce_type(ctx, scope, sig, fn->returntype, mir.locals[0]))
+          if (!deduce_type(ctx, scope, sig, fn->returntype, find_returntype(ctx, mir.fx)))
             return false;
         }
       }
@@ -3207,11 +3208,15 @@ namespace
       case Decl::DeclScoped:
         return find_callee(ctx, stack, basescope, decl_cast<DeclScopedDecl>(callee), parms, namedparms, is_callop);
 
+      case Decl::TypeOf:
+        ctx.diag.error("typeof in value context", ctx.stack.back(), callee->loc());
+        break;
+
       default:
         assert(false);
     }
 
-    throw logic_error("invalid callee");
+    return {};
   }
 
   //|///////////////////// diag_callee //////////////////////////////////////
@@ -3970,8 +3975,6 @@ namespace
     }
 
     result.type = expr.type;
-    result.type.flags |= MIR::Local::LValue;
-    result.type.flags &= ~MIR::Local::RValue;
     result.type.flags &= ~MIR::Local::Literal;
     result.type.flags &= ~MIR::Local::Reference;
     result.value = MIR::RValue::field(op, arg, std::move(fields), loc);
@@ -4068,7 +4071,7 @@ namespace
     if (field.flags & VarDecl::Const)
       result.type.flags |= MIR::Local::Const;
 
-#if 1 // Transative const
+#if TRANSATIVE_CONST
     if ((base.type.flags & MIR::Local::Const) && is_pointer_type(result.type.type))
     {
       if (auto rhs = remove_pointer_type(result.type.type); !is_const_type(rhs))
@@ -5161,6 +5164,15 @@ namespace
   //|///////////////////// lower_binaryop ///////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, BinaryOpExpr::OpCode binaryop, vector<MIR::Fragment> &parms, map<string_view, MIR::Fragment> &namedparms, SourceLocation loc)
   {
+    if (binaryop == BinaryOpExpr::Assign)
+    {
+      if (parms[0].type.flags & MIR::Local::RValue)
+      {
+        ctx.diag.error("invalid assignment epression", ctx.stack.back(), loc);
+        return;
+      }
+    }
+
     auto callee = find_callee(ctx, ctx.stack, binaryop, parms, namedparms);
 
     if (!callee && binaryop == BinaryOpExpr::Assign)
@@ -7998,6 +8010,15 @@ namespace
       if (!lower_expr(ctx, result, retrn->expr))
         return;
 
+      // Implicit move from local
+      if (result.value.kind() == MIR::RValue::Variable && !(result.type.flags & MIR::Local::Const))
+      {
+        auto &[op, arg, fields, loc] = result.value.get<MIR::RValue::Variable>();
+
+        if (op == MIR::RValue::Ref && ctx.mir.args_end <= arg && fields.empty())
+          result.type.flags |= MIR::Local::RValue;
+      }
+
       realise_as_value(ctx, 0, result);
 
       if (ctx.mir.locals[0])
@@ -8035,6 +8056,14 @@ namespace
 
         ctx.mir.locals[0].defn = result.type.defn;
         ctx.mir.locals[0].flags &= ~(MIR::Local::RValue | MIR::Local::XValue);
+      }
+    }
+    else
+    {
+      if (ctx.mir.locals[0] && !is_void_type(ctx.mir.locals[0].type) && !(ctx.mir.fx.fn->flags & FunctionDecl::Constructor))
+      {
+        ctx.diag.error("missing return expression", ctx.stack.back(), retrn->loc());
+        return;
       }
     }
 
@@ -8416,7 +8445,7 @@ namespace
     if (mir.fx.fn->flags & FunctionDecl::Defaulted)
       return;
 
-    for(size_t iteration = 0; iteration < 2; ++iteration)
+    for(size_t iteration = 0; iteration < 3; ++iteration)
     {
       for(auto block = mir.blocks.rbegin(); block != mir.blocks.rend(); ++block)
       {

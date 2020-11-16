@@ -666,6 +666,8 @@ namespace
           type = Token::kw_return;
         if (identifier == "rof")
           type = Token::kw_rof;
+        if (identifier == "requires")
+          type = Token::kw_requires;
         break;
 
       case 's':

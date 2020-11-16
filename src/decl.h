@@ -52,6 +52,7 @@ class Decl
       ErrorVar,
       Initialiser,
       Concept,
+      Requires,
       Enum,
       EnumConstant,
       If,
@@ -539,7 +540,7 @@ class ConceptDecl : public TagDecl
 //---------------------- RequiresDecl ---------------------------------------
 //---------------------------------------------------------------------------
 
-class RequiresDecl : public FunctionDecl
+class RequiresDecl : public Decl
 {
   public:
 
@@ -551,6 +552,9 @@ class RequiresDecl : public FunctionDecl
 
   public:
     RequiresDecl(SourceLocation loc);
+
+    FunctionDecl *fn = nullptr;
+    Type *requirestype = nullptr;
 
     void dump(int indent) const override;
 };
@@ -652,6 +656,7 @@ template<> inline auto decl_cast<RangeVarDecl>(Decl *decl) { assert(decl && decl
 template<> inline auto decl_cast<ErrorVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::ErrorVar); return static_cast<ErrorVarDecl*>(decl); };
 template<> inline auto decl_cast<InitialiserDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Initialiser); return static_cast<InitialiserDecl*>(decl); };
 template<> inline auto decl_cast<ConceptDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Concept); return static_cast<ConceptDecl*>(decl); };
+template<> inline auto decl_cast<RequiresDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Requires); return static_cast<RequiresDecl*>(decl); };
 template<> inline auto decl_cast<EnumDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Enum); return static_cast<EnumDecl*>(decl); };
 template<> inline auto decl_cast<EnumConstantDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::EnumConstant); return static_cast<EnumConstantDecl*>(decl); };
 template<> inline auto decl_cast<IfDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::If); return static_cast<IfDecl*>(decl); };

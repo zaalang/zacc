@@ -504,6 +504,7 @@ namespace Builtin
     make_function(is_same, "pub const fn __is_same<T, U>() -> bool", __LINE__);
     make_function(is_const, "pub const fn __is_const<T>() -> bool", __LINE__);
     make_function(is_rvalue, "pub const fn __is_rvalue<T>() -> bool", __LINE__);
+    make_function(is_match, "pub const fn __is_match<T, U>() -> bool", __LINE__);
     make_function(tuple_len, "pub const fn __tuple_len<T>() -> usize", __LINE__);
     make_function(array_len, "pub const fn __array_len<T>() -> usize", __LINE__);
 

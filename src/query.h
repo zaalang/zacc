@@ -78,9 +78,9 @@ bool is_stmt_scope(Scope const &scope);
 
 void seed_stack(std::vector<Scope> &stack, Scope scope);
 
-Scope parent_scope(Scope const &scope);
-Scope super_scope(Scope const &scope, std::variant<Decl*, Stmt*> const &owner);
-Scope child_scope(Scope const &scope, std::variant<Decl*, Stmt*> const &owner, std::vector<std::pair<Decl*, Type*>> const &typeargs = {});
+Scope parent_scope(Scope scope);
+Scope super_scope(Scope scope, std::variant<Decl*, Stmt*> const &owner);
+Scope child_scope(Scope scope, std::variant<Decl*, Stmt*> const &owner, std::vector<std::pair<Decl*, Type*>> const &typeargs = {});
 
 ModuleDecl *get_module(Scope const &scope);
 

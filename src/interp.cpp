@@ -30,6 +30,8 @@ namespace
 
     vector<vector<uint8_t>> memory;
 
+    map<tuple<Type*, ArrayLiteralExpr const *>, void*> arrayliterals;
+
     bool exception;
 
     Type *voidtype;
@@ -162,6 +164,28 @@ namespace
     }
 
     return false;
+  }
+
+  //|///////////////////// type_similar /////////////////////////////////////
+  bool types_similar(Type const *lhs, Type const *rhs)
+  {
+    while (true)
+    {
+      lhs = remove_const_type(lhs);
+      rhs = remove_const_type(rhs);
+
+      if (lhs == rhs)
+        return true;
+
+      if (is_pointference_type(lhs) && is_pointference_type(rhs))
+      {
+        lhs = remove_pointference_type(lhs);
+        rhs = remove_pointference_type(rhs);
+        continue;
+      }
+
+      return false;
+    }
   }
 
   //|///////////////////// alloc ////////////////////////////////////////////
@@ -732,7 +756,16 @@ namespace
       return false;
     }
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal);
+    auto j = ctx.arrayliterals.find(make_tuple(fx.locals[dst].type, literal));
+
+    if (j == ctx.arrayliterals.end())
+    {
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal);
+
+      j = ctx.arrayliterals.emplace(make_tuple(fx.locals[dst].type, literal), fx.locals[dst].alloc).first;
+    }
+
+    fx.locals[dst].alloc = j->second;
 
     return true;
   }
@@ -760,34 +793,34 @@ namespace
     return std::visit([&](auto &v) { return eval_constant(ctx, fx, dst, v); }, constant);
   }
 
-  //|///////////////////// eval_fields //////////////////////////////////////
-  void *eval_fields(EvalContext &ctx, FunctionContext &fx, MIR::local_t arg, vector<MIR::RValue::Field> const &fields)
+  //|///////////////////// eval_variable ////////////////////////////////////
+  bool eval_variable(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::VariableData const &variable)
   {
-    auto address = fx.locals[arg].alloc;
-    auto vartype = fx.locals[arg].type;
+    auto &[op, arg, fields, loc] = variable;
+
+    auto lhs = fx.locals[dst].type;
+    auto rhs = fx.locals[arg].type;
+    auto src = fx.locals[arg].alloc;
 
     for(auto &field : fields)
     {
       if (field.op == MIR::RValue::Val)
       {
-        address = load_ptr(ctx, address, vartype);
-        vartype = remove_pointference_type(vartype);
+        src = load_ptr(ctx, src, rhs);
+        rhs = remove_pointference_type(rhs);
       }
 
-      address = (void*)((size_t)address + offsetof_type(vartype, field.index));
+      src = (void*)((size_t)src + offsetof_type(rhs, field.index));
 
-      switch(vartype = remove_const_type(vartype); vartype->klass())
+      switch(rhs = remove_const_type(rhs); rhs->klass())
       {
         case Type::Tag:
-          vartype = type_cast<TagType>(vartype)->fields[field.index];
-          break;
-
         case Type::Tuple:
-          vartype = type_cast<TupleType>(vartype)->fields[field.index];
+          rhs = type_cast<CompoundType>(rhs)->fields[field.index];
           break;
 
         case Type::Array:
-          vartype = type_cast<ArrayType>(vartype)->type;
+          rhs = type_cast<ArrayType>(rhs)->type;
           break;
 
         default:
@@ -795,89 +828,38 @@ namespace
       }
     }
 
-    return address;
-  }
+    if (op == MIR::RValue::Ref)
+      lhs = remove_pointference_type(lhs);
 
-  //|///////////////////// eval_cpy_value ///////////////////////////////////
-  bool eval_cpy_value(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::VariableData const &variable)
-  {
-    auto &[op, arg, fields, loc] = variable;
+    if (op == MIR::RValue::Fer)
+      rhs = remove_pointference_type(rhs);
 
-    if (fields.size() != 0)
+    if (!types_similar(lhs, rhs))
     {
-      auto src = eval_fields(ctx, fx, arg, fields);
-
-      memcpy(fx.locals[dst].alloc, src, fx.locals[dst].size);
+      ctx.diag.error("type mismatch", fx.scope, loc);
+      ctx.diag << "  source type: '" << *rhs << "' required type: '" << *lhs << "'\n";
+      return false;
     }
-    else
-    {
-      assert(fx.locals[dst].size == fx.locals[arg].size);
-
-      memcpy(fx.locals[dst].alloc, fx.locals[arg].alloc, fx.locals[dst].size);
-    }
-
-    return true;
-  }
-
-  //|///////////////////// eval_ref_value ///////////////////////////////////
-  bool eval_ref_value(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::VariableData const &variable)
-  {
-    auto &[op, arg, fields, loc] = variable;
-
-    if (fields.size() != 0)
-    {
-      auto src = eval_fields(ctx, fx, arg, fields);
-
-      memcpy(fx.locals[dst].alloc, &src, fx.locals[dst].size);
-    }
-    else
-    {
-      memcpy(fx.locals[dst].alloc, &fx.locals[arg].alloc, fx.locals[dst].size);
-    }
-
-    return true;
-  }
-
-  //|///////////////////// eval_fer_value ///////////////////////////////////
-  bool eval_fer_value(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::VariableData const &variable)
-  {
-    auto &[op, arg, fields, loc] = variable;
-
-    if (fields.size() != 0)
-    {
-      void *src;
-      memcpy(&src, eval_fields(ctx, fx, arg, fields), sizeof(src));
-
-      memcpy(fx.locals[dst].alloc, src, fx.locals[dst].size);
-    }
-    else
-    {
-      memcpy(fx.locals[dst].alloc, load_ptr(ctx, fx, arg), fx.locals[dst].size);
-    }
-
-    return true;
-  }
-
-  //|///////////////////// eval_variable ////////////////////////////////////
-  bool eval_variable(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::VariableData const &variable)
-  {
-    auto &[op, arg, fields, loc] = variable;
 
     switch(op)
     {
       case MIR::RValue::Val:
-        return eval_cpy_value(ctx, fx, dst, variable);
+        memcpy(fx.locals[dst].alloc, src, fx.locals[dst].size);
+        break;
 
       case MIR::RValue::Ref:
-        return eval_ref_value(ctx, fx, dst, variable);
+        memcpy(fx.locals[dst].alloc, &src, fx.locals[dst].size);
+        break;
 
       case MIR::RValue::Fer:
-        return eval_fer_value(ctx, fx, dst, variable);
+        memcpy(fx.locals[dst].alloc, *(void**)src, fx.locals[dst].size);
+        break;
 
       default:
         assert(false);
-        return false;
     }
+
+    return true;
   }
 
   //|///////////////////// unary_arithmetic /////////////////////////////////
@@ -2953,6 +2935,12 @@ namespace
     auto &src = statement.src;
     auto &dst = statement.dst;
 
+    if (!fx.locals[dst].type)
+    {
+      ctx.diag.error("unresolved destination type");
+      return false;
+    }
+
     switch (src.kind())
     {
       case MIR::RValue::Empty:
@@ -3015,6 +3003,12 @@ namespace
     for(auto &arg : args)
     {
       fx.locals.push_back(arg);
+    }
+
+    if (fx.locals.size() != mir.args_end)
+    {
+      ctx.diag.error("invalid arguments");
+      return false;
     }
 
     for(size_t i = mir.args_end, end = mir.locals.size(); i != end; ++i)

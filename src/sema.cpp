@@ -461,6 +461,12 @@ Expr *Sema::make_new_expression(Type *type, Expr *address, vector<Expr*> const &
   return ast->make_expr<NewExpr>(type, address, parms, namedparms, loc);
 }
 
+//|///////////////////// make_requires_expression ///////////////////////////
+Expr *Sema::make_requires_expression(Decl *decl, SourceLocation loc)
+{
+  return ast->make_expr<RequiresExpr>(decl, loc);
+}
+
 //|///////////////////// make_lambda_expression /////////////////////////////
 Expr *Sema::make_lambda_expression(Decl *decl, SourceLocation loc)
 {

@@ -147,6 +147,7 @@ namespace Builtin
     is_same,
     is_const,
     is_rvalue,
+    is_match,
     tuple_len,
     array_len,
 

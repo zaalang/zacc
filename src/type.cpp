@@ -949,6 +949,9 @@ void TagType::resolve(vector<Decl*> &&resolved_decls, vector<Type*> &&resolved_f
 
   if (decl->kind() == Decl::Struct || decl->kind() == Decl::Lambda)
   {
+    if (any_of(args.begin(), args.end(), [](auto k) { return !is_concrete_type(k.second) && !is_typelit_type(k.second); }))
+      flags &= ~Type::Concrete;
+
     if (any_of(fields.begin(), fields.end(), [](auto k) { return !is_concrete_type(k); }))
       flags &= ~Type::Concrete;
 

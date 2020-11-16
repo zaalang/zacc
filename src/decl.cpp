@@ -277,6 +277,13 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
       }
       break;
 
+    case Decl::Requires:
+      if (auto &reqires = static_cast<RequiresDecl const &>(decl); true)
+      {
+        os << reqires.fn;
+      }
+      break;
+
     case Decl::Enum:
       if (auto &tag = static_cast<EnumDecl const &>(decl); true)
       {
@@ -825,9 +832,9 @@ void ConceptDecl::dump(int indent) const
 
 //|///////////////////// RequiresDecl::Constructor //////////////////////////
 RequiresDecl::RequiresDecl(SourceLocation loc)
-  : FunctionDecl(loc)
+  : Decl(Requires, loc)
 {
-  flags |= FunctionDecl::RequiresDecl | FunctionDecl::Const;
+
 }
 
 //|///////////////////// RequiresDecl::dump /////////////////////////////////
@@ -835,9 +842,14 @@ void RequiresDecl::dump(int indent) const
 {
   cout << spaces(indent) << "RequiresDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 
-  if (body)
+  if (fn)
   {
-    body->dump(indent + 2);
+    fn->dump(indent + 2);
+  }
+
+  if (requirestype)
+  {
+    requirestype->dump(indent + 2);
   }
 }
 

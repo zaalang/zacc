@@ -68,6 +68,15 @@ namespace
     return expr_cast<BoolLiteralExpr>(result.value)->value();
   }
 
+  //|///////////////////// type /////////////////////////////////////////////
+  void semantic_type(SemanticContext &ctx, Type *type, Sema &sema)
+  {
+    if (type->klass() == Type::TypeLit)
+    {
+      semantic_expr(ctx, type_cast<TypeLitType>(type)->value, sema);
+    }
+  }
+
   //|///////////////////// arrayliteral /////////////////////////////////////
   void semantic_expr(SemanticContext &ctx, ArrayLiteralExpr *arrayliteral, Sema &sema)
   {
@@ -170,6 +179,12 @@ namespace
     }
   }
 
+  //|///////////////////// requires_expression //////////////////////////////
+  void semantic_expr(SemanticContext &ctx, RequiresExpr *requires, Sema &sema)
+  {
+    semantic_decl(ctx, requires->decl, sema);
+  }
+
   //|///////////////////// lambda_expression ////////////////////////////////
   void semantic_expr(SemanticContext &ctx, LambdaExpr *lambda, Sema &sema)
   {
@@ -240,6 +255,10 @@ namespace
         semantic_expr(ctx, expr_cast<NewExpr>(expr), sema);
         break;
 
+      case Expr::Requires:
+        semantic_expr(ctx, expr_cast<RequiresExpr>(expr), sema);
+        break;
+
       case Expr::Lambda:
         semantic_expr(ctx, expr_cast<LambdaExpr>(expr), sema);
         break;
@@ -269,7 +288,13 @@ namespace
   {
     if (var->defult)
     {
+      // default parameters are semantically owned by the functions parent scope
+
+      ctx.stack.push_back(parent_scope(get<Decl*>(var->owner)));
+
       semantic_expr(ctx, var->defult, sema);
+
+      ctx.stack.pop_back();
     }
   }
 
@@ -287,6 +312,29 @@ namespace
   void semantic_decl(SemanticContext &ctx, RangeVarDecl *var, Sema &sema)
   {
     semantic_expr(ctx, var->range, sema);
+  }
+
+  //|///////////////////// semantic_decl ////////////////////////////////////
+  void semantic_decl(SemanticContext &ctx, DeclRefDecl *declref, Sema &sema)
+  {
+    for(auto &arg : declref->args)
+    {
+      semantic_type(ctx, arg, sema);
+    }
+
+    for(auto &[name, arg] : declref->namedargs)
+    {
+      semantic_type(ctx, arg, sema);
+    }
+  }
+
+  //|///////////////////// semantic_decl ////////////////////////////////////
+  void semantic_decl(SemanticContext &ctx, DeclScopedDecl *scoped, Sema &sema)
+  {
+    for(auto &decl : scoped->decls)
+    {
+      semantic_decl(ctx, decl, sema);
+    }
   }
 
   //|///////////////////// typeof ///////////////////////////////////////////
@@ -364,6 +412,16 @@ namespace
     ctx.stack.emplace_back(concep);
 
     semantic_decl(ctx, decl_cast<TagDecl>(concep), sema);
+
+    ctx.stack.pop_back();
+  }
+
+  //|///////////////////// requires /////////////////////////////////////////
+  void semantic_decl(SemanticContext &ctx, RequiresDecl *reqires, Sema &sema)
+  {
+    ctx.stack.emplace_back(reqires);
+
+    semantic_decl(ctx, reqires->fn, sema);
 
     ctx.stack.pop_back();
   }
@@ -566,7 +624,7 @@ namespace
         umbrella = sema.module_declaration(imprt->alias, imprt->alias + '/' + imprt->alias + ".zaa");
       }
 
-      auto j = find_if(umbrella->decls.begin(), umbrella->decls.end(), [&](auto &decl) { return decl->kind() == Decl::Using && decl_cast<UsingDecl>(decl)->decl == imprt->decl; });
+      auto j = find_if(umbrella->decls.begin(), umbrella->decls.end(), [&](auto &decl) { return decl->kind() == Decl::Using && decl_cast<UsingDecl>(decl)->decl == module; });
 
       if (j == umbrella->decls.end())
       {
@@ -752,6 +810,16 @@ namespace
       semantic_decl(ctx, parm, sema);
     }
 
+    if (fn->throws)
+    {
+      semantic_expr(ctx, fn->throws, sema);
+    }
+
+    if (fn->where)
+    {
+      semantic_expr(ctx, fn->where, sema);
+    }
+
     if (fn->body)
     {
       semantic_statement(ctx, fn->body, sema);
@@ -811,7 +879,11 @@ namespace
         break;
 
       case Decl::DeclRef:
+        semantic_decl(ctx, decl_cast<DeclRefDecl>(decl), sema);
+        break;
+
       case Decl::DeclScoped:
+        semantic_decl(ctx, decl_cast<DeclScopedDecl>(decl), sema);
         break;
 
       case Decl::TypeOf:
@@ -828,6 +900,10 @@ namespace
 
       case Decl::Concept:
         semantic_decl(ctx, decl_cast<ConceptDecl>(decl), sema);
+        break;
+
+      case Decl::Requires:
+        semantic_decl(ctx, decl_cast<RequiresDecl>(decl), sema);
         break;
 
       case Decl::Lambda:

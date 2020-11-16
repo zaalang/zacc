@@ -512,7 +512,7 @@ namespace
       if (auto owner = get_if<Decl*>(&usein->owner); owner && (*owner)->kind() == Decl::Import)
         queryflags |= QueryFlags::Public;
 
-      for(auto sx = scope; sx; sx = parent_scope(sx))
+      for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
       {
         find_decls(ctx, sx, declref->name, QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Functions | QueryFlags::Usings | queryflags, decls, sema);
 
@@ -569,7 +569,7 @@ namespace
           return;
         }
 
-        for(auto sx = scope; sx; sx = parent_scope(sx))
+        for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
         {
           find_decls(ctx, sx, declref->name, QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Usings | queryflags, decls, sema);
 
@@ -702,7 +702,7 @@ namespace
   {
     vector<Decl*> decls;
 
-    for(auto sx = scope; sx; sx = parent_scope(sx))
+    for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
     {
       find_decls(ctx, sx, decl_cast<DeclRefDecl>(init->decl)->name, QueryFlags::Fields, decls, sema);
 
@@ -925,7 +925,7 @@ namespace
 
     resolve_decl(ctx, scope, declref, sema);
 
-    for(auto sx = scope; sx; sx = parent_scope(sx))
+    for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
     {
       find_decls(ctx, sx, declref->name, QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Usings, decls, sema);
 
@@ -937,7 +937,7 @@ namespace
 
     if (decls.empty())
     {
-      for(auto sx = scope; sx; sx = parent_scope(sx))
+      for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
       {
         find_decls(ctx, sx, declref->name, QueryFlags::Functions | QueryFlags::Variables | QueryFlags::Usings, decls, sema);
 
@@ -1000,7 +1000,7 @@ namespace
 
     if (auto declref = decl_cast<DeclRefDecl>(scoped->decls[0]); declref->name != "::")
     {
-      for(auto sx = scope; sx; sx = parent_scope(sx))
+      for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
       {
         find_decls(ctx, sx, declref->name, QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Usings | queryflags, decls, sema);
 
@@ -1223,7 +1223,7 @@ namespace
       type = remove_const_type(type);
   }
 
-  //|///////////////////// typer_arrayliteral ///////////////////////////////
+  //|///////////////////// arrayliteral /////////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, ArrayLiteralExpr *arrayliteral, Sema &sema)
   {
     for(auto &element : arrayliteral->elements)
@@ -1234,26 +1234,26 @@ namespace
     resolve_type(ctx, scope, arrayliteral->size, sema);
   }
 
-  //|///////////////////// typer_paren //////////////////////////////////////
+  //|///////////////////// paren_expression /////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, ParenExpr *paren, Sema &sema)
   {
     resolve_expr(ctx, scope, paren->subexpr, sema);
   }
 
-  //|///////////////////// typer_unaryop ////////////////////////////////////
+  //|///////////////////// unary_expression /////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, UnaryOpExpr *unaryop, Sema &sema)
   {
     resolve_expr(ctx, scope, unaryop->subexpr, sema);
   }
 
-  //|///////////////////// typer_binaryop ///////////////////////////////////
+  //|///////////////////// binary_expression ////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, BinaryOpExpr *binaryop, Sema &sema)
   {
     resolve_expr(ctx, scope, binaryop->lhs, sema);
     resolve_expr(ctx, scope, binaryop->rhs, sema);
   }
 
-  //|///////////////////// typer_ternaryop //////////////////////////////////
+  //|///////////////////// ternary_expression ///////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, TernaryOpExpr *ternaryop, Sema &sema)
   {
     resolve_expr(ctx, scope, ternaryop->cond, sema);
@@ -1261,7 +1261,7 @@ namespace
     resolve_expr(ctx, scope, ternaryop->rhs, sema);
   }
 
-  //|///////////////////// typer_callexpr ///////////////////////////////////
+  //|///////////////////// call_expression //////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, CallExpr *call, Sema &sema)
   {
     for(auto &parm : call->parms)
@@ -1282,7 +1282,7 @@ namespace
     resolve_decl(ctx, scope, call->callee, sema);
   }
 
-  //|///////////////////// typer_sizeof /////////////////////////////////////
+  //|///////////////////// sizeof_expression ////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, SizeofExpr *call, Sema &sema)
   {
     if (call->type)
@@ -1296,7 +1296,7 @@ namespace
     }
   }
 
-  //|///////////////////// typer_alignof ////////////////////////////////////
+  //|///////////////////// alignof_expression ///////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, AlignofExpr *call, Sema &sema)
   {
     if (call->type)
@@ -1310,7 +1310,7 @@ namespace
     }
   }
 
-  //|///////////////////// typer_cast ///////////////////////////////////////
+  //|///////////////////// cast_expression //////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, CastExpr *call, Sema &sema)
   {
     resolve_type(ctx, scope, call->type, sema);
@@ -1318,7 +1318,7 @@ namespace
     resolve_expr(ctx, scope, call->expr, sema);
   }
 
-  //|///////////////////// typer_newexpr ////////////////////////////////////
+  //|///////////////////// new_expression ///////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, NewExpr *call, Sema &sema)
   {
     resolve_type(ctx, scope, call->type, sema);
@@ -1336,13 +1336,19 @@ namespace
     }
   }
 
-  //|///////////////////// typer_lambda /////////////////////////////////////
+  //|///////////////////// requires_expression //////////////////////////////
+  void resolve_expr(TyperContext &ctx, Scope const &scope, RequiresExpr *requires, Sema &sema)
+  {
+    typer_decl(ctx, requires->decl, sema);
+  }
+
+  //|///////////////////// lambda_expression ////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, LambdaExpr *lambda, Sema &sema)
   {
     typer_decl(ctx, lambda->decl, sema);
   }
 
-  //|///////////////////// typer_declref ////////////////////////////////////
+  //|///////////////////// declref_expression ///////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, DeclRefExpr *declexpr, Expr *&dst, Sema &sema)
   {
     if (declexpr->base)
@@ -1404,6 +1410,10 @@ namespace
 
       case Expr::New:
         resolve_expr(ctx, scope, expr_cast<NewExpr>(expr), sema);
+        break;
+
+      case Expr::Requires:
+        resolve_expr(ctx, scope, expr_cast<RequiresExpr>(expr), sema);
         break;
 
       case Expr::Lambda:
@@ -1541,6 +1551,21 @@ namespace
     ctx.stack.pop_back();
   }
 
+  //|///////////////////// typer_requires ///////////////////////////////////
+  void typer_decl(TyperContext &ctx, RequiresDecl *reqires, Sema &sema)
+  {
+    ctx.stack.emplace_back(reqires);
+
+    typer_decl(ctx, reqires->fn, sema);
+
+    if (reqires->requirestype)
+    {
+      resolve_type(ctx, ctx.stack.back(), reqires->requirestype, sema);
+    }
+
+    ctx.stack.pop_back();
+  }
+
   //|///////////////////// typer_lambda /////////////////////////////////////
   void typer_decl(TyperContext &ctx, LambdaDecl *lambda, Sema &sema)
   {
@@ -1660,14 +1685,20 @@ namespace
   {
     resolve_expr(ctx, ctx.stack.back(), ifd->cond, sema);
 
-    for(auto &decl: ifd->decls)
+    if ((ifd->flags & IfDecl::ResolvedTrue) || !(ifd->flags & IfDecl::ResolvedFalse))
     {
-      typer_decl(ctx, decl, sema);
+      for(auto &decl: ifd->decls)
+      {
+        typer_decl(ctx, decl, sema);
+      }
     }
 
-    if (ifd->elseif)
+    if ((ifd->flags & IfDecl::ResolvedFalse) || !(ifd->flags & IfDecl::ResolvedTrue))
     {
-      typer_decl(ctx, ifd->elseif, sema);
+      if (ifd->elseif)
+      {
+        typer_decl(ctx, ifd->elseif, sema);
+      }
     }
   }
 
@@ -1722,6 +1753,10 @@ namespace
 
       case Decl::Concept:
         typer_decl(ctx, decl_cast<ConceptDecl>(decl), sema);
+        break;
+
+      case Decl::Requires:
+        typer_decl(ctx, decl_cast<RequiresDecl>(decl), sema);
         break;
 
       case Decl::Lambda:

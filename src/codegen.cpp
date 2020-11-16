@@ -57,6 +57,8 @@ namespace
     unordered_map<Type*, llvm::StructType*> slicetypes;
     unordered_map<Type*, llvm::StructType*> structtypes;
 
+    unordered_map<llvm::Constant*, llvm::GlobalVariable*> privateglobals;
+
     llvm::DIBuilder di;
     llvm::DIFile *difile;
     llvm::DICompileUnit *diunit;
@@ -859,9 +861,24 @@ namespace
     if (is_string_type(type))
     {
       auto len = ctx.builder.getInt64(literal->value().size());
-      auto str = ctx.builder.CreateGlobalStringPtr(literal->value());
+      auto value = llvm::ConstantDataArray::getString(ctx.context, literal->value());
 
-      return llvm::ConstantStruct::get(llvm::cast<llvm::StructType>(llvm_type(ctx, type)), { len, str });
+      auto j = ctx.privateglobals.find(value);
+
+      if (j == ctx.privateglobals.end())
+      {
+        auto str = new llvm::GlobalVariable(ctx.module, value->getType(), true, llvm::GlobalVariable::PrivateLinkage, value);
+
+        str->setAlignment(llvm::Align(16));
+
+        j = ctx.privateglobals.emplace(value, str).first;
+      }
+
+      llvm::Constant *index[] = { ctx.builder.getInt32(0), ctx.builder.getInt32(0) };
+
+      auto data = llvm::ConstantExpr::getInBoundsGetElementPtr(j->second->getValueType(), j->second, index);
+
+      return llvm::ConstantStruct::get(llvm::cast<llvm::StructType>(llvm_type(ctx, type)), { len, data});
     }
     else
     {
@@ -888,7 +905,6 @@ namespace
 
       if (any_of(elements.begin(), elements.end(), [](auto &k) { return !k; }))
         return nullptr;
-
 
       for(size_t i = elements.size(); i < arraylen; ++i)
         elements.push_back(elements.back());
@@ -974,9 +990,25 @@ namespace
   //|///////////////////// codegen_global ///////////////////////////////////
   void codegen_global(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, llvm::Constant *value, llvm::GlobalValue::LinkageTypes linkage)
   {
-    auto global = new llvm::GlobalVariable(ctx.module, value->getType(), fx.mir.locals[dst].flags & MIR::Local::Const, linkage, value);
+    llvm::GlobalVariable *global = nullptr;
 
-    global->setAlignment(llvm::Align(alignof_type(fx.mir.locals[dst].type)));
+    if (linkage == llvm::GlobalVariable::PrivateLinkage)
+    {
+      assert(fx.mir.locals[dst].flags & MIR::Local::Const);
+
+      if (auto j = ctx.privateglobals.find(value); j != ctx.privateglobals.end())
+        global = j->second;
+    }
+
+    if (!global)
+    {
+      global = new llvm::GlobalVariable(ctx.module, value->getType(), fx.mir.locals[dst].flags & MIR::Local::Const, linkage, value);
+
+      global->setAlignment(llvm::Align(16));
+
+      if (linkage == llvm::GlobalVariable::PrivateLinkage)
+        ctx.privateglobals[value] = global;
+    }
 
     if (ctx.genopts.debuginfo == GenOpts::DebugInfo::Yes)
     {
@@ -1125,7 +1157,7 @@ namespace
 
     if (auto value = llvm_constant(ctx, fx, fx.mir.locals[dst].type, literal))
     {
-      codegen_global(ctx, fx, dst, value, llvm::GlobalValue::PrivateLinkage);
+      codegen_global(ctx, fx, dst, value, llvm::GlobalVariable::PrivateLinkage);
     }
   }
 
@@ -1142,7 +1174,7 @@ namespace
 
     if (auto value = llvm_constant(ctx, fx, fx.mir.locals[dst].type, literal))
     {
-      codegen_global(ctx, fx, dst, value, llvm::GlobalValue::PrivateLinkage);
+      codegen_global(ctx, fx, dst, value, llvm::GlobalVariable::PrivateLinkage);
     }
   }
 

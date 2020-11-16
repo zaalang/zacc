@@ -1017,6 +1017,12 @@ namespace
           }
           break;
 
+        case Token::kw_requires:
+          if (auto expr = parse_expression(ctx, sema))
+            return sema.make_typelit(expr);
+
+          [[fallthrough]];
+
         case Token::greater:
         case Token::greatergreater:
         case Token::r_square:
@@ -1404,6 +1410,59 @@ namespace
     return sema.make_call_expression(base, name, parms, namedparms, loc);
   }
 
+  //|///////////////////// parse_requires ///////////////////////////////////
+  Expr *parse_requires(ParseContext &ctx, Sema &sema)
+  {
+    auto reqires = sema.requires_declaration(ctx.tok.loc);
+
+    auto fn = sema.function_declaration(reqires->loc());
+
+    ctx.consume_token(Token::kw_requires);
+
+    fn->flags |= FunctionDecl::Public;
+    fn->flags |= FunctionDecl::Const;
+    fn->flags |= FunctionDecl::RequiresDecl;
+
+    if (ctx.try_consume_token(Token::l_paren))
+    {
+      fn->parms = parse_parms_list(ctx, sema);
+
+      if (!ctx.try_consume_token(Token::r_paren))
+      {
+        ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+        ctx.comsume_til_resumable();
+        return nullptr;
+      }
+    }
+
+    reqires->flags |= RequiresDecl::Expression;
+
+    if (ctx.try_consume_token(Token::arrow))
+    {
+      reqires->requirestype = parse_type(ctx, sema);
+
+      if (!reqires->requirestype)
+      {
+        ctx.diag.error("expected requires type", ctx.text, ctx.tok.loc);
+        ctx.comsume_til_resumable();
+        return nullptr;
+      }
+    }
+
+    if (ctx.tok != Token::l_brace)
+    {
+      ctx.diag.error("expected requires body", ctx.text, ctx.tok.loc);
+      ctx.comsume_til_resumable();
+      return nullptr;
+    }
+
+    fn->body = parse_compound_statement(ctx, sema);
+
+    reqires->fn = fn;
+
+    return sema.make_requires_expression(reqires, reqires->loc());
+  }
+
   //|///////////////////// parse_lambda /////////////////////////////////////
   Expr *parse_lambda(ParseContext &ctx, Sema &sema)
   {
@@ -1485,7 +1544,7 @@ namespace
     lambda->fn = fn;
     lambda->decls.push_back(fn);
 
-    return sema.make_lambda_expression(lambda, fn->loc());
+    return sema.make_lambda_expression(lambda, lambda->loc());
   }
 
   //|///////////////////// parse_expression_head ////////////////////////////
@@ -1582,6 +1641,9 @@ namespace
 
       case Token::kw_new:
         return parse_expression_post(ctx, parse_new(ctx, sema), sema);
+
+      case Token::kw_requires:
+        return parse_requires(ctx, sema);
 
       case Token::kw_fn:
         return parse_lambda(ctx, sema);
@@ -1699,6 +1761,8 @@ namespace
       goto resume;
     }
 
+    ifd->flags |= Decl::Public;
+
     return ifd;
 
     resume:
@@ -1740,6 +1804,8 @@ namespace
     {
       elsed->cond = sema.make_bool_literal(true, elsed->loc());
     }
+
+    elsed->flags |= Decl::Public;
 
     ifd->elseif = elsed;
 
@@ -2021,9 +2087,15 @@ namespace
   //|///////////////////// parse_requires_declaration ///////////////////////
   Decl *parse_requires_declaration(ParseContext &ctx, Sema &sema)
   {
-    auto fn = sema.requires_declaration(ctx.tok.loc);
+    auto reqires = sema.requires_declaration(ctx.tok.loc);
 
-    ctx.consume_token(Token::identifier);
+    auto fn = sema.function_declaration(ctx.tok.loc);
+
+    ctx.consume_token(Token::kw_requires);
+
+    fn->flags |= FunctionDecl::Public;
+    fn->flags |= FunctionDecl::Const;
+    fn->flags |= FunctionDecl::RequiresDecl;
 
     if (ctx.try_consume_token(Token::less))
     {
@@ -2047,26 +2119,28 @@ namespace
       }
     }
 
-    if (ctx.tok == Token::l_brace)
+    if (ctx.tok == Token::l_brace || ctx.tok == Token::arrow)
     {
-      fn->flags |= RequiresDecl::Expression;
-
-      fn->body = parse_compound_statement(ctx, sema);
+      reqires->flags |= RequiresDecl::Expression;
 
       if (ctx.try_consume_token(Token::arrow))
       {
-        fn->returntype = parse_type(ctx, sema);
+        reqires->requirestype = parse_type(ctx, sema);
 
-        if (!fn->returntype)
+        if (!reqires->requirestype)
         {
           ctx.diag.error("expected requires type", ctx.text, ctx.tok.loc);
           goto resume;
         }
       }
+
+      fn->body = parse_compound_statement(ctx, sema);
     }
     else
     {
-      fn->flags |= RequiresDecl::Condition;
+      reqires->flags |= RequiresDecl::Condition;
+
+      fn->returntype = Builtin::type(Builtin::Type_Bool);
 
       auto retrn = sema.return_statement(ctx.tok.loc);
 
@@ -2079,8 +2153,6 @@ namespace
       }
 
       fn->body = retrn;
-
-      fn->returntype = Builtin::type(Builtin::Type_Bool);
     }
 
     if (!ctx.try_consume_token(Token::semi))
@@ -2089,7 +2161,9 @@ namespace
       goto resume;
     }
 
-    return fn;
+    reqires->fn = fn;
+
+    return reqires;
 
     resume:
       ctx.comsume_til_resumable();
@@ -2135,9 +2209,8 @@ namespace
       {
         switch(ctx.tok.type)
         {
-          case Token::identifier:
-            if (ctx.tok.text == "requires")
-              decl = parse_requires_declaration(ctx, sema);
+          case Token::kw_requires:
+            decl = parse_requires_declaration(ctx, sema);
             break;
 
           default:
@@ -2723,12 +2796,12 @@ namespace
             decl = parse_struct_declaration(ctx, sema);
             break;
 
-          case Token::kw_enum:
-            decl = parse_enum_declaration(ctx, sema);
-            break;
-
           case Token::kw_concept:
             decl = parse_concept_declaration(ctx, sema);
+            break;
+
+          case Token::kw_enum:
+            decl = parse_enum_declaration(ctx, sema);
             break;
 
           case Token::kw_using:
@@ -3057,6 +3130,10 @@ namespace
 
       case Token::kw_struct:
         stmt->decl = parse_struct_declaration(ctx, sema);
+        break;
+
+      case Token::kw_concept:
+        stmt->decl = parse_concept_declaration(ctx, sema);
         break;
 
       case Token::kw_enum:
@@ -3552,6 +3629,7 @@ namespace
         case Token::kw_import:
         case Token::kw_using:
         case Token::kw_struct:
+        case Token::kw_concept:
         case Token::kw_enum:
         case Token::kw_let:
         case Token::kw_var:

@@ -83,50 +83,48 @@ bool is_stmt_scope(Scope const &scope)
 }
 
 //|///////////////////// parent_scope /////////////////////////////////////
-Scope parent_scope(Scope const &scope)
+Scope parent_scope(Scope scope)
 {
-  Scope parent;
-
   switch(scope.owner.index())
   {
     case 0:
-      parent.owner = get<Decl*>(scope.owner)->owner;
-      parent.typeargs = scope.typeargs;
-
-      parent.typeargs.erase(remove_if(parent.typeargs.begin(), parent.typeargs.end(), [&](auto &arg) {
+      scope.typeargs.erase(remove_if(scope.typeargs.begin(), scope.typeargs.end(), [&](auto &arg) {
         return arg.first->owner == scope.owner;
-      }), parent.typeargs.end());
+      }), scope.typeargs.end());
 
+      scope.owner = get<Decl*>(scope.owner)->owner;
       break;
 
     case 1:
-      parent.owner = get<Stmt*>(scope.owner)->owner;
-      parent.goalpost = get<Stmt*>(scope.owner);
-      parent.typeargs = scope.typeargs;
+      scope.goalpost = get<Stmt*>(scope.owner);
+      scope.owner = get<Stmt*>(scope.owner)->owner;
       break;
   }
 
-  return parent;
+  return scope;
 }
 
 //|///////////////////// super_scope ////////////////////////////////////////
-Scope super_scope(Scope const &scope, variant<Decl*, Stmt*> const &owner)
+Scope super_scope(Scope scope, variant<Decl*, Stmt*> const &owner)
 {
-  auto super = scope;
+  auto target = std::visit([&](auto &v) { return v->owner; }, owner);
 
-  while (super && std::visit([&](auto &v) { return super.owner != v->owner; }, owner))
-    super = parent_scope(super);
+  if (auto stmt = get_if<Stmt*>(&target); stmt && (*stmt)->kind() == Stmt::Declaration)
+    target = (*stmt)->owner;
 
-  return super;
+  while (scope && scope.owner != target)
+    scope = parent_scope(std::move(scope));
+
+  return scope;
 }
 
 //|///////////////////// child_scope ////////////////////////////////////////
-Scope child_scope(Scope const &scope, variant<Decl*, Stmt*> const &owner, vector<pair<Decl*, Type*>> const &typeargs)
+Scope child_scope(Scope scope, variant<Decl*, Stmt*> const &owner, vector<pair<Decl*, Type*>> const &typeargs)
 {
   Scope child;
 
   child.owner = owner;
-  child.typeargs = scope.typeargs;
+  child.typeargs = std::move(scope.typeargs);
 
   for(auto &[decl, type] : typeargs)
     child.set_type(decl, type);
@@ -222,6 +220,9 @@ void find_decl(Decl *decl, string_view name, long flags, vector<Decl*> &results)
         results.push_back(decl);
       break;
 
+    case Decl::Requires:
+      break;
+
     case Decl::Import:
       if (decl_cast<ImportDecl>(decl)->alias == name && (flags & Imports))
         results.push_back(decl);
@@ -294,6 +295,7 @@ void find_decls(Scope const &scope, string_view name, long flags, vector<Decl*> 
       case Decl::TypeArg:
       case Decl::DeclRef:
       case Decl::DeclScoped:
+      case Decl::Requires:
         break;
 
       default:
@@ -365,6 +367,7 @@ void find_decls(Scope const &scope, string_view name, long flags, vector<Decl*> 
             switch (auto decl = stmt_cast<DeclStmt>(stmt)->decl; decl->kind())
             {
               case Decl::Struct:
+              case Decl::Concept:
               case Decl::Enum:
                 find_decl(decl, name, flags, results);
                 break;

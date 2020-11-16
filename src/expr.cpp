@@ -123,6 +123,10 @@ std::ostream &operator <<(std::ostream &os, Expr const &expr)
       os << "new";
       break;
 
+    case Expr::Requires:
+      os << "requires";
+      break;
+
     case Expr::Lambda:
       os << "fn";
       break;
@@ -781,10 +785,32 @@ void NewExpr::dump(int indent) const
 }
 
 
+//|--------------------- RequiresExpr ---------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// RequiresExpr::Constructor //////////////////////////
+RequiresExpr::RequiresExpr(Decl *decl, SourceLocation loc)
+  : Expr(Requires, loc),
+    decl(decl)
+{
+}
+
+//|///////////////////// RequiresExpr::dump /////////////////////////////////
+void RequiresExpr::dump(int indent) const
+{
+  cout << spaces(indent) << "RequiresExpr " << this << " <" << m_loc << "> " << *this << "\n";
+
+  if (decl)
+  {
+    decl->dump(indent + 2);
+  }
+}
+
+
 //|--------------------- LambdaExpr -----------------------------------------
 //|--------------------------------------------------------------------------
 
-//|///////////////////// NewExpr::Constructor ///////////////////////////////
+//|///////////////////// LambdaExpr::Constructor ////////////////////////////
 LambdaExpr::LambdaExpr(Decl *decl, SourceLocation loc)
   : Expr(Lambda, loc),
     decl(decl)

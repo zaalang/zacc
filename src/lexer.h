@@ -148,6 +148,7 @@ struct Token
     kw_cast,
     kw_this,
     kw_new,
+    kw_requires,
     kw_try,
     kw_catch,
     kw_throw,

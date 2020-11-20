@@ -534,6 +534,8 @@ namespace Builtin
     make_function(ldexp, "pub const fn __ldexp<T>(T, int) -> T", __LINE__);
     make_function(sqrt, "pub const fn __sqrt<T>(T) -> T", __LINE__);
 
+    make_function(is_allocator_aware, "pub const fn __is_allocator_aware<T>() -> bool", __LINE__);
+
     make_function(memset, "pub fn __memset(void mut *, u8, usize) -> void mut *", __LINE__);
     make_function(memcpy, "pub fn __memcpy(void mut *, void*, usize) -> void mut *", __LINE__);
     make_function(memmove, "pub fn __memmove(void mut *, void*, usize) -> void mut *", __LINE__);

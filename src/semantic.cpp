@@ -426,7 +426,7 @@ namespace
     ctx.stack.pop_back();
   }
 
-  //|///////////////////// struct ///////////////////////////////////////////
+  //|///////////////////// lambda ///////////////////////////////////////////
   void semantic_decl(SemanticContext &ctx, LambdaDecl *lambda, Sema &sema)
   {
     auto fn = decl_cast<FunctionDecl>(lambda->fn);
@@ -712,12 +712,27 @@ namespace
 
         if (fn->flags & FunctionDecl::Defaulted)
         {
-          if (fn->parms.size() > 1)
+          bool allocatoraware = (decl_cast<TagDecl>(*owner)->flags & StructDecl::AllocatorAware);
+
+          if ((allocatoraware && fn->parms.size() > 2) || (!allocatoraware && fn->parms.size() > 1))
           {
-            ctx.diag.error("invalid defaulted constructor", ctx.file, fn->loc());
+            ctx.diag.error("invalid defaulted constructor parameters", ctx.file, fn->loc());
           }
 
-          fn->builtin = fn->parms.empty() ? Builtin::Default_Constructor : Builtin::Default_Copytructor;
+          if ((allocatoraware && fn->parms.size() == 1) || (!allocatoraware && fn->parms.size() == 0))
+          {
+            fn->builtin = Builtin::Default_Constructor;
+          }
+
+          if ((allocatoraware && fn->parms.size() == 2) || (!allocatoraware && fn->parms.size() == 1))
+          {
+            if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[0])->type))
+            {
+              ctx.diag.error("non-reference first parameter", ctx.file, fn->loc());
+            }
+
+            fn->builtin = Builtin::Default_Copytructor;
+          }
         }
       }
 
@@ -737,7 +752,7 @@ namespace
         {
           if (fn->parms.size() != 1)
           {
-            ctx.diag.error("invalid defaulted destructor", ctx.file, fn->loc());
+            ctx.diag.error("invalid defaulted destructor parameters", ctx.file, fn->loc());
           }
 
           fn->builtin = Builtin::Default_Destructor;
@@ -751,13 +766,23 @@ namespace
       {
         if (fn->parms.size() != 2)
         {
-          ctx.diag.error("invalid assignment operator parameters", ctx.file, fn->loc());
+          ctx.diag.error("invalid defaulted assignment operator parameters", ctx.file, fn->loc());
           return;
+        }
+
+        if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[0])->type))
+        {
+          ctx.diag.error("non-reference first parameter", ctx.file, fn->loc());
+        }
+
+        if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[1])->type))
+        {
+          ctx.diag.error("non-reference second parameter", ctx.file, fn->loc());
         }
 
         if (!fn->returntype)
         {
-          ctx.diag.error("invalid assignment operator return type", ctx.file, fn->loc());
+          ctx.diag.error("missing return type", ctx.file, fn->loc());
           return;
         }
 

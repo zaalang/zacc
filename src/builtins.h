@@ -178,6 +178,8 @@ namespace Builtin
     ldexp,
     sqrt,
 
+    is_allocator_aware,
+
     memset,
     memcpy,
     memmove,

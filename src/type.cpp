@@ -218,6 +218,12 @@ bool is_trivial_destroy_type(Type const *type)
   return type->flags & Type::TrivialDestroy;
 }
 
+//|///////////////////// is_allocatoraware_type /////////////////////////////
+bool is_allocatoraware_type(Type const *type)
+{
+  return is_struct_type(type) && (type_cast<TagType>(type)->decl->flags & StructDecl::AllocatorAware);
+}
+
 //|///////////////////// remove_const_type //////////////////////////////////
 Type const *remove_const_type(Type const *type)
 {
@@ -980,13 +986,13 @@ void TagType::resolve(vector<Decl*> &&resolved_decls, vector<Type*> &&resolved_f
 
       if ((fn->flags & FunctionDecl::Defaulted) && (fn->builtin == Builtin::Default_Copytructor))
       {
-        if (all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::TrivialCopy); }))
+        if (all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::TrivialCopy); }) && !is_allocatoraware_type(this))
           flags |= Type::TrivialCopy;
       }
 
       if ((fn->flags & FunctionDecl::Defaulted) && (fn->builtin == Builtin::Default_Assignment))
       {
-        if (all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::TrivialAssign); }))
+        if (all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::TrivialAssign); }) && !is_allocatoraware_type(this))
           flags |= Type::TrivialAssign;
       }
 
@@ -1342,4 +1348,3 @@ size_t offsetof_type(Type const *type, size_t index)
 
   throw logic_error("invalid type for offset");
 }
-

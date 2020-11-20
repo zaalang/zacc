@@ -423,6 +423,7 @@ bool is_concrete_type(Type const *type);
 bool is_trivial_copy_type(Type const *type);
 bool is_trivial_assign_type(Type const *type);
 bool is_trivial_destroy_type(Type const *type);
+bool is_allocatoraware_type(Type const *type);
 
 Type *remove_const_type(Type *type);
 Type const *remove_const_type(Type const *type);

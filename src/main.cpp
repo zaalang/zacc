@@ -153,7 +153,7 @@ int main(int argc, char *argv[])
   catch(exception &e)
   {
     cerr << diag << endl;
-
-    cerr << "Internal Compiler Error: " << e.what() << endl;
+    cerr << "Compiler Error: " << e.what() << endl;
+    exit(1);
   }
 }

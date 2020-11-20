@@ -1413,14 +1413,10 @@ namespace
   //|///////////////////// parse_requires ///////////////////////////////////
   Expr *parse_requires(ParseContext &ctx, Sema &sema)
   {
-    auto reqires = sema.requires_declaration(ctx.tok.loc);
-
-    auto fn = sema.function_declaration(reqires->loc());
+    auto fn = sema.function_declaration(ctx.tok.loc);
 
     ctx.consume_token(Token::kw_requires);
 
-    fn->flags |= FunctionDecl::Public;
-    fn->flags |= FunctionDecl::Const;
     fn->flags |= FunctionDecl::RequiresDecl;
 
     if (ctx.try_consume_token(Token::l_paren))
@@ -1435,13 +1431,11 @@ namespace
       }
     }
 
-    reqires->flags |= RequiresDecl::Expression;
-
     if (ctx.try_consume_token(Token::arrow))
     {
-      reqires->requirestype = parse_type(ctx, sema);
+      fn->returntype = parse_type(ctx, sema);
 
-      if (!reqires->requirestype)
+      if (!fn->returntype)
       {
         ctx.diag.error("expected requires type", ctx.text, ctx.tok.loc);
         ctx.comsume_til_resumable();
@@ -1458,9 +1452,7 @@ namespace
 
     fn->body = parse_compound_statement(ctx, sema);
 
-    reqires->fn = fn;
-
-    return sema.make_requires_expression(reqires, reqires->loc());
+    return sema.make_requires_expression(fn, fn->loc());
   }
 
   //|///////////////////// parse_lambda /////////////////////////////////////
@@ -2093,8 +2085,6 @@ namespace
 
     ctx.consume_token(Token::kw_requires);
 
-    fn->flags |= FunctionDecl::Public;
-    fn->flags |= FunctionDecl::Const;
     fn->flags |= FunctionDecl::RequiresDecl;
 
     if (ctx.try_consume_token(Token::less))
@@ -2661,7 +2651,6 @@ namespace
       return nullptr;
   }
 
-
   //|///////////////////// parse_field_declaration //////////////////////////
   Decl *parse_field_declaration(ParseContext &ctx, Sema &sema)
   {
@@ -2690,6 +2679,46 @@ namespace
     {
       ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
       goto resume;
+    }
+
+    if (!ctx.try_consume_token(Token::semi))
+    {
+      ctx.diag.error("expected semi", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
+
+    return field;
+
+    resume:
+      ctx.comsume_til_resumable();
+      return nullptr;
+  }
+
+  //|///////////////////// parse_allocator_declaration //////////////////////
+  Decl *parse_allocator_declaration(ParseContext &ctx, Sema &sema)
+  {
+    auto field = sema.field_declaration(ctx.tok.loc);
+
+    if (ctx.try_consume_token(Token::kw_pub))
+      field->flags |= FieldVarDecl::Public;
+
+    field->name = ctx.tok.text;
+
+    ctx.consume_token(Token::identifier);
+    ctx.consume_token(Token::colon);
+
+    field->type = parse_type(ctx, sema);
+
+    if (!field->type)
+    {
+      ctx.diag.error("expected type", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
+
+    if (is_const_type(field->type))
+    {
+      field->flags |= VarDecl::Const;
+      field->type = remove_const_type(field->type);
     }
 
     if (!ctx.try_consume_token(Token::semi))
@@ -2816,7 +2845,8 @@ namespace
               auto tok = ctx.tok;
               auto lexcursor = ctx.lexcursor;
 
-              lexcursor = lex(ctx.text, lexcursor, tok);
+              for(size_t i = nexttok; tok != Token::eof && i > 0; --i)
+                lexcursor = lex(ctx.text, lexcursor, tok);
 
               if (tok == Token::less)
               {
@@ -2843,6 +2873,14 @@ namespace
                 decl = parse_constructor_declaration(ctx, sema);
                 break;
               }
+            }
+
+            if (tok.text == "allocator" && ctx.token(nexttok) == Token::colon)
+            {
+              strct->flags |= StructDecl::AllocatorAware;
+
+              decl = parse_allocator_declaration(ctx, sema);
+              break;
             }
 
             decl = parse_field_declaration(ctx, sema);

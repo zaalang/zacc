@@ -410,6 +410,7 @@ class StructDecl : public TagDecl
     enum Flags
     {
       Public = 0x01,
+      AllocatorAware = 0x10,
     };
 
   public:

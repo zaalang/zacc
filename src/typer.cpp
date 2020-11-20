@@ -441,6 +441,37 @@ namespace
     return type;
   }
 
+  //|///////////////////// resolve_allocator ////////////////////////////////
+  Type *resolve_allocator(TyperContext &ctx, Type *type, Sema &sema)
+  {
+    assert(is_struct_type(type) && (type_cast<TagType>(type)->decl->flags & StructDecl::AllocatorAware));
+
+    Type *allocatortype = nullptr;
+
+    auto basedecl = decl_cast<StructDecl>(type_cast<TagType>(type)->decl);
+
+    for(auto &decl : basedecl->decls)
+    {
+      if (decl->kind() == Decl::FieldVar && decl_cast<FieldVarDecl>(decl)->name == "allocator")
+      {
+        allocatortype = decl_cast<FieldVarDecl>(decl)->type;
+        break;
+      }
+    }
+
+    if (!allocatortype)
+    {
+      allocatortype = resolve_allocator(ctx, basedecl->basetype, sema);
+    }
+
+    if (type_cast<TagType>(type)->args.size() != 0)
+    {
+      allocatortype = substitute_type(ctx, type_cast<TagType>(type)->args, allocatortype, sema);
+    }
+
+    return allocatortype;
+  }
+
   //|///////////////////// resolve_typearg //////////////////////////////////
   Type *resolve_typearg(TyperContext &ctx, Decl *decl, Sema &sema)
   {
@@ -1534,6 +1565,43 @@ namespace
     if (strct->basetype)
     {
       resolve_type(ctx, ctx.stack.back(), strct->basetype, sema);
+
+      if (is_struct_type(strct->basetype) && (type_cast<TagType>(strct->basetype)->decl->flags & StructDecl::AllocatorAware))
+        strct->flags |= StructDecl::AllocatorAware;
+    }
+
+    if (strct->flags & StructDecl::AllocatorAware)
+    {
+      Type *allocatortype = nullptr;
+
+      if (strct->basetype && is_struct_type(strct->basetype) && (type_cast<TagType>(strct->basetype)->decl->flags & StructDecl::AllocatorAware))
+      {
+        allocatortype = resolve_allocator(ctx, strct->basetype, sema);
+      }
+
+      for(auto &decl : strct->decls)
+      {
+        if (decl->kind() == Decl::FieldVar && decl_cast<FieldVarDecl>(decl)->name == "allocator")
+        {
+          if (allocatortype)
+            ctx.diag.error("allocator redefinition", ctx.file, decl->loc());
+
+          allocatortype = decl_cast<FieldVarDecl>(decl)->type;
+        }
+      }
+
+      assert(allocatortype);
+
+      for(auto &decl : strct->decls)
+      {
+        if (decl->kind() == Decl::Function && (decl_cast<FunctionDecl>(decl)->flags & FunctionDecl::Constructor))
+        {
+          auto fn = decl_cast<FunctionDecl>(decl);
+
+          if (!any_of(fn->parms.begin(), fn->parms.end(), [](auto &k) { return decl_cast<ParmVarDecl>(k)->name == "allocator"; }))
+            ctx.diag.error("allocator parameter required", ctx.file, fn->loc());
+        }
+      }
     }
 
     typer_decl(ctx, decl_cast<TagDecl>(strct), sema);

@@ -26,6 +26,7 @@
 #include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/IR/DIBuilder.h>
+#include <llvm/Support/Host.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/ToolOutputFile.h>
@@ -2708,7 +2709,7 @@ namespace
       parms.push_back(load(ctx, fx, src, paramtuple->fields[index]));
     }
 
-    store(ctx, fx, dst, ctx.builder.CreateCall(fn, parms));
+    store(ctx, fx, dst, ctx.builder.CreateCall(llvm::cast<llvm::FunctionType>(fn->getType()->getPointerElementType()), fn, parms));
   }
 
   //|///////////////////// classify /////////////////////////////////////////

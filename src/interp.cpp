@@ -2339,6 +2339,18 @@ namespace
     return true;
   }
 
+  //|///////////////////// is_allocator_aware ///////////////////////////////
+  bool eval_builtin_is_allocator_aware(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto T = callee.find_type(callee.fn->args[0])->second;
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, is_allocatoraware_type(remove_const_type(T)));
+
+    return true;
+  }
+
   //|///////////////////// memset ///////////////////////////////////////////
   bool eval_builtin_memset(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -2808,6 +2820,9 @@ namespace
         case Builtin::max:
         case Builtin::copysign:
           return eval_builtin_binary_arithmetic(ctx, fx, dst, call);
+
+        case Builtin::is_allocator_aware:
+          return eval_builtin_is_allocator_aware(ctx, fx, dst, call);
 
         case Builtin::memset:
           return eval_builtin_memset(ctx, fx, dst, call);

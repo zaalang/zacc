@@ -5896,15 +5896,7 @@ namespace
   {
     Diag diag(ctx.diag.leader());
 
-    auto fx = FnSig(decl_cast<FunctionDecl>(reqires->decl), ctx.stack.back().typeargs);
-
-    auto mir = lower(fx, ctx.typetable, diag);
-
-    if (fx.fn->returntype)
-    {
-      if (!deduce_type(ctx, ctx.stack.back(), fx, fx.fn->returntype, find_returntype(ctx, mir.fx)))
-        diag.error("returntype false");
-    }
+    lower(FnSig(decl_cast<FunctionDecl>(reqires->decl), ctx.stack.back().typeargs), ctx.typetable, diag);
 
     result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
     result.value = ctx.mir.make_expr<BoolLiteralExpr>(!diag.has_errored(), reqires->loc());
@@ -6190,6 +6182,12 @@ namespace
     auto fn = ctx.mir.fx.fn;
     auto thistype = type_cast<TagType>(ctx.mir.locals[0].type);
 
+    Expr *allocator = nullptr;
+    if (is_allocatoraware_type(thistype))
+    {
+      allocator = ctx.mir.make_expr<DeclRefExpr>(ctx.mir.make_expr<DeclRefDecl>("allocator", fn->loc()), fn->loc());
+    }
+
     auto sm = ctx.push_barrier();
 
     for(size_t index = 0; index < thistype->fields.size(); ++index)
@@ -6220,6 +6218,15 @@ namespace
       {
         vector<Expr*> parms;
         map<string, Expr*> namedparms;
+
+        if (is_allocatoraware_type(thistype))
+        {
+          if (decl->name == "allocator")
+            parms.push_back(allocator);
+
+          else if (is_allocatoraware_type(type))
+            namedparms.emplace("allocator", allocator);
+        }
 
         lower_new(ctx, result, address, type, parms, namedparms, decl->loc());
       }
@@ -6291,6 +6298,13 @@ namespace
     auto fn = ctx.mir.fx.fn;
     auto thistype = type_cast<CompoundType>(ctx.mir.locals[0].type);
 
+    MIR::Fragment allocator;
+    if (is_allocatoraware_type(thistype))
+    {
+      if (!lower_expr(ctx, allocator, decl_cast<ParmVarDecl>(fn->parms[0]), fn->loc()))
+        return;
+    }
+
     for(size_t index = 0; index < thistype->fields.size(); ++index)
     {
       auto type = thistype->fields[index];
@@ -6305,6 +6319,17 @@ namespace
 
       vector<MIR::Fragment> parms;
       map<string_view, MIR::Fragment> namedparms;
+
+      if (is_allocatoraware_type(thistype))
+      {
+        auto decl = decl_cast<FieldVarDecl>(type_cast<TagType>(thistype)->fieldvars[index]);
+
+        if (decl->name == "allocator")
+          parms.push_back(allocator);
+
+        else if (is_allocatoraware_type(type))
+          namedparms.emplace("allocator", allocator);
+      }
 
       auto callee = find_callee(ctx, type, parms, namedparms);
 
@@ -6341,6 +6366,13 @@ namespace
     auto thistype = type_cast<CompoundType>(ctx.mir.locals[0].type);
     auto thattype = resolve_as_reference(ctx, ctx.mir.locals[1]);
 
+    MIR::Fragment allocator;
+    if (is_allocatoraware_type(thistype))
+    {
+      if (!lower_expr(ctx, allocator, decl_cast<ParmVarDecl>(fn->parms[1]), fn->loc()))
+        return;
+    }
+
     for(size_t index = 0; index < thistype->fields.size(); ++index)
     {
       auto type = thistype->fields[index];
@@ -6355,6 +6387,17 @@ namespace
 
       if (parms[0].type.flags & MIR::Local::XValue)
         parms[0].type.flags = (parms[0].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
+
+      if (is_allocatoraware_type(thistype))
+      {
+        auto decl = decl_cast<FieldVarDecl>(type_cast<TagType>(thistype)->fieldvars[index]);
+
+        if (decl->name == "allocator")
+          parms[0] = allocator;
+
+        else if (is_allocatoraware_type(type))
+          namedparms.emplace("allocator", allocator);
+      }
 
       auto callee = find_callee(ctx, type, parms, namedparms);
 
@@ -6393,6 +6436,9 @@ namespace
 
     for(size_t index = 0; index < thistype->fields.size(); ++index)
     {
+      if (is_allocatoraware_type(thistype) && decl_cast<FieldVarDecl>(type_cast<TagType>(thistype)->fieldvars[index])->name == "allocator")
+        continue;
+
       MIR::Fragment result;
 
       vector<MIR::Fragment> parms(2);
@@ -6436,6 +6482,9 @@ namespace
 
     for(size_t index = 0; index < thistype->fields.size(); ++index)
     {
+      if (is_allocatoraware_type(thistype) && decl_cast<FieldVarDecl>(type_cast<TagType>(thistype)->fieldvars[index])->name == "allocator")
+        continue;
+
       MIR::Fragment result;
 
       vector<MIR::Fragment> parms(2);
@@ -6479,6 +6528,9 @@ namespace
 
     for(size_t index = 0; index < thistype->fields.size(); ++index)
     {
+      if (is_allocatoraware_type(thistype) && decl_cast<FieldVarDecl>(type_cast<TagType>(thistype)->fieldvars[index])->name == "allocator")
+        continue;
+
       MIR::Fragment result;
 
       vector<MIR::Fragment> parms(2);

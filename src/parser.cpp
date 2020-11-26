@@ -1653,12 +1653,9 @@ namespace
       case Token::amp:
       case Token::star:
       case Token::ampamp:
-        ctx.consume_token();
-        return parse_expression_head(ctx, op, parse_expression_left(ctx, sema), sema);
-
       case Token::hash:
         ctx.consume_token();
-        return parse_expression_head(ctx, op, parse_expression(ctx, sema), sema);
+        return parse_expression_head(ctx, op, parse_expression_left(ctx, sema), sema);
 
       default:
         return nullptr;
@@ -2098,18 +2095,40 @@ namespace
       }
     }
 
-    if (ctx.try_consume_token(Token::l_paren))
+    if (ctx.tok == Token::l_paren)
     {
-      fn->parms = parse_parms_list(ctx, sema);
+      auto tok = ctx.tok;
+      auto lexcursor = ctx.lexcursor;
 
-      if (!ctx.try_consume_token(Token::r_paren))
+      for(int indent = 0; tok != Token::eof; )
       {
-        ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-        goto resume;
+        if (tok == Token::l_paren)
+          indent += 1;
+
+        if (tok == Token::r_paren)
+          if (--indent <= 0)
+            break;
+
+        lexcursor = lex(ctx.text, lexcursor, tok);
+      }
+
+      lexcursor = lex(ctx.text, lexcursor, tok);
+
+      if (tok == Token::arrow || tok == Token::l_brace)
+      {
+        ctx.consume_token(Token::l_paren);
+
+        fn->parms = parse_parms_list(ctx, sema);
+
+        if (!ctx.try_consume_token(Token::r_paren))
+        {
+          ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+          goto resume;
+        }
       }
     }
 
-    if (ctx.tok == Token::l_brace || ctx.tok == Token::arrow)
+    if (ctx.tok == Token::arrow || ctx.tok == Token::l_brace)
     {
       reqires->flags |= RequiresDecl::Expression;
 
@@ -3541,6 +3560,12 @@ namespace
       }
 
       trys->errorvar = var;
+    }
+
+    if (ctx.tok != Token::l_brace)
+    {
+      ctx.diag.error("expected brace", ctx.text, ctx.tok.loc);
+      goto resume;
     }
 
     trys->handler = parse_compound_statement(ctx, sema);

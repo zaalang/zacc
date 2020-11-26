@@ -63,6 +63,15 @@ class Diag
       return diag;
     }
 
+    friend Diag &operator<<(Diag &diag, Diag &out)
+    {
+      if (out.has_errored())
+        diag.m_errored = true;
+
+      diag.os << out.str();
+      return diag;
+    }
+
   public:
 
     struct Marker

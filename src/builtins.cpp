@@ -473,7 +473,7 @@ namespace Builtin
     make_function(SubCarry, "pub fn __sub_with_carry<T>(T, T) -> (T, T)", __LINE__);
     make_function(MulCarry, "pub fn __mul_with_carry<T>(T, T) -> (T, T)", __LINE__);
 
-    make_function(ArrayLen, "pub const fn len<T, N>(T[N]&) -> usize", __LINE__);
+    make_function(ArrayLen, "pub const fn len<T>(T&) -> usize", __LINE__);
     make_function(ArrayData, "pub fn data<T, N>(T[N]&) -> T*", __LINE__);
     make_function(ArrayData, "pub fn data<T, N>(T[N] mut &) -> T mut *", __LINE__);
     make_function(ArrayIndex, "pub fn []<T, N>(T[N]&, usize) -> T&", __LINE__);
@@ -505,6 +505,9 @@ namespace Builtin
     make_function(is_const, "pub const fn __is_const<T>() -> bool", __LINE__);
     make_function(is_rvalue, "pub const fn __is_rvalue<T>() -> bool", __LINE__);
     make_function(is_match, "pub const fn __is_match<T, U>() -> bool", __LINE__);
+    make_function(is_array, "pub const fn __is_array<T>() -> bool", __LINE__);
+    make_function(is_tuple, "pub const fn __is_tuple<T>() -> bool", __LINE__);
+    make_function(is_allocator_aware, "pub const fn __is_allocator_aware<T>() -> bool", __LINE__);
     make_function(tuple_len, "pub const fn __tuple_len<T>() -> usize", __LINE__);
     make_function(array_len, "pub const fn __array_len<T>() -> usize", __LINE__);
 
@@ -533,8 +536,6 @@ namespace Builtin
     make_function(frexp, "pub const fn __frexp<T>(T) -> (T, int)", __LINE__);
     make_function(ldexp, "pub const fn __ldexp<T>(T, int) -> T", __LINE__);
     make_function(sqrt, "pub const fn __sqrt<T>(T) -> T", __LINE__);
-
-    make_function(is_allocator_aware, "pub const fn __is_allocator_aware<T>() -> bool", __LINE__);
 
     make_function(memset, "pub fn __memset(void mut *, u8, usize) -> void mut *", __LINE__);
     make_function(memcpy, "pub fn __memcpy(void mut *, void*, usize) -> void mut *", __LINE__);
@@ -674,6 +675,7 @@ namespace Builtin
       case Builtin::Array_Copytructor:
       case Builtin::Array_Assignment:
       case Builtin::Array_Destructor:
+      case Builtin::ArrayLen:
         if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
           return is_array_type(T->second);
         break;
@@ -779,6 +781,20 @@ namespace Builtin
         if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
           return is_builtin(T->second) || is_enum(T->second) || is_pointer(T->second) || is_reference(T->second);
         break;
+
+      case Builtin::is_const:
+      case Builtin::is_rvalue:
+      case Builtin::is_array:
+      case Builtin::is_tuple:
+      case Builtin::is_allocator_aware:
+      case Builtin::is_integral:
+      case Builtin::is_floating_point:
+      case Builtin::is_arithmetic:
+        return fx.typeargs.size() == 1;
+
+      case Builtin::is_same:
+      case Builtin::is_match:
+        return fx.typeargs.size() == 2;
 
       case Builtin::array_len:
         if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())

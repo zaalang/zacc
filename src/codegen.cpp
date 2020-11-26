@@ -3896,8 +3896,25 @@ namespace
 
       parameters.push_back(llvm_ditype(ctx, fx.mir.locals[0]));
 
+      if (fx.firstarg_return)
+      {
+        parameters.push_back(ctx.di.createReferenceType(llvm::dwarf::DW_TAG_pointer_type, llvm::cast<llvm::DIType>(parameters[0])));
+        parameters[0] = nullptr;
+
+        if (fx.mir.throws)
+          parameters.push_back(ctx.di.createReferenceType(llvm::dwarf::DW_TAG_pointer_type, llvm_ditype(ctx, fx.mir.locals[1])));
+      }
+
       for(size_t i = fx.mir.args_beg, end = fx.mir.args_end; i != end; ++i)
+      {
+        if (fx.mir.locals[i].zerosized())
+          continue;
+
         parameters.push_back(llvm_ditype(ctx, fx.mir.locals[i]));
+
+        if (fx.locals[i].passarg_pointer)
+          parameters.back() = ctx.di.createReferenceType(llvm::dwarf::DW_TAG_pointer_type, llvm::cast<llvm::DIType>(parameters.back()));
+      }
 
       auto fnloc = fx.fn->loc().lineno;
       auto scopeloc = fx.fn->body ? fx.fn->body->loc().lineno : fnloc;

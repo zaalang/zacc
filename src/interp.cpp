@@ -24,7 +24,7 @@ namespace
   struct EvalContext
   {
     Scope dx;
-    Diag &diag;
+    Diag diag;
 
     TypeTable &typetable;
 
@@ -50,7 +50,7 @@ namespace
 
     EvalContext(Scope const &dx, TypeTable &typetable, Diag &diag)
       : dx(dx),
-        diag(diag),
+        diag(diag.leader()),
         typetable(typetable)
     {
       exception = false;
@@ -1968,88 +1968,6 @@ namespace
     return true;
   }
 
-  //|///////////////////// is_same //////////////////////////////////////////
-  bool eval_builtin_is_same(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
-  {
-    auto &[callee, args, loc] = call;
-
-    auto T = callee.find_type(callee.fn->args[0])->second;
-
-    if (is_qualarg_type(T))
-    {
-      if (type_cast<QualArgType>(T)->qualifiers & QualArgType::Const)
-        T = ctx.typetable.find_or_create<ConstType>(type_cast<QualArgType>(T)->type);
-      else
-        T = type_cast<QualArgType>(T)->type;
-    }
-
-    auto U = callee.find_type(callee.fn->args[1])->second;
-
-    if (is_qualarg_type(U))
-    {
-      if (type_cast<QualArgType>(U)->qualifiers & QualArgType::Const)
-        U = ctx.typetable.find_or_create<ConstType>(type_cast<QualArgType>(U)->type);
-      else
-        U = type_cast<QualArgType>(U)->type;
-    }
-
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, T == U);
-
-    return true;
-  }
-
-  //|///////////////////// is_const /////////////////////////////////////////
-  bool eval_builtin_is_const(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
-  {
-    auto &[callee, args, loc] = call;
-
-    auto T = callee.find_type(callee.fn->args[0])->second;
-
-    bool is_const = is_const_type(T) || (is_qualarg_type(T) && (type_cast<QualArgType>(T)->qualifiers & QualArgType::Const));
-
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, is_const);
-
-    return true;
-  }
-
-  //|///////////////////// is_rvalue ////////////////////////////////////////
-  bool eval_builtin_is_rvalue(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
-  {
-    auto &[callee, args, loc] = call;
-
-    auto T = callee.find_type(callee.fn->args[0])->second;
-
-    bool is_rvalue = is_qualarg_type(T) && (type_cast<QualArgType>(T)->qualifiers & QualArgType::RValue);
-
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, is_rvalue);
-
-    return true;
-  }
-
-  //|///////////////////// array_len ////////////////////////////////////////
-  bool eval_builtin_array_len(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
-  {
-    auto &[callee, args, loc] = call;
-
-    auto arraytype = type_cast<ArrayType>(callee.find_type(callee.fn->args[0])->second);
-
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, array_len(arraytype));
-
-    return true;
-  }
-
-  //|///////////////////// tuple_len ////////////////////////////////////////
-  bool eval_builtin_tuple_len(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
-  {
-    auto &[callee, args, loc] = call;
-
-    auto tupletype = type_cast<TupleType>(callee.find_type(callee.fn->args[0])->second);
-
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Numeric::int_literal(1, tuple_len(tupletype)));
-
-    return true;
-  }
-
   //|///////////////////// classify /////////////////////////////////////////
   bool eval_builtin_classify(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -2122,42 +2040,6 @@ namespace
   bool eval_builtin_inf(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
     store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Numeric::float_literal(std::numeric_limits<double>::infinity()));
-
-    return true;
-  }
-
-  //|///////////////////// is_integral //////////////////////////////////////
-  bool eval_builtin_is_integral(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
-  {
-    auto &[callee, args, loc] = call;
-
-    auto T = callee.find_type(callee.fn->args[0])->second;
-
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, is_int_type(T) || is_char_type(T));
-
-    return true;
-  }
-
-  //|///////////////////// is_floating_point ////////////////////////////////
-  bool eval_builtin_is_floating_point(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
-  {
-    auto &[callee, args, loc] = call;
-
-    auto T = callee.find_type(callee.fn->args[0])->second;
-
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, is_float_type(T));
-
-    return true;
-  }
-
-  //|///////////////////// is_arithmetic ////////////////////////////////////
-  bool eval_builtin_is_arithmetic(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
-  {
-    auto &[callee, args, loc] = call;
-
-    auto T = callee.find_type(callee.fn->args[0])->second;
-
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, is_int_type(T) || is_char_type(T) || is_float_type(T));
 
     return true;
   }
@@ -2335,18 +2217,6 @@ namespace
       ctx.diag << "  operand type: '" << *fx.locals[args[0]].type << "'\n";
       return false;
     }
-
-    return true;
-  }
-
-  //|///////////////////// is_allocator_aware ///////////////////////////////
-  bool eval_builtin_is_allocator_aware(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
-  {
-    auto &[callee, args, loc] = call;
-
-    auto T = callee.find_type(callee.fn->args[0])->second;
-
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, is_allocatoraware_type(remove_const_type(T)));
 
     return true;
   }
@@ -2755,21 +2625,6 @@ namespace
         case Builtin::ArrayEnd:
           return eval_builtin_array_end(ctx, fx, dst, call);
 
-        case Builtin::is_same:
-          return eval_builtin_is_same(ctx, fx, dst, call);
-
-        case Builtin::is_const:
-          return eval_builtin_is_const(ctx, fx, dst, call);
-
-        case Builtin::is_rvalue:
-          return eval_builtin_is_rvalue(ctx, fx, dst, call);
-
-        case Builtin::array_len:
-          return eval_builtin_array_len(ctx, fx, dst, call);
-
-        case Builtin::tuple_len:
-          return eval_builtin_tuple_len(ctx, fx, dst, call);
-
         case Builtin::is_nan:
         case Builtin::is_finite:
         case Builtin::is_normal:
@@ -2780,15 +2635,6 @@ namespace
 
         case Builtin::inf:
           return eval_builtin_inf(ctx, fx, dst, call);
-
-        case Builtin::is_integral:
-          return eval_builtin_is_integral(ctx, fx, dst, call);
-
-        case Builtin::is_floating_point:
-          return eval_builtin_is_floating_point(ctx, fx, dst, call);
-
-        case Builtin::is_arithmetic:
-          return eval_builtin_is_arithmetic(ctx, fx, dst, call);
 
         case Builtin::clz:
           return eval_builtin_clz(ctx, fx, dst, call);
@@ -2820,9 +2666,6 @@ namespace
         case Builtin::max:
         case Builtin::copysign:
           return eval_builtin_binary_arithmetic(ctx, fx, dst, call);
-
-        case Builtin::is_allocator_aware:
-          return eval_builtin_is_allocator_aware(ctx, fx, dst, call);
 
         case Builtin::memset:
           return eval_builtin_memset(ctx, fx, dst, call);
@@ -3245,22 +3088,21 @@ EvalResult evaluate(Scope const &scope, MIR const &mir, TypeTable &typetable, Di
 
   EvalContext ctx(scope, typetable, diag);
 
-  if (ctx.diag.has_errored())
-    return result;
-
   if (!type_resolved(mir.locals[0].type))
   {
-    ctx.diag.error("unresolved expression type", scope, loc);
+    diag.error("unresolved expression type", scope, loc);
     return result;
   }
 
   auto returnvalue = alloc(ctx, mir.locals[0]);
 
-  if (!eval_function(ctx, scope, mir, returnvalue))
-    return result;
+  if (eval_function(ctx, scope, mir, returnvalue))
+  {
+    result.type = returnvalue.type;
+    result.value = make_expr(ctx, returnvalue, loc);
+  }
 
-  result.type = returnvalue.type;
-  result.value = make_expr(ctx, returnvalue, loc);
+  diag << ctx.diag;
 
   return result;
 }
@@ -3273,28 +3115,98 @@ EvalResult evaluate(Scope const &scope, FnSig const &callee, vector<EvalResult> 
 
   if (!type_resolved(callee.returntype))
   {
-    ctx.diag.error("unresolved return type", scope, loc);
+    diag.error("unresolved return type", scope, loc);
     return result;
   }
 
   auto returnvalue = alloc(ctx, callee.returntype);
 
-  if (!eval_function(ctx, scope, callee, returnvalue, parms, loc))
-    return result;
-
-  if (ctx.exception)
+  if (eval_function(ctx, scope, callee, returnvalue, parms, loc))
   {
-    ctx.diag.error("exception occured in compile time context", scope, loc);
-    return result;
+    if (ctx.exception)
+    {
+      diag << ctx.diag;
+      diag.error("exception occured in compile time context", scope, loc);
+      return result;
+    }
+
+    result.type = returnvalue.type;
+    result.value = make_expr(ctx, returnvalue, loc);
   }
 
-  result.type = returnvalue.type;
-  result.value = make_expr(ctx, returnvalue, loc);
+  diag << ctx.diag;
 
   return result;
 }
 
 EvalResult evaluate(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fragment> const &symbols, TypeTable &typetable, Diag &diag, SourceLocation loc)
 {
-  return evaluate(scope, lower(scope, expr, symbols, typetable, diag), typetable, diag, loc);
+  EvalResult result = {};
+
+  if (expr->kind() == Expr::Paren)
+  {
+    auto paren = expr_cast<ParenExpr>(expr);
+
+    return evaluate(scope, paren->subexpr, symbols, typetable, diag, loc);
+  }
+
+  if (expr->kind() == Expr::BinaryOp)
+  {
+    auto binaryop = expr_cast<BinaryOpExpr>(expr);
+
+    if (binaryop->op() == BinaryOpExpr::LAnd || binaryop->op() == BinaryOpExpr::LOr)
+    {
+      result = evaluate(scope, binaryop->lhs, symbols, typetable, diag, loc);
+
+      if (!is_bool_type(result.type))
+      {
+        diag.error("non bool logical expression", scope, binaryop->lhs->loc());
+        return result;
+      }
+
+      if (binaryop->op() == BinaryOpExpr::LAnd && !expr_cast<BoolLiteralExpr>(result.value)->value())
+        return result;
+
+      if (binaryop->op() == BinaryOpExpr::LOr && expr_cast<BoolLiteralExpr>(result.value)->value())
+        return result;
+
+      result = evaluate(scope, binaryop->rhs, symbols, typetable, diag, loc);
+
+      if (!is_bool_type(result.type))
+      {
+        diag.error("non bool logical expression", scope, binaryop->rhs->loc());
+        return result;
+      }
+
+      return result;
+    }
+  }
+
+  EvalContext ctx(scope, typetable, diag);
+
+  auto mir = lower(scope, expr, symbols, typetable, ctx.diag);
+
+  if (ctx.diag.has_errored())
+  {
+    diag << ctx.diag;
+    return result;
+  }
+
+  if (!type_resolved(mir.locals[0].type))
+  {
+    diag.error("unresolved expression type", scope, loc);
+    return result;
+  }
+
+  auto returnvalue = alloc(ctx, mir.locals[0]);
+
+  if (eval_function(ctx, scope, mir, returnvalue))
+  {
+    result.type = returnvalue.type;
+    result.value = make_expr(ctx, returnvalue, loc);
+  }
+
+  diag << ctx.diag;
+
+  return result;
 }

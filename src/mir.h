@@ -24,10 +24,6 @@
 class FnSig
 {
   public:
-
-    using TypeArgs = std::vector<std::pair<Decl*, Type*>>;
-
-  public:
     FnSig(FunctionDecl *fn = nullptr, Type *returntype = nullptr, Type *throwtype = nullptr);
     FnSig(FunctionDecl *fn, std::vector<std::pair<Decl*, Type*>> const &typeargs, Type *returntype = nullptr, Type *throwtype = nullptr);
 
@@ -72,7 +68,7 @@ class FnSig
     Type *returntype;
     Type *throwtype;
 
-    TypeArgs typeargs;
+    std::vector<std::pair<Decl*, Type*>> typeargs;
 
     size_t hash;
 };

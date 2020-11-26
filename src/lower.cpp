@@ -384,12 +384,12 @@ namespace
         return child_scope(ctx, scope, decl_cast<FunctionDecl>(decl), k, args, namedargs);
 
       case Decl::TypeAlias:
-        if (auto j = resolve_type(ctx, child_scope(ctx, scope, decl_cast<TypeAliasDecl>(decl), k, args, namedargs), decl_cast<TypeAliasDecl>(decl)->type))
+        if (auto j = resolve_type(ctx, child_scope(ctx, scope, decl_cast<TypeAliasDecl>(decl), k, args, namedargs), decl_cast<TypeAliasDecl>(decl)->type); j && is_tag_type(j))
           return type_scope(ctx, j);
         break;
 
       case Decl::TypeArg:
-        if (auto j = scope.find_type(decl); j != scope.typeargs.end())
+        if (auto j = scope.find_type(decl); j != scope.typeargs.end() && is_tag_type(j->second))
           return type_scope(ctx, j->second);
         break;
 
@@ -427,19 +427,9 @@ namespace
   }
 
   //|///////////////////// eval /////////////////////////////////////////////
-  int eval(LowerContext &ctx, Scope const &scope, Expr *expr, bool report)
+  int eval(LowerContext &ctx, Scope const &scope, Expr *expr)
   {
-    Diag diag(ctx.diag.leader());
-
-    auto result = evaluate(scope, expr, ctx.symbols, ctx.typetable, diag, expr->loc());
-
-    if (diag.has_errored())
-    {
-      if (report)
-        ctx.diag << diag.str();
-
-      return -1;
-    }
+    auto result = evaluate(scope, expr, ctx.symbols, ctx.typetable, ctx.diag, expr->loc());
 
     if (result.type != ctx.booltype)
     {
@@ -677,13 +667,13 @@ namespace
     {
       if (decl->kind() == Decl::If)
       {
-        if (eval(ctx, super_scope(scope, decl), decl_cast<IfDecl>(decl)->cond, true) == 1)
+        if (eval(ctx, super_scope(scope, decl), decl_cast<IfDecl>(decl)->cond) == 1)
         {
           find_decls(ctx, scope, decl_cast<IfDecl>(decl)->decls, results);
         }
         else if (auto elseif = decl_cast<IfDecl>(decl)->elseif)
         {
-          if (eval(ctx, super_scope(scope, decl), decl_cast<IfDecl>(elseif)->cond, true) == 1)
+          if (eval(ctx, super_scope(scope, decl), decl_cast<IfDecl>(elseif)->cond) == 1)
           {
             find_decls(ctx, scope, decl_cast<IfDecl>(elseif)->decls, results);
           }
@@ -751,7 +741,7 @@ namespace
 
           auto ifd = decl_cast<IfDecl>(decl);
 
-          if ((ifd->flags & IfDecl::ResolvedTrue) || (!(ifd->flags & IfDecl::ResolvedFalse) && eval(ctx, super_scope(scope, decl), ifd->cond, true) == 1))
+          if ((ifd->flags & IfDecl::ResolvedTrue) || (!(ifd->flags & IfDecl::ResolvedFalse) && eval(ctx, super_scope(scope, decl), ifd->cond) == 1))
             find_decls(decl, name, queryflags, results);
           else
             if (auto elseif = ifd->elseif)
@@ -1321,15 +1311,15 @@ namespace
     else if (vardecl->kind() == Decl::ParmVar)
     {
       type = resolve_type_as_value(ctx, scope, decl_cast<ParmVarDecl>(vardecl));
-
-      if (is_pack_type(vardecl->type))
-      {
-        type = remove_reference_type(type);
-      }
     }
     else
     {
       type = resolve_type(ctx, scope, vardecl->type);
+    }
+
+    if (is_pack_type(vardecl->type))
+    {
+      type = remove_reference_type(type);
     }
 
     return resolve_deref(ctx, type, vardecl->type);
@@ -1771,19 +1761,16 @@ namespace
 
       auto reqires = decl_cast<RequiresDecl>(decl);
 
-      auto fx = FnSig(reqires->fn, sig.typeargs);
-
-      for(auto &arg : fx.fn->args)
-        fx.set_type(arg, type);
-
-      auto mir = lower(fx, ctx.typetable, diag);
-
-      if (diag.has_errored())
-        return false;
-
       if (reqires->flags & RequiresDecl::Condition)
       {
-        auto result = evaluate(scope, mir, ctx.typetable, diag, reqires->loc());
+        auto sx = Scope(reqires->fn, sig.typeargs);
+
+        for(auto &arg : reqires->fn->args)
+          sx.set_type(arg, type);
+
+        auto expr = stmt_cast<ReturnStmt>(reqires->fn->body)->expr;
+
+        auto result = evaluate(sx, expr, ctx.symbols, ctx.typetable, diag, reqires->loc());
 
         if (result.type != ctx.booltype || !expr_cast<BoolLiteralExpr>(result.value)->value())
           return false;
@@ -1791,6 +1778,16 @@ namespace
 
       if (reqires->flags & RequiresDecl::Expression)
       {
+        auto fx = FnSig(reqires->fn, sig.typeargs);
+
+        for(auto &arg : reqires->fn->args)
+          fx.set_type(arg, type);
+
+        auto mir = lower(fx, ctx.typetable, diag);
+
+        if (diag.has_errored())
+          return false;
+
         if (reqires->requirestype)
         {
           if (!deduce_type(ctx, scope, sig, reqires->requirestype, mir.locals[0]))
@@ -2600,6 +2597,9 @@ namespace
 
                   lower_expression(cttx, expr_cast<UnaryOpExpr>(value)->subexpr);
 
+                  if (ctx.diag.has_errored())
+                    break;
+
                   if (auto expr = evaluate(fnscope, cttx.mir, ctx.typetable, ctx.diag, parm->defult->loc()))
                   {
                     value = expr.value;
@@ -2629,7 +2629,7 @@ namespace
 
           if (fn->where)
           {
-            viable &= eval(ctx, Scope(fx.fn, fx.typeargs), fn->where, false) == 1;
+            viable &= eval(ctx, Scope(fx.fn, fx.typeargs), fn->where) == 1;
           }
 
           if (viable)
@@ -3215,15 +3215,19 @@ namespace
                 tx.name = decl_cast<FunctionDecl>(decl)->name;
             }
           }
+          else
+          {
+            if (is_array_type(j->second))
+              tx.name = "~#array";
 
-          if (is_array_type(j->second))
-            tx.name = "~#array";
+            if (is_tuple_type(j->second))
+              tx.name = "~#tuple";
 
-          if (is_tuple_type(j->second))
-            tx.name = "~#tuple";
+            if (is_builtin_type(j->second) || is_pointer_type(j->second) || is_reference_type(j->second))
+              tx.name = "~#builtin";
 
-          if (is_builtin_type(j->second) || is_pointer_type(j->second) || is_reference_type(j->second))
-            tx.name = "~#builtin";
+            declref.scope = ctx.translationunit->builtins;
+          }
         }
       }
 
@@ -3600,7 +3604,6 @@ namespace
       }
 
       expr.type.flags &= ~MIR::Local::Const;
-      expr.type.flags &= ~MIR::Local::XValue;
     }
 
     expr.type.flags &= ~MIR::Local::Literal;
@@ -3896,44 +3899,105 @@ namespace
     result.value = std::move(expr.value);
   }
 
-  //|///////////////////// array_len ////////////////////////////////////////
-  void lower_array_len(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, MIR::Fragment &expr, SourceLocation loc)
+  //|///////////////////// lower_trait //////////////////////////////////////
+  void lower_trait(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
   {
-    auto arraytype = type_cast<ArrayType>(expr.type.type);
+    Type *args[2] = {};
+
+    for(size_t i = 0; i < callee.fn->args.size(); ++i)
+    {
+      args[i] = callee.find_type(callee.fn->args[i])->second;
+    }
+
+    bool match = false;
+
+    switch(callee.fn->builtin)
+    {
+      case Builtin::is_const:
+        match = is_const_type(args[0]) || (is_qualarg_type(args[0]) && (type_cast<QualArgType>(args[0])->qualifiers & QualArgType::Const));
+        break;
+
+      case Builtin::is_rvalue:
+        match = is_qualarg_type(args[0]) && (type_cast<QualArgType>(args[0])->qualifiers & QualArgType::RValue);
+        break;
+
+      case Builtin::is_array:
+        match = is_array_type(args[0]);
+        break;
+
+      case Builtin::is_tuple:
+        match = is_tuple_type(args[0]);
+        break;
+
+      case Builtin::is_allocator_aware:
+        match = is_allocatoraware_type(args[0]);
+        break;
+
+      case Builtin::is_integral:
+        match = is_int_type(args[0]) || is_char_type(args[0]);
+        break;
+
+      case Builtin::is_floating_point:
+        match = is_float_type(args[0]);
+        break;
+
+      case Builtin::is_arithmetic:
+        match = is_int_type(args[0]) || is_char_type(args[0]) || is_float_type(args[0]);
+        break;
+
+      case Builtin::is_same:
+
+        for(size_t i = 0; i < 2; ++i)
+        {
+          if (is_qualarg_type(args[i]))
+          {
+            if (type_cast<QualArgType>(args[i])->qualifiers & QualArgType::Const)
+              args[i] = ctx.typetable.find_or_create<ConstType>(type_cast<QualArgType>(args[i])->type);
+            else
+              args[i] = type_cast<QualArgType>(args[i])->type;
+          }
+        }
+
+        match = (args[0] == args[1]);
+        break;
+
+      case Builtin::is_match:
+
+        if (is_typearg_type(args[0]))
+        {
+          if (auto typearg = type_cast<TypeArgType>(args[0]); typearg->koncept)
+          {
+            FnSig sig;
+
+            match = match_concept(ctx, ctx.stack.back(), sig, decl_cast<ConceptDecl>(typearg->koncept), typearg->args, args[1]);
+          }
+        }
+        break;
+
+      default:
+        assert(false);
+    }
+
+    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+    result.value = ctx.mir.make_expr<BoolLiteralExpr>(match, loc);
+  }
+
+  //|///////////////////// array_len ////////////////////////////////////////
+  void lower_array_len(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
+  {
+    auto arraytype = type_cast<ArrayType>(callee.find_type(callee.fn->args[0])->second);
 
     result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
     result.value = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(arraytype->size)->value);
   }
 
   //|///////////////////// tuple_len ////////////////////////////////////////
-  void lower_tuple_len(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, MIR::Fragment &expr, SourceLocation loc)
+  void lower_tuple_len(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
   {
-    auto tupletype = type_cast<TupleType>(expr.type.type);
+    auto tupletype = type_cast<TupleType>(callee.find_type(callee.fn->args[0])->second);
 
     result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
     result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, tupletype->fields.size()), loc);
-  }
-
-  //|///////////////////// match_concept ////////////////////////////////////
-  void lower_match_concept(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
-  {
-    bool match = false;
-
-    auto T = callee.find_type(callee.fn->args[0])->second;
-    auto U = callee.find_type(callee.fn->args[1])->second;
-
-    if (is_typearg_type(T))
-    {
-      if (auto typearg = type_cast<TypeArgType>(T); typearg->koncept)
-      {
-        FnSig sig;
-
-        match = match_concept(ctx, ctx.stack.back(), sig, decl_cast<ConceptDecl>(typearg->koncept), typearg->args, U);
-      }
-    }
-
-    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
-    result.value = ctx.mir.make_expr<BoolLiteralExpr>(match, loc);
   }
 
   //|///////////////////// lower_site ///////////////////////////////////////
@@ -4484,15 +4548,26 @@ namespace
           return true;
 
         case Builtin::ArrayLen:
-          lower_array_len(ctx, result, callee, parms[0], loc);
+        case Builtin::array_len:
+          lower_array_len(ctx, result, callee, loc);
           return true;
 
         case Builtin::TupleLen:
-          lower_tuple_len(ctx, result, callee, parms[0], loc);
+        case Builtin::tuple_len:
+          lower_tuple_len(ctx, result, callee, loc);
           return true;
 
+        case Builtin::is_const:
+        case Builtin::is_rvalue:
+        case Builtin::is_array:
+        case Builtin::is_tuple:
+        case Builtin::is_allocator_aware:
+        case Builtin::is_integral:
+        case Builtin::is_floating_point:
+        case Builtin::is_arithmetic:
+        case Builtin::is_same:
         case Builtin::is_match:
-          lower_match_concept(ctx, result, callee, loc);
+          lower_trait(ctx, result, callee, loc);
           return true;
 
         case Builtin::__site__:
@@ -5630,7 +5705,7 @@ namespace
       }
     }
 
-    if (lhs.type.type != rhs.type.type || (lhs.type.flags & MIR::Local::Reference) != (rhs.type.flags & MIR::Local::Reference))
+    if (lhs.type.type != rhs.type.type || (lhs.type.flags & MIR::Local::Reference) != (rhs.type.flags & MIR::Local::Reference)|| (lhs.type.flags & MIR::Local::XValue) != (rhs.type.flags & MIR::Local::XValue))
     {
       ctx.diag.error("ternary operands differing types", ctx.stack.back(), ternaryop->loc());
       ctx.diag << "  lhs type: '" << *lhs.type.type << "' rhs type: '" << *rhs.type.type << "'\n";
@@ -6094,6 +6169,7 @@ namespace
     commit_type(ctx, arg, value.type.type, value.type.flags);
 
     ctx.mir.locals[arg].flags |= MIR::Local::LValue;
+    ctx.mir.locals[arg].flags &= ~MIR::Local::XValue;
     ctx.mir.locals[arg].flags &= ~MIR::Local::RValue;
 
     if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference) && !(vardecl->flags & VarDecl::Static))
@@ -6169,6 +6245,8 @@ namespace
   void lower_decl(LowerContext &ctx, ThisVarDecl *thisvar)
   {
     assert(ctx.mir.fx.fn->flags & FunctionDecl::Constructor);
+
+    ctx.add_statement(MIR::Statement::storagelive(0));
 
     ctx.mir.add_varinfo(0, thisvar->name, thisvar->loc());
 
@@ -7333,7 +7411,7 @@ namespace
 
     ctx.stack.back().goalpost = nullptr;
 
-    if (eval(ctx, ctx.stack.back(), ifs->cond, true))
+    if (eval(ctx, ctx.stack.back(), ifs->cond) == 1)
     {
       lower_statement(ctx, ifs->stmts[0]);
     }
@@ -7921,7 +7999,7 @@ namespace
 
       if (fors->cond)
       {
-        if (!eval(ctx, ctx.stack.back(), fors->cond, true))
+        if (eval(ctx, ctx.stack.back(), fors->cond) != 1)
         {
           ctx.retire_barrier(ssm);
 
@@ -7982,6 +8060,8 @@ namespace
 
       ctx.unreachable = false;
     }
+
+    ctx.unreachable = false;
 
     for(auto i = ctx.barriers.back().firstbreak; i < ctx.breaks.size(); ++i)
       ctx.mir.blocks[ctx.breaks[i]].terminator.blockid = ctx.currentblockid;
@@ -8205,7 +8285,7 @@ namespace
         commit_type(ctx, 0, result.type.type, result.type.flags);
 
         ctx.mir.locals[0].defn = result.type.defn;
-        ctx.mir.locals[0].flags &= ~(MIR::Local::RValue | MIR::Local::XValue);
+        ctx.mir.locals[0].flags &= ~MIR::Local::RValue;
       }
     }
     else
@@ -8548,7 +8628,7 @@ namespace
 
               auto scope = Scope(callee.fn, callee.typeargs);
 
-              if (callee.fn->where && !eval(ctx, scope, callee.fn->where, false))
+              if (callee.fn->where && eval(ctx, scope, callee.fn->where) != 1)
               {
                 ctx.diag.error("invalid call resolution", ctx.mir.fx.fn, loc);
 

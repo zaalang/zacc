@@ -148,6 +148,9 @@ namespace Builtin
     is_const,
     is_rvalue,
     is_match,
+    is_array,
+    is_tuple,
+    is_allocator_aware,
     tuple_len,
     array_len,
 
@@ -177,8 +180,6 @@ namespace Builtin
     frexp,
     ldexp,
     sqrt,
-
-    is_allocator_aware,
 
     memset,
     memcpy,

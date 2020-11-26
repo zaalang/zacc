@@ -46,9 +46,6 @@ namespace
   {
     auto result = evaluate(scope, expr, ctx.symbols, ctx.typetable, ctx.diag, expr->loc());
 
-    if (ctx.diag.has_errored())
-      return -1;
-
     if (result.type != Builtin::type(Builtin::Type_Bool))
     {
       if (result.type == Builtin::type(Builtin::Type_IntLiteral))
@@ -715,9 +712,7 @@ namespace
           bool allocatoraware = (decl_cast<TagDecl>(*owner)->flags & StructDecl::AllocatorAware);
 
           if ((allocatoraware && fn->parms.size() > 2) || (!allocatoraware && fn->parms.size() > 1))
-          {
             ctx.diag.error("invalid defaulted constructor parameters", ctx.file, fn->loc());
-          }
 
           if ((allocatoraware && fn->parms.size() == 1) || (!allocatoraware && fn->parms.size() == 0))
           {
@@ -727,9 +722,7 @@ namespace
           if ((allocatoraware && fn->parms.size() == 2) || (!allocatoraware && fn->parms.size() == 1))
           {
             if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[0])->type))
-            {
               ctx.diag.error("non-reference first parameter", ctx.file, fn->loc());
-            }
 
             fn->builtin = Builtin::Default_Copytructor;
           }
@@ -751,9 +744,7 @@ namespace
         if (fn->flags & FunctionDecl::Defaulted)
         {
           if (fn->parms.size() != 1)
-          {
             ctx.diag.error("invalid defaulted destructor parameters", ctx.file, fn->loc());
-          }
 
           fn->builtin = Builtin::Default_Destructor;
         }
@@ -765,26 +756,16 @@ namespace
       if (fn->flags & FunctionDecl::Defaulted)
       {
         if (fn->parms.size() != 2)
-        {
           ctx.diag.error("invalid defaulted assignment operator parameters", ctx.file, fn->loc());
-          return;
-        }
 
         if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[0])->type))
-        {
           ctx.diag.error("non-reference first parameter", ctx.file, fn->loc());
-        }
 
         if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[1])->type))
-        {
           ctx.diag.error("non-reference second parameter", ctx.file, fn->loc());
-        }
 
         if (!fn->returntype)
-        {
           ctx.diag.error("missing return type", ctx.file, fn->loc());
-          return;
-        }
 
         fn->builtin = Builtin::Default_Assignment;
       }
@@ -795,16 +776,16 @@ namespace
       if (fn->flags & FunctionDecl::Defaulted)
       {
         if (fn->parms.size() != 2)
-        {
-          ctx.diag.error("invalid equality operator parameters", ctx.file, fn->loc());
-          return;
-        }
+          ctx.diag.error("invalid defaulted equality operator parameters", ctx.file, fn->loc());
+
+        if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[0])->type))
+          ctx.diag.error("non-reference first parameter", ctx.file, fn->loc());
+
+        if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[1])->type))
+          ctx.diag.error("non-reference second parameter", ctx.file, fn->loc());
 
         if (!fn->returntype)
-        {
-          ctx.diag.error("invalid equality operator return type", ctx.file, fn->loc());
-          return;
-        }
+          ctx.diag.error("missing return type", ctx.file, fn->loc());
 
         fn->builtin = Builtin::Default_Equality;
       }
@@ -815,16 +796,16 @@ namespace
       if (fn->flags & FunctionDecl::Defaulted)
       {
         if (fn->parms.size() != 2)
-        {
-          ctx.diag.error("invalid compare operator parameters", ctx.file, fn->loc());
-          return;
-        }
+          ctx.diag.error("invalid defaulted compare operator parameters", ctx.file, fn->loc());
+
+        if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[0])->type))
+          ctx.diag.error("non-reference first parameter", ctx.file, fn->loc());
+
+        if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[1])->type))
+          ctx.diag.error("non-reference second parameter", ctx.file, fn->loc());
 
         if (!fn->returntype)
-        {
-          ctx.diag.error("invalid compare operator return type", ctx.file, fn->loc());
-          return;
-        }
+          ctx.diag.error("missing return type", ctx.file, fn->loc());
 
         fn->builtin = Builtin::Default_Compare;
       }

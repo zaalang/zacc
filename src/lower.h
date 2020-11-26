@@ -318,7 +318,8 @@ namespace LowerFlags
 {
   enum LowerFlags
   {
-    Runtime = 0x01,
+    Clause = 0x01, // short circuit logical expressions
+    Runtime = 0x02, // literal constants deduce to concrete types
   };
 }
 

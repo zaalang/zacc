@@ -657,6 +657,7 @@ namespace Builtin
     auto is_char = [&](Type *type) { return is_char_type(type); };
     auto is_pointer = [&](Type *type) { return is_pointer_type(type); };
     auto is_reference = [&](Type *type) { return is_reference_type(type); };
+    auto base_type = [&](Type *type) { while (is_struct_type(type) && decl_cast<StructDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
 
     switch (fx.fn->builtin)
     {
@@ -677,7 +678,7 @@ namespace Builtin
       case Builtin::Array_Destructor:
       case Builtin::ArrayLen:
         if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
-          return is_array_type(T->second);
+          return is_array_type(T->second) || is_array_type(base_type(T->second));;
         break;
 
       case Builtin::Tuple_Constructor:
@@ -688,7 +689,7 @@ namespace Builtin
       case Builtin::TupleEq:
       case Builtin::TupleCmp:
         if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
-          return is_tuple_type(T->second);
+          return is_tuple_type(T->second) || is_tuple_type(base_type(T->second));
         break;
 
       case Builtin::Tuple_AssignmentEx:

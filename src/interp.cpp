@@ -1944,7 +1944,10 @@ namespace
       auto lhs = load_int(ctx, fx, args[0]);
 
       if (lhs.sign < 0 || lhs.value > 1)
+      {
         ctx.diag.error("bool implicit cast must be 0 or 1", fx.scope, loc);
+        return false;
+      }
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, lhs.value != 0);
     }
@@ -3143,48 +3146,9 @@ EvalResult evaluate(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fr
 {
   EvalResult result = {};
 
-  if (expr->kind() == Expr::Paren)
-  {
-    auto paren = expr_cast<ParenExpr>(expr);
-
-    return evaluate(scope, paren->subexpr, symbols, typetable, diag, loc);
-  }
-
-  if (expr->kind() == Expr::BinaryOp)
-  {
-    auto binaryop = expr_cast<BinaryOpExpr>(expr);
-
-    if (binaryop->op() == BinaryOpExpr::LAnd || binaryop->op() == BinaryOpExpr::LOr)
-    {
-      result = evaluate(scope, binaryop->lhs, symbols, typetable, diag, loc);
-
-      if (!is_bool_type(result.type))
-      {
-        diag.error("non bool logical expression", scope, binaryop->lhs->loc());
-        return result;
-      }
-
-      if (binaryop->op() == BinaryOpExpr::LAnd && !expr_cast<BoolLiteralExpr>(result.value)->value())
-        return result;
-
-      if (binaryop->op() == BinaryOpExpr::LOr && expr_cast<BoolLiteralExpr>(result.value)->value())
-        return result;
-
-      result = evaluate(scope, binaryop->rhs, symbols, typetable, diag, loc);
-
-      if (!is_bool_type(result.type))
-      {
-        diag.error("non bool logical expression", scope, binaryop->rhs->loc());
-        return result;
-      }
-
-      return result;
-    }
-  }
-
   EvalContext ctx(scope, typetable, diag);
 
-  auto mir = lower(scope, expr, symbols, typetable, ctx.diag);
+  auto mir = lower(scope, expr, symbols, typetable, ctx.diag, LowerFlags::Clause);
 
   if (ctx.diag.has_errored())
   {

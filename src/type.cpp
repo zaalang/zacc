@@ -1311,40 +1311,36 @@ size_t alignof_type(Type const *type)
   throw logic_error("invalid type for align");
 }
 
-//|///////////////////// offsetof_type //////////////////////////////////////
-size_t offsetof_type(Type const *type, size_t index)
+//|///////////////////// sizeof_field ///////////////////////////////////////
+size_t sizeof_field(CompoundType const *type, size_t index)
 {
-  assert(type);
+  return sizeof_type(type->fields[index]);
+}
 
-  type = remove_const_type(type);
+//|///////////////////// alignof_field //////////////////////////////////////
+size_t alignof_field(CompoundType const *type, size_t index)
+{
+  return alignof_type(type->fields[index]);
+}
 
-  if (is_compound_type(type))
+//|///////////////////// offsetof_field /////////////////////////////////////
+size_t offsetof_field(CompoundType const *type, size_t index)
+{
+  size_t offset = 0;
+
+  for(auto &field : type->fields)
   {
-    size_t offset = 0;
+    auto alignment = alignof_field(type, &field - &type->fields[0]);
 
-    for(auto &field : type_cast<CompoundType>(type)->fields)
-    {
-      auto alignment = alignof_type(field);
+    offset = (offset + alignment - 1) & -alignment;
 
-      offset = (offset + alignment - 1) & -alignment;
+    if (index == 0)
+      break;
 
-      if (index == 0)
-        break;
+    offset += sizeof_type(field);
 
-      offset += sizeof_type(field);
-
-      index -= 1;
-    }
-
-    return offset;
+    index -= 1;
   }
 
-  if (is_array_type(type))
-  {
-    auto arraytype = type_cast<ArrayType>(type);
-
-    return index * sizeof_type(arraytype->type);
-  }
-
-  throw logic_error("invalid type for offset");
+  return offset;
 }

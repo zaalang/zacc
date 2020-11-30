@@ -19,6 +19,7 @@ using namespace std;
 
 #define PACK_REFS 1
 #define TRANSATIVE_CONST 1
+#define DEFERRED_DEFAULT_ARGS 1
 
 namespace
 {
@@ -344,7 +345,9 @@ namespace
 
       else if (arg->defult)
       {
+#if !DEFERRED_DEFAULT_ARGS
         sx.set_type(arg, resolve_type(ctx, sx, arg->defult));
+#endif
       }
 
       else
@@ -1155,7 +1158,7 @@ namespace
       if (decl->kind() != Decl::FieldVar)
         continue;
 
-      fields.push_back(resolve_type(ctx, scope, decl_cast<FieldVarDecl>(decl)->type));
+      fields.push_back(remove_const_type(resolve_type(ctx, scope, decl_cast<FieldVarDecl>(decl)->type)));
     }
 
     type->resolve(std::move(decls), std::move(fields));
@@ -1687,7 +1690,7 @@ namespace
           {
             auto index = &field - &fields.front();
 
-            if (auto argtype = remove_reference_type(type_cast<TupleType>(j->second)->fields[index]); argtype->klass() == Type::QualArg)
+            if (auto argtype = type_cast<TupleType>(j->second)->fields[index]; argtype->klass() == Type::QualArg)
             {
               auto qualifiers = type_cast<QualArgType>(argtype)->qualifiers;
 
@@ -1822,6 +1825,44 @@ namespace
     }
 
     ctx.typetable.concepts.emplace(std::move(cache_key), sig.typeargs);
+
+    return true;
+  }
+
+  //|///////////////////// match_arguments //////////////////////////////////
+  bool match_arguments(LowerContext &ctx, Scope const &scope, FnSig &sig, MatchExpr *match)
+  {
+    Diag diag(ctx.diag.leader());
+
+    auto fx = FnSig(decl_cast<FunctionDecl>(match->decl), sig.typeargs);
+
+    auto mir = lower(fx, ctx.typetable, diag);
+
+    if (diag.has_errored())
+      return false;
+
+    size_t arg = mir.args_beg;
+    for(auto &parm : fx.parameters())
+    {
+      auto lhs = decl_cast<ParmVarDecl>(parm)->type;
+      auto rhs = mir.locals[arg].type;
+
+      if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type))
+      {
+        lhs = remove_const_type(remove_reference_type(lhs));
+        rhs = remove_const_type(remove_reference_type(rhs));
+      }
+
+      if (!is_typearg_type(lhs))
+      {
+        ctx.diag.error("match parameter must be of type argument type", fx.fn, parm->loc());
+        break;
+      }
+
+      sig.set_type(type_cast<TypeArgType>(lhs)->decl, rhs);
+
+      arg += 1;
+    }
 
     return true;
   }
@@ -2211,7 +2252,17 @@ namespace
         return false;
 
       if (is_qualarg_type(lhs))
-        fx.set_type(parm, rhs.type);
+      {
+        auto defns = type_cast<TupleType>(rhs.type)->defns;
+        auto fields = type_cast<TupleType>(rhs.type)->fields;
+
+        for(auto &field : fields)
+        {
+          field = ctx.typetable.find_or_create<QualArgType>(type_cast<QualArgType>(remove_reference_type(field))->qualifiers, ctx.typetable.var_defn);
+        }
+
+        fx.set_type(parm, ctx.typetable.find_or_create<TupleType>(defns, fields));
+      }
 
       return true;
     }
@@ -2240,7 +2291,7 @@ namespace
           return false;
 
         if (is_qualarg_type(lhs))
-          fx.set_type(parm, ctx.typetable.find_or_create<QualArgType>(qualifiers(returntype), returntype));
+          fx.set_type(parm, ctx.typetable.find_or_create<QualArgType>(qualifiers(returntype), ctx.typetable.var_defn));
 
         return true;
       }
@@ -2250,7 +2301,7 @@ namespace
       return false;
 
     if (is_qualarg_type(lhs))
-      fx.set_type(parm, ctx.typetable.find_or_create<QualArgType>(qualifiers(rhs), rhs.type));
+      fx.set_type(parm, ctx.typetable.find_or_create<QualArgType>(qualifiers(rhs), ctx.typetable.var_defn));
 
     return true;
   }
@@ -2551,7 +2602,7 @@ namespace
           else if (parm->defult)
           {
             if (is_reference_type(parm->type) && is_qualarg_type(remove_reference_type(parm->type)))
-              fx.set_type(parm, ctx.typetable.find_or_create<QualArgType>(MIR::Local::RValue, resolve_type(ctx, scope, parm->type)));
+              fx.set_type(parm, ctx.typetable.find_or_create<QualArgType>(MIR::Local::RValue, ctx.typetable.var_defn));
 
             continue;
           }
@@ -2562,6 +2613,39 @@ namespace
 
         if (k != parms.size() + namedparms.size())
           continue;
+
+        if (viable)
+        {
+          if (fn->match)
+          {
+            viable &= match_arguments(ctx, scope, fx, expr_cast<MatchExpr>(fn->match));
+          }
+        }
+
+#if DEFERRED_DEFAULT_ARGS
+        if (viable)
+        {
+          for(auto sx = Scope(fn); sx; sx = parent_scope(std::move(sx)))
+          {
+            vector<Decl*> *declargs = nullptr;
+
+            if (is_fn_scope(sx))
+              declargs = &decl_cast<FunctionDecl>(get<Decl*>(sx.owner))->args;
+
+            if (is_tag_scope(sx))
+              declargs = &decl_cast<TagDecl>(get<Decl*>(sx.owner))->args;
+
+            if (declargs)
+            {
+              for(auto &arg : *declargs)
+              {
+                if (decl_cast<TypeArgDecl>(arg)->defult && fx.find_type(arg) == fx.typeargs.end())
+                  fx.set_type(arg, resolve_type(ctx, Scope(fx.fn, fx.typeargs), decl_cast<TypeArgDecl>(arg)->defult));
+              }
+            }
+          }
+        }
+#endif
 
         if (viable)
         {
@@ -2867,10 +2951,6 @@ namespace
                 rank += s;
                 break;
 
-              case Type::Pack:
-                rank += s + 1;
-                break;
-
               case Type::Array:
                 self(self, type_cast<ArrayType>(type)->type, (s - 1) / 2);
                 self(self, type_cast<ArrayType>(type)->size, (s - 1) / 2);
@@ -2919,6 +2999,22 @@ namespace
             rank += s;
         };
 
+        if (!is_pack_type(parm->type))
+        {
+          if (k < parms.size())
+          {
+            rankcast(rankcast, parm->type, parms[k], 5);
+          }
+          else if (auto j = namedparms.find(parm->name); j != namedparms.end())
+          {
+            rankcast(rankcast, parm->type, j->second, 5);
+          }
+          else
+          {
+            continue; // Don't penalise defaulted parameters
+          }
+        }
+
         if (!(parm->flags & VarDecl::Literal))
         {
           rank += 5;
@@ -2927,13 +3023,13 @@ namespace
 
           if (is_typearg_type(remove_const_type(remove_reference_type(parm->type))))
           {
-            if (auto typearg = type_cast<TypeArgType>(remove_const_type(remove_reference_type(parm->type))); typearg->koncept)
-            {
-              rank += 1;
+            auto typearg = type_cast<TypeArgType>(remove_const_type(remove_reference_type(parm->type)));
 
-              if (decl_cast<ConceptDecl>(typearg->koncept)->name == "var")
-                rank += 1;
-            }
+            if (!typearg->koncept)
+              rank += 2;
+
+            if (typearg->koncept && decl_cast<ConceptDecl>(typearg->koncept)->name == "var")
+              rank += 1;
           }
 
           if (!((is_pointer_type(parm->type) && !is_const_type(type_cast<PointerType>(parm->type)->type)) ||
@@ -2942,17 +3038,8 @@ namespace
             rank += 1;
         }
 
-        if (!is_pack_type(parm->type))
-        {
-          if (k < parms.size())
-          {
-            rankcast(rankcast, parm->type, parms[k], 100);
-          }
-          else if (auto j = namedparms.find(parm->name); j != namedparms.end())
-          {
-            rankcast(rankcast, parm->type, j->second, 100);
-          }
-        }
+        if (is_pack_type(parm->type))
+          rank += 100000000;
 
         k = is_pack_type(parm->type) ? parms.size() : k + 1;
       }
@@ -8751,9 +8838,6 @@ namespace
           if (statement->src.kind() == MIR::RValue::Variable)
           {
             auto &[op, arg, fields, loc] = statement->src.get<MIR::RValue::Variable>();
-
-            if (arg < mir.args_end)
-              continue; // It is too late at this point to coerce parameter types
 
             if (is_concrete_type(dst.type) && !is_concrete_type(mir.locals[arg].type))
             {

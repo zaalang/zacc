@@ -441,7 +441,9 @@ Type const *remove_pointference_type(Type const *type);
 
 size_t sizeof_type(Type const *type);
 size_t alignof_type(Type const *type);
-size_t offsetof_type(Type const *type, size_t index);
+size_t sizeof_field(CompoundType const *type, size_t index);
+size_t alignof_field(CompoundType const *type, size_t index);
+size_t offsetof_field(CompoundType const *type, size_t index);
 
 std::ostream &operator <<(std::ostream &os, Type const &type);
 

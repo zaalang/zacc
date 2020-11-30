@@ -182,6 +182,12 @@ namespace
     semantic_decl(ctx, requires->decl, sema);
   }
 
+  //|///////////////////// match_expression /////////////////////////////////
+  void semantic_expr(SemanticContext &ctx, MatchExpr *match, Sema &sema)
+  {
+    semantic_decl(ctx, match->decl, sema);
+  }
+
   //|///////////////////// lambda_expression ////////////////////////////////
   void semantic_expr(SemanticContext &ctx, LambdaExpr *lambda, Sema &sema)
   {
@@ -254,6 +260,10 @@ namespace
 
       case Expr::Requires:
         semantic_expr(ctx, expr_cast<RequiresExpr>(expr), sema);
+        break;
+
+      case Expr::Match:
+        semantic_expr(ctx, expr_cast<MatchExpr>(expr), sema);
         break;
 
       case Expr::Lambda:
@@ -819,6 +829,11 @@ namespace
     if (fn->throws)
     {
       semantic_expr(ctx, fn->throws, sema);
+    }
+
+    if (fn->match)
+    {
+      semantic_expr(ctx, fn->match, sema);
     }
 
     if (fn->where)

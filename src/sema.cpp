@@ -467,6 +467,12 @@ Expr *Sema::make_requires_expression(Decl *decl, SourceLocation loc)
   return ast->make_expr<RequiresExpr>(decl, loc);
 }
 
+//|///////////////////// make_match_expression //////////////////////////////
+Expr *Sema::make_match_expression(Decl *decl, SourceLocation loc)
+{
+  return ast->make_expr<MatchExpr>(decl, loc);
+}
+
 //|///////////////////// make_lambda_expression /////////////////////////////
 Expr *Sema::make_lambda_expression(Decl *decl, SourceLocation loc)
 {

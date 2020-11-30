@@ -92,6 +92,7 @@ class Sema
     Expr *make_new_expression(Type *type, Expr *address, SourceLocation loc);
     Expr *make_new_expression(Type *type, Expr *address, std::vector<Expr*> const &parms, std::map<std::string, Expr*> const &namedparms, SourceLocation loc);
     Expr *make_requires_expression(Decl *decl, SourceLocation loc);
+    Expr *make_match_expression(Decl *decl, SourceLocation loc);
     Expr *make_lambda_expression(Decl *decl, SourceLocation loc);
 
     Type *make_const(Type *type);

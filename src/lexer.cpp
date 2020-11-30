@@ -586,7 +586,7 @@ namespace
       case 'a':
         if (identifier == "alignof")
           type = Token::kw_alignof;
-        if (identifier == "await")
+        else if (identifier == "await")
           type = Token::kw_await;
         break;
 
@@ -598,15 +598,15 @@ namespace
       case 'c':
         if (identifier == "const")
           type = Token::kw_const;
-        if (identifier == "class")
+        else if (identifier == "class")
           type = Token::kw_class;
-        if (identifier == "cast")
+        else if (identifier == "cast")
           type = Token::kw_cast;
-        if (identifier == "catch")
+        else if (identifier == "catch")
           type = Token::kw_catch;
-        if (identifier == "continue")
+        else if (identifier == "continue")
           type = Token::kw_continue;
-        if (identifier == "concept")
+        else if (identifier == "concept")
           type = Token::kw_concept;
         break;
 
@@ -615,8 +615,6 @@ namespace
           type = Token::kw_else;
         else if (identifier == "enum")
           type = Token::kw_enum;
-        else if (identifier == "endif")
-          type = Token::kw_endif;
         else if (identifier == "extern")
           type = Token::kw_extern;
         break;
@@ -633,7 +631,7 @@ namespace
       case 'i':
         if (identifier == "if")
           type = Token::kw_if;
-        if (identifier == "import")
+        else if (identifier == "import")
           type = Token::kw_import;
         break;
 
@@ -650,9 +648,9 @@ namespace
       case 'n':
         if (identifier == "null")
           type = Token::kw_null;
-        if (identifier == "new")
+        else if (identifier == "new")
           type = Token::kw_new;
-        if (identifier == "nil")
+        else if (identifier == "nil")
           type = Token::kw_nil;
         break;
 
@@ -664,35 +662,35 @@ namespace
       case 'r':
         if (identifier == "return")
           type = Token::kw_return;
-        if (identifier == "rof")
+        else if (identifier == "rof")
           type = Token::kw_rof;
-        if (identifier == "requires")
+        else if (identifier == "requires")
           type = Token::kw_requires;
         break;
 
       case 's':
         if (identifier == "struct")
           type = Token::kw_struct;
-        if (identifier == "sizeof")
+        else if (identifier == "sizeof")
           type = Token::kw_sizeof;
-        if (identifier == "static")
+        else if (identifier == "static")
           type = Token::kw_static;
         break;
 
       case 't':
         if (identifier == "true")
           type = Token::kw_true;
-        if (identifier == "typedef")
+        else if (identifier == "typedef")
           type = Token::kw_typedef;
-        if (identifier == "typeof")
+        else if (identifier == "typeof")
           type = Token::kw_typeof;
-        if (identifier == "this")
+        else if (identifier == "this")
           type = Token::kw_this;
-        if (identifier == "try")
+        else if (identifier == "try")
           type = Token::kw_try;
-        if (identifier == "throw")
+        else if (identifier == "throw")
           type = Token::kw_throw;
-        if (identifier == "throws")
+        else if (identifier == "throws")
           type = Token::kw_throws;
         break;
 
@@ -704,7 +702,7 @@ namespace
       case 'v':
         if (identifier == "var")
           type = Token::kw_var;
-        if (identifier == "void")
+        else if (identifier == "void")
           type = Token::kw_void;
         break;
 

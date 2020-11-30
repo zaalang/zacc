@@ -560,19 +560,19 @@ namespace
     assert(is_compound_type(type));
 
     auto address = alloc;
-    auto &fields = type_cast<CompoundType>(type)->fields;
+    auto dsttype = type_cast<CompoundType>(type);
 
-    assert(fields.size() == value->fields.size());
+    assert(dsttype->fields.size() == value->fields.size());
 
-    for(size_t i = 0; i < fields.size(); ++i)
+    for(size_t i = 0; i < value->fields.size(); ++i)
     {
-      auto alignment = alignof_type(fields[i]);
+      auto alignment = alignof_field(dsttype, i);
 
       address = (void*)(((size_t)address + alignment - 1) & -alignment);
 
-      store(ctx, address, fields[i], value->fields[i]);
+      store(ctx, address, dsttype->fields[i], value->fields[i]);
 
-      address = (void*)((size_t)address + sizeof_type(fields[i]));
+      address = (void*)((size_t)address + sizeof_type(dsttype->fields[i]));
     }
   }
 
@@ -810,16 +810,16 @@ namespace
         rhs = remove_pointference_type(rhs);
       }
 
-      src = (void*)((size_t)src + offsetof_type(rhs, field.index));
-
       switch(rhs = remove_const_type(rhs); rhs->klass())
       {
         case Type::Tag:
         case Type::Tuple:
+          src = (void*)((size_t)src + offsetof_field(type_cast<CompoundType>(rhs), field.index));
           rhs = type_cast<CompoundType>(rhs)->fields[field.index];
           break;
 
         case Type::Array:
+          src = (void*)((size_t)src + sizeof_type(type_cast<ArrayType>(rhs)->type) * field.index);
           rhs = type_cast<ArrayType>(rhs)->type;
           break;
 
@@ -1343,7 +1343,7 @@ namespace
       auto tupletype = type_cast<TupleType>(fx.locals[dst].type);
 
       store(ctx, fx.locals[dst].alloc, tupletype->fields[0], result);
-      store(ctx, (void*)((size_t)fx.locals[dst].alloc + offsetof_type(tupletype, 1)), tupletype->fields[1], carry);
+      store(ctx, (void*)((size_t)fx.locals[dst].alloc + offsetof_field(tupletype, 1)), tupletype->fields[1], carry);
     }
     else
     {
@@ -1789,7 +1789,7 @@ namespace
     auto tupletype = type_cast<TupleType>(fx.locals[dst].type);
 
     memcpy(fx.locals[dst].alloc, fx.locals[args[0]].alloc, fx.locals[args[0]].size);
-    memcpy((void*)((size_t)fx.locals[dst].alloc + offsetof_type(tupletype, 1)), fx.locals[args[1]].alloc, fx.locals[args[1]].size);
+    memcpy((void*)((size_t)fx.locals[dst].alloc + offsetof_field(tupletype, 1)), fx.locals[args[1]].alloc, fx.locals[args[1]].size);
 
     return true;
   }
@@ -2188,7 +2188,7 @@ namespace
       auto tupletype = type_cast<TupleType>(fx.locals[dst].type);
 
       store(ctx, fx.locals[dst].alloc, tupletype->fields[0], Numeric::float_literal(fraction));
-      store(ctx, (void*)((size_t)fx.locals[dst].alloc + offsetof_type(tupletype, 1)), tupletype->fields[1], Numeric::int_literal(exponent));
+      store(ctx, (void*)((size_t)fx.locals[dst].alloc + offsetof_field(tupletype, 1)), tupletype->fields[1], Numeric::int_literal(exponent));
     }
     else
     {
@@ -3052,9 +3052,11 @@ namespace
     {
       vector<Expr*> fields;
 
-      for(auto &field : type_cast<CompoundType>(type)->fields)
+      auto srctype = type_cast<CompoundType>(type);
+
+      for(auto &field : srctype->fields)
       {
-        auto alignment = alignof_type(field);
+        auto alignment = alignof_field(srctype, &field - &srctype->fields[0]);
 
         alloc = (void*)(((size_t)alloc + alignment - 1) & -alignment);
 

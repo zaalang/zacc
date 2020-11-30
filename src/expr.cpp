@@ -807,6 +807,28 @@ void RequiresExpr::dump(int indent) const
 }
 
 
+//|--------------------- MatchExpr ------------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// MatchExpr::Constructor /////////////////////////////
+MatchExpr::MatchExpr(Decl *decl, SourceLocation loc)
+  : Expr(Match, loc),
+    decl(decl)
+{
+}
+
+//|///////////////////// MatchExpr::dump ////////////////////////////////////
+void MatchExpr::dump(int indent) const
+{
+  cout << spaces(indent) << "MatchExpr " << this << " <" << m_loc << "> " << *this << "\n";
+
+  if (decl)
+  {
+    decl->dump(indent + 2);
+  }
+}
+
+
 //|--------------------- LambdaExpr -----------------------------------------
 //|--------------------------------------------------------------------------
 

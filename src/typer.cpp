@@ -1373,6 +1373,12 @@ namespace
     typer_decl(ctx, requires->decl, sema);
   }
 
+  //|///////////////////// match_expression /////////////////////////////////
+  void resolve_expr(TyperContext &ctx, Scope const &scope, MatchExpr *match, Sema &sema)
+  {
+    typer_decl(ctx, match->decl, sema);
+  }
+
   //|///////////////////// lambda_expression ////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, LambdaExpr *lambda, Sema &sema)
   {
@@ -1445,6 +1451,10 @@ namespace
 
       case Expr::Requires:
         resolve_expr(ctx, scope, expr_cast<RequiresExpr>(expr), sema);
+        break;
+
+      case Expr::Match:
+        resolve_expr(ctx, scope, expr_cast<MatchExpr>(expr), sema);
         break;
 
       case Expr::Lambda:
@@ -1733,6 +1743,11 @@ namespace
     if (fn->throws)
     {
       resolve_expr(ctx, ctx.stack.back(), fn->throws, sema);
+    }
+
+    if (fn->match)
+    {
+      resolve_expr(ctx, ctx.stack.back(), fn->match, sema);
     }
 
     if (fn->where)

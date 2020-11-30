@@ -159,6 +159,7 @@ class FunctionDecl : public Decl
       ConstDecl = 0x20000000,
       LambdaDecl = 0x30000000,
       RequiresDecl = 0x40000000,
+      MatchDecl = 0x50000000,
     };
 
   public:
@@ -175,6 +176,7 @@ class FunctionDecl : public Decl
     Builtin::Kind builtin;
 
     Expr *throws = nullptr;
+    Expr *match = nullptr;
     Expr *where = nullptr;
 
     void dump(int indent) const override;

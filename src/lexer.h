@@ -136,7 +136,6 @@ struct Token
     kw_let,
     kw_if,
     kw_else,
-    kw_endif,
     kw_return,
     kw_typedef,
     kw_class,

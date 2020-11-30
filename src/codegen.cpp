@@ -711,7 +711,7 @@ namespace
       {
         auto vardecl = decl_cast<FieldVarDecl>(type->fieldvars[index]);
 
-        auto field = ctx.di.createMemberType(distruct, vardecl->name, difile, vardecl->loc().lineno, sizeof_type(type->fields[index]) * 8, alignof_type(type->fields[index]) * 8, offsetof_type(type, index) * 8, llvm::DINode::FlagZero, llvm_ditype(ctx, type->fields[index]));
+        auto field = ctx.di.createMemberType(distruct, vardecl->name, difile, vardecl->loc().lineno, sizeof_field(type, index) * 8, alignof_field(type, index) * 8, offsetof_field(type, index) * 8, llvm::DINode::FlagZero, llvm_ditype(ctx, type->fields[index]));
 
         elements.push_back(field);
       }

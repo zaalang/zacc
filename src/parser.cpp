@@ -1455,6 +1455,39 @@ namespace
     return sema.make_requires_expression(fn, fn->loc());
   }
 
+  //|///////////////////// parse_match //////////////////////////////////////
+  Expr *parse_match(ParseContext &ctx, Sema &sema)
+  {
+    auto fn = sema.function_declaration(ctx.tok.loc);
+
+    ctx.consume_token(Token::identifier);
+
+    fn->flags |= FunctionDecl::MatchDecl;
+
+    if (ctx.try_consume_token(Token::l_paren))
+    {
+      fn->parms = parse_parms_list(ctx, sema);
+
+      if (!ctx.try_consume_token(Token::r_paren))
+      {
+        ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+        ctx.comsume_til_resumable();
+        return nullptr;
+      }
+    }
+
+    if (ctx.tok != Token::l_brace)
+    {
+      ctx.diag.error("expected match body", ctx.text, ctx.tok.loc);
+      ctx.comsume_til_resumable();
+      return nullptr;
+    }
+
+    fn->body = parse_compound_statement(ctx, sema);
+
+    return sema.make_match_expression(fn, fn->loc());
+  }
+
   //|///////////////////// parse_lambda /////////////////////////////////////
   Expr *parse_lambda(ParseContext &ctx, Sema &sema)
   {
@@ -1809,7 +1842,7 @@ namespace
   IfDecl *parse_endif_declaration(ParseContext &ctx, IfDecl *ifd, Sema &sema)
   {
     ctx.consume_token(Token::hash);
-    ctx.consume_token(Token::kw_endif);
+    ctx.consume_token(Token::identifier);
 
     return ifd;
   }
@@ -2454,6 +2487,11 @@ namespace
       }
     }
 
+    if (ctx.tok == Token::identifier && ctx.tok.text == "match")
+    {
+      fn->match = parse_match(ctx, sema);
+    }
+
     if (ctx.tok == Token::identifier && ctx.tok.text == "where")
     {
       ctx.consume_token(Token::identifier);
@@ -2910,7 +2948,7 @@ namespace
             break;
 
           case Token::hash:
-            switch (ctx.token(nexttok).type)
+            switch (auto tok = ctx.token(nexttok); tok.type)
             {
               case Token::kw_if:
                 conditionals_stack.push_back(conditional);
@@ -2925,7 +2963,9 @@ namespace
                 conditional = parse_else_declaration(ctx, conditional, sema);
                 continue;
 
-              case Token::kw_endif:
+              case Token::identifier:
+                if (tok.text != "end")
+                  goto unhandled;
                 if (conditionals_stack.empty())
                   goto unhandled;
 
@@ -3099,7 +3139,7 @@ namespace
             break;
 
           case Token::hash:
-            switch (ctx.token(nexttok).type)
+            switch (auto tok = ctx.token(nexttok); tok.type)
             {
               case Token::kw_if:
                 conditionals_stack.push_back(conditional);
@@ -3114,7 +3154,9 @@ namespace
                 conditional = parse_else_declaration(ctx, conditional, sema);
                 continue;
 
-              case Token::kw_endif:
+              case Token::identifier:
+                if (tok.text != "end")
+                  goto unhandled;
                 if (conditionals_stack.empty())
                   goto unhandled;
 
@@ -3767,7 +3809,7 @@ namespace
         return parse_compound_statement(ctx, sema);
 
       case Token::hash:
-        switch (auto nextok = ctx.token(1); nextok.type)
+        switch (auto tok = ctx.token(1); tok.type)
         {
           case Token::kw_if:
             return parse_if_statement(ctx, sema);
@@ -3865,7 +3907,7 @@ namespace
           break;
 
         case Token::hash:
-          switch (ctx.token(nexttok).type)
+          switch (auto tok = ctx.token(nexttok); tok.type)
           {
             case Token::kw_if:
               conditionals_stack.push_back(conditional);
@@ -3880,7 +3922,9 @@ namespace
               conditional = parse_else_declaration(ctx, conditional, sema);
               continue;
 
-            case Token::kw_endif:
+            case Token::identifier:
+              if (tok.text != "end")
+                goto unhandled;
               if (conditionals_stack.empty())
                 goto unhandled;
 

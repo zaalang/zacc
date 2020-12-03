@@ -961,6 +961,8 @@ namespace
         case Token::period:
         case Token::kw_true:
         case Token::kw_false:
+        case Token::kw_sizeof:
+        case Token::kw_alignof:
         case Token::char_constant:
         case Token::numeric_constant:
         case Token::string_literal:
@@ -972,7 +974,7 @@ namespace
         case Token::amp:
         case Token::ampamp:
           lexcursor = lex(ctx.text, lexcursor, tok);
-          if (tok == Token::identifier || tok == Token::numeric_constant || tok == Token::plus || tok == Token::minus)
+          if (tok == Token::identifier || tok == Token::coloncolon)
             maybe = true;
           leftid = false;
           continue;
@@ -3352,8 +3354,13 @@ namespace
     if ((ifs->flags & IfStmt::Static) && ctx.tok == Token::hash && ctx.token(1) == Token::kw_else)
       ctx.consume_token(Token::hash);
 
-    if (ctx.try_consume_token(Token::kw_else))
+    if (ctx.tok == Token::kw_else)
     {
+      if (!(ifs->flags & IfStmt::Static) || ctx.token(1) != Token::kw_if)
+        ctx.consume_token(Token::kw_else);
+      else
+        ctx.tok.type = Token::hash;
+
       ifs->stmts[1] = parse_statement(ctx, sema);
 
       if (!ifs->stmts[1])

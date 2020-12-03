@@ -676,20 +676,23 @@ namespace Builtin
       case Builtin::Array_Copytructor:
       case Builtin::Array_Assignment:
       case Builtin::Array_Destructor:
+        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+          return is_array_type(T->second);
+        break;
+
       case Builtin::ArrayLen:
         if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
-          return is_array_type(T->second) || is_array_type(base_type(T->second));;
+          return is_array_type(T->second) || is_array_type(base_type(T->second));
         break;
 
       case Builtin::Tuple_Constructor:
       case Builtin::Tuple_Copytructor:
       case Builtin::Tuple_Assignment:
       case Builtin::Tuple_Destructor:
-      case Builtin::TupleLen:
       case Builtin::TupleEq:
       case Builtin::TupleCmp:
         if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
-          return is_tuple_type(T->second) || is_tuple_type(base_type(T->second));
+          return is_tuple_type(T->second);
         break;
 
       case Builtin::Tuple_AssignmentEx:
@@ -697,6 +700,11 @@ namespace Builtin
       case Builtin::TupleCmpEx:
         if (auto T = fx.find_type(fx.fn->args[0]), U = fx.find_type(fx.fn->args[1]); T != fx.typeargs.end() && U != fx.typeargs.end())
           return is_tuple_type(T->second) && is_tuple_type(U->second) && T->second != U->second && type_cast<TupleType>(T->second)->fields.size() == type_cast<TupleType>(U->second)->fields.size();
+        break;
+
+      case Builtin::TupleLen:
+        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+          return is_tuple_type(T->second) || is_tuple_type(base_type(T->second));
         break;
 
       case Builtin::Bool:

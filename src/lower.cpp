@@ -20,6 +20,7 @@ using namespace std;
 #define PACK_REFS 1
 #define TRANSATIVE_CONST 1
 #define DEFERRED_DEFAULT_ARGS 1
+#define DEDUCE_CONCEPT_ARGS 1
 
 namespace
 {
@@ -1751,7 +1752,7 @@ namespace
   }
 
   //|///////////////////// match_concept ////////////////////////////////////
-  bool match_concept(LowerContext &ctx, Scope const &scope, FnSig &sig, ConceptDecl *koncept, vector<pair<Decl*, Type*>> const &args, Type *type)
+  bool match_concept(LowerContext &ctx, Scope const &scope, FnSig &sig, ConceptDecl *koncept, vector<pair<Decl*, Type*>> const &args, Type *&type)
   {
     assert(sig.typeargs.empty());
 
@@ -1776,7 +1777,8 @@ namespace
 
     if (auto j = ctx.typetable.concepts.find(cache_key); j != ctx.typetable.concepts.end())
     {
-      sig.typeargs = j->second;
+      sig.typeargs = get<0>(j->second);
+      type = get<1>(j->second);
       return true;
     }
 
@@ -1811,6 +1813,14 @@ namespace
         for(auto &arg : reqires->fn->args)
           fx.set_type(arg, type);
 
+#if DEDUCE_CONCEPT_ARGS
+        if (reqires->requirestype)
+        {
+          if (auto returntype = resolve_type(ctx, Scope(fx.fn, fx.typeargs), reqires->requirestype); is_concrete_type(returntype))
+            fx.returntype = returntype;
+        }
+#endif
+
         auto mir = lower(fx, ctx.typetable, diag);
 
         if (diag.has_errored())
@@ -1820,11 +1830,31 @@ namespace
         {
           if (!deduce_type(ctx, scope, sig, reqires->requirestype, mir.locals[0]))
             return false;
+
+#if DEDUCE_CONCEPT_ARGS
+          size_t arg = mir.args_beg;
+          for(auto &parm : fx.parameters())
+          {
+            auto lhs = decl_cast<ParmVarDecl>(parm)->type;
+            auto rhs = mir.locals[arg].type;
+
+            if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type))
+            {
+              lhs = remove_const_type(remove_reference_type(lhs));
+              rhs = remove_const_type(remove_reference_type(rhs));
+            }
+
+            if (is_typearg_type(lhs) && find(fx.fn->args.begin(), fx.fn->args.end(), type_cast<TypeArgType>(lhs)->decl) != fx.fn->args.end())
+              type = rhs;
+
+            arg += 1;
+          }
+#endif
         }
       }
     }
 
-    ctx.typetable.concepts.emplace(std::move(cache_key), sig.typeargs);
+    ctx.typetable.concepts.emplace(std::move(cache_key), std::make_tuple(sig.typeargs, type));
 
     return true;
   }
@@ -2282,16 +2312,16 @@ namespace
     {
       if (auto refn = find_refn(ctx, scope, parm, rhs); refn.fn)
       {
-        auto returntype = find_returntype(ctx, refn).type;
+        auto returntype = find_returntype(ctx, refn);
 
         if (!returntype)
           return false;
 
-        if (!deduce_type(ctx, tx, scope, fx, remove_const_type(lhs), returntype))
+        if (!deduce_type(ctx, tx, scope, fx, remove_const_type(lhs), returntype.type))
           return false;
 
         if (is_qualarg_type(lhs))
-          fx.set_type(parm, ctx.typetable.find_or_create<QualArgType>(qualifiers(returntype), ctx.typetable.var_defn));
+          fx.set_type(parm, ctx.typetable.find_or_create<QualArgType>(qualifiers(rhs), ctx.typetable.var_defn));
 
         return true;
       }
@@ -3025,10 +3055,7 @@ namespace
           {
             auto typearg = type_cast<TypeArgType>(remove_const_type(remove_reference_type(parm->type)));
 
-            if (!typearg->koncept)
-              rank += 2;
-
-            if (typearg->koncept && decl_cast<ConceptDecl>(typearg->koncept)->name == "var")
+            if (!typearg->koncept || decl_cast<ConceptDecl>(typearg->koncept)->name == "var")
               rank += 1;
           }
 
@@ -4003,7 +4030,7 @@ namespace
   {
     auto V = callee.find_type(callee.fn->args[1])->second;
 
-    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::Literal);
     result.value = MIR::RValue::literal(type_cast<TypeLitType>(V)->value);
   }
 
@@ -4021,10 +4048,12 @@ namespace
   void lower_trait(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
   {
     Type *args[2] = {};
+    Type *type[2] = {};
 
     for(size_t i = 0; i < callee.fn->args.size(); ++i)
     {
       args[i] = callee.find_type(callee.fn->args[i])->second;
+      type[i] = remove_const_type(args[i]);
     }
 
     bool match = false;
@@ -4040,27 +4069,27 @@ namespace
         break;
 
       case Builtin::is_array:
-        match = is_array_type(args[0]);
+        match = is_array_type(type[0]);
         break;
 
       case Builtin::is_tuple:
-        match = is_tuple_type(args[0]);
+        match = is_tuple_type(type[0]);
         break;
 
       case Builtin::is_allocator_aware:
-        match = is_allocatoraware_type(args[0]);
+        match = is_allocatoraware_type(type[0]);
         break;
 
       case Builtin::is_integral:
-        match = is_int_type(args[0]) || is_char_type(args[0]);
+        match = is_int_type(type[0]) || is_char_type(type[0]);
         break;
 
       case Builtin::is_floating_point:
-        match = is_float_type(args[0]);
+        match = is_float_type(type[0]);
         break;
 
       case Builtin::is_arithmetic:
-        match = is_int_type(args[0]) || is_char_type(args[0]) || is_float_type(args[0]);
+        match = is_int_type(type[0]) || is_char_type(type[0]) || is_float_type(type[0]);
         break;
 
       case Builtin::is_same:
@@ -4081,14 +4110,17 @@ namespace
 
       case Builtin::is_match:
 
-        if (is_typearg_type(args[0]))
+        if (!is_typearg_type(args[0]) || !type_cast<TypeArgType>(args[0])->koncept)
         {
-          if (auto typearg = type_cast<TypeArgType>(args[0]); typearg->koncept)
-          {
-            FnSig sig;
+          ctx.diag.error("first argument must be a concept", ctx.stack.back(), loc);
+          return;
+        }
 
-            match = match_concept(ctx, ctx.stack.back(), sig, decl_cast<ConceptDecl>(typearg->koncept), typearg->args, args[1]);
-          }
+        if (auto typearg = type_cast<TypeArgType>(args[0]); typearg->koncept)
+        {
+          FnSig sig;
+
+          match = match_concept(ctx, ctx.stack.back(), sig, decl_cast<ConceptDecl>(typearg->koncept), typearg->args, args[1]);
         }
         break;
 
@@ -4096,7 +4128,7 @@ namespace
         assert(false);
     }
 
-    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::Literal);
     result.value = ctx.mir.make_expr<BoolLiteralExpr>(match, loc);
   }
 
@@ -4108,7 +4140,7 @@ namespace
     while (is_struct_type(type) && decl_cast<StructDecl>(type_cast<TagType>(type)->decl)->basetype)
       type = type_cast<TagType>(type)->fields[0];
 
-    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::Literal);
     result.value = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(type_cast<ArrayType>(type)->size)->value);
   }
 
@@ -4120,7 +4152,7 @@ namespace
     while (is_struct_type(type) && decl_cast<StructDecl>(type_cast<TagType>(type)->decl)->basetype)
       type = type_cast<TagType>(type)->fields[0];
 
-    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::Literal);
     result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, type_cast<TupleType>(type)->fields.size()), loc);
   }
 
@@ -4134,7 +4166,7 @@ namespace
     fields.push_back(ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(ctx.site_override.charpos != -1 ? ctx.site_override.charpos : ctx.site.charpos), loc));
     fields.push_back(ctx.mir.make_expr<StringLiteralExpr>(ctx.mir.fx.fn ? ctx.mir.fx.fn->name : string_view(), loc));
 
-    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::Literal);
     result.value = ctx.mir.make_expr<CompoundLiteralExpr>(fields, loc);
   }
 
@@ -4940,49 +4972,49 @@ namespace
   //|///////////////////// lower_void ///////////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, VoidLiteralExpr *voidliteral)
   {
-    result.type = MIR::Local(ctx.voidtype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+    result.type = MIR::Local(ctx.voidtype, MIR::Local::Const | MIR::Local::Literal);
     result.value = voidliteral;
   }
 
   //|///////////////////// lower_bool ///////////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, BoolLiteralExpr *boolliteral)
   {
-    result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+    result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
     result.value = boolliteral;
   }
 
   //|///////////////////// lower_char ///////////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, CharLiteralExpr *charliteral)
   {
-    result.type = MIR::Local(ctx.chartype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+    result.type = MIR::Local(ctx.chartype, MIR::Local::Const | MIR::Local::Literal);
     result.value = charliteral;
   }
 
   //|///////////////////// lower_int ////////////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, IntLiteralExpr *intliteral)
   {
-    result.type = MIR::Local(ctx.intliteraltype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+    result.type = MIR::Local(ctx.intliteraltype, MIR::Local::Const | MIR::Local::Literal);
     result.value = intliteral;
   }
 
   //|///////////////////// lower_float //////////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, FloatLiteralExpr *floatliteral)
   {
-    result.type = MIR::Local(ctx.floatliteraltype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+    result.type = MIR::Local(ctx.floatliteraltype, MIR::Local::Const | MIR::Local::Literal);
     result.value = floatliteral;
   }
 
   //|///////////////////// lower_null ///////////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, PointerLiteralExpr *ptrliteral)
   {
-    result.type = MIR::Local(ctx.ptrliteraltype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+    result.type = MIR::Local(ctx.ptrliteraltype, MIR::Local::Const | MIR::Local::Literal);
     result.value = ptrliteral;
   }
 
   //|///////////////////// lower_string /////////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, StringLiteralExpr *stringliteral)
   {
-    result.type = MIR::Local(ctx.stringliteraltype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+    result.type = MIR::Local(ctx.stringliteraltype, MIR::Local::Const | MIR::Local::Literal);
     result.value = stringliteral;
   }
 
@@ -5001,7 +5033,7 @@ namespace
 
     auto size = resolve_type(ctx, arrayliteral->size);
 
-    result.type = MIR::Local(ctx.typetable.find_or_create<ArrayType>(type, size), MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+    result.type = MIR::Local(ctx.typetable.find_or_create<ArrayType>(type, size), MIR::Local::Const | MIR::Local::Literal);
 
     if (all_of(arrayliteral->elements.begin(), arrayliteral->elements.end(), [](auto &k) { return is_literal_expr(k); }))
     {
@@ -5069,6 +5101,8 @@ namespace
     if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
       realise_destructor(ctx, arg, arrayliteral->loc());
 
+    result.type.flags |= MIR::Local::RValue;
+    result.type.flags &= ~MIR::Local::Const;
     result.type.flags &= ~MIR::Local::Literal;
     result.value = MIR::RValue::local(MIR::RValue::Val, arg, arrayliteral->loc());
   }
@@ -5086,7 +5120,7 @@ namespace
     if (any_of(fields.begin(), fields.end(), [](auto &k) { return !k; }))
       return;
 
-    result.type = MIR::Local(ctx.typetable.find_or_create<TupleType>(vector(fields.size(), ctx.typetable.var_defn), fields), MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+    result.type = MIR::Local(ctx.typetable.find_or_create<TupleType>(vector(fields.size(), ctx.typetable.var_defn), fields), MIR::Local::Const | MIR::Local::Literal);
     result.value = compoundliteral;
   }
 
@@ -5108,7 +5142,7 @@ namespace
         if (auto j = ctx.stack.back().find_type(vardecl); j != ctx.stack.back().typeargs.end())
         {
           result.type = resolve_type_as_reference(ctx, ctx.stack.back(), decl_cast<ParmVarDecl>(vardecl));
-          result.type.flags = MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal;
+          result.type.flags = MIR::Local::Const | MIR::Local::Literal;
           result.value = MIR::RValue::literal(type_cast<TypeLitType>(j->second)->value);
           return true;
         }
@@ -5500,7 +5534,7 @@ namespace
       {
         lower_call(ctx, result, callee.fx, parms, namedparms, loc);
 
-        parms[0].type = MIR::Local(ctx.intliteraltype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+        parms[0].type = MIR::Local(ctx.intliteraltype, MIR::Local::Const | MIR::Local::Literal);
         parms[0].value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, 0), loc);
         parms[1] = std::move(result);
 
@@ -5556,7 +5590,7 @@ namespace
         lower_call(ctx, result, callee.fx, parms, namedparms, loc);
 
         parms[0] = std::move(result);
-        parms[1].type = MIR::Local(ctx.intliteraltype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+        parms[1].type = MIR::Local(ctx.intliteraltype, MIR::Local::Const | MIR::Local::Literal);
         parms[1].value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, 0), loc);
 
         if (swapped)
@@ -5654,7 +5688,7 @@ namespace
         if (binaryop->op() == BinaryOpExpr::LAnd && is_false_constant(ctx, lhs))
         {
           ctx.rollback_barrier(rm);
-          result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+          result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
           result.value = std::move(lhs.value);
           return;
         }
@@ -5662,7 +5696,7 @@ namespace
         if (binaryop->op() == BinaryOpExpr::LOr && is_true_constant(ctx, lhs))
         {
           ctx.rollback_barrier(rm);
-          result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+          result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
           result.value = std::move(lhs.value);
           return;
         }
@@ -5697,7 +5731,7 @@ namespace
           if (is_false_constant(ctx, lhs))
           {
             ctx.rollback_barrier(rm);
-            result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+            result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
             result.value = std::move(lhs.value);
             return;
           }
@@ -5705,7 +5739,7 @@ namespace
           if (is_constant(ctx, lhs) && is_constant(ctx, rhs))
           {
             ctx.rollback_barrier(rm);
-            result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+            result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
             result.value = ctx.mir.make_expr<BoolLiteralExpr>(is_true_constant(ctx, lhs) && is_true_constant(ctx, rhs), binaryop->loc());
             return;
           }
@@ -5720,7 +5754,7 @@ namespace
           if (is_true_constant(ctx, lhs))
           {
             ctx.rollback_barrier(rm);
-            result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+            result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
             result.value = std::move(lhs.value);
             return;
           }
@@ -5728,7 +5762,7 @@ namespace
           if (is_constant(ctx, lhs) && is_constant(ctx, rhs))
           {
             ctx.rollback_barrier(rm);
-            result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+            result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
             result.value = ctx.mir.make_expr<BoolLiteralExpr>(is_true_constant(ctx, lhs) || is_true_constant(ctx, rhs), binaryop->loc());
             return;
           }
@@ -5926,7 +5960,7 @@ namespace
     {
       if (literal_cast(ctx, result.value, source.value, result.type.type))
       {
-        result.type.flags = MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal;
+        result.type.flags = MIR::Local::Const | MIR::Local::Literal;
 
         return;
       }
@@ -6122,7 +6156,7 @@ namespace
 
     lower(FnSig(decl_cast<FunctionDecl>(reqires->decl), ctx.stack.back().typeargs), ctx.typetable, diag);
 
-    result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+    result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
     result.value = ctx.mir.make_expr<BoolLiteralExpr>(!diag.has_errored(), reqires->loc());
   }
 
@@ -6784,7 +6818,7 @@ namespace
       commit_type(ctx, 0, result.type.type, result.type.flags);
 
       auto tst = find_builtin(ctx, Builtin::EQ, Builtin::type(Builtin::Type_I32));
-      auto zero = ctx.add_temporary(Builtin::type(Builtin::Type_I32), MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+      auto zero = ctx.add_temporary(Builtin::type(Builtin::Type_I32), MIR::Local::Const | MIR::Local::Literal);
 
       ctx.add_statement(MIR::Statement::assign(zero, ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, 0), fn->loc())));
 
@@ -7116,10 +7150,10 @@ namespace
       ctx.add_statement(MIR::Statement::assign(sri, MIR::RValue::call(inc, { srr }, fn->loc())));
       ctx.add_statement(MIR::Statement::assign(dsi, MIR::RValue::call(inc, { dsr }, fn->loc())));
       ctx.add_statement(MIR::Statement::assign(flg, MIR::RValue::call(cmp, { rhs, end}, fn->loc())));
-      ctx.add_block(MIR::Terminator::switcher(flg, ctx.currentblockid + 2, block_head + 1));
+      ctx.add_block(MIR::Terminator::switcher(flg, ctx.currentblockid + 1, block_head + 1));
     }
 
-    if (arraylen != 0)
+    if (arraylen == 0)
     {
       ctx.add_statement(MIR::Statement::assign(0, ctx.mir.make_expr<BoolLiteralExpr>(true, fn->loc())));
     }
@@ -7182,7 +7216,7 @@ namespace
       commit_type(ctx, 0, result.type.type, result.type.flags);
 
       auto tst = find_builtin(ctx, Builtin::EQ, Builtin::type(Builtin::Type_I32));
-      auto zero = ctx.add_temporary(Builtin::type(Builtin::Type_I32), MIR::Local::Const | MIR::Local::RValue | MIR::Local::Literal);
+      auto zero = ctx.add_temporary(Builtin::type(Builtin::Type_I32), MIR::Local::Const | MIR::Local::Literal);
 
       ctx.add_statement(MIR::Statement::assign(zero, ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, 0), fn->loc())));
 
@@ -7195,10 +7229,10 @@ namespace
       ctx.add_statement(MIR::Statement::assign(sri, MIR::RValue::call(inc, { srr }, fn->loc())));
       ctx.add_statement(MIR::Statement::assign(dsi, MIR::RValue::call(inc, { dsr }, fn->loc())));
       ctx.add_statement(MIR::Statement::assign(flg, MIR::RValue::call(cmp, { rhs, end}, fn->loc())));
-      ctx.add_block(MIR::Terminator::switcher(flg, ctx.currentblockid + 2, block_head + 1));
+      ctx.add_block(MIR::Terminator::switcher(flg, ctx.currentblockid + 1, block_head + 1));
     }
 
-    if (arraylen != 0)
+    if (arraylen == 0)
     {
       ctx.add_statement(MIR::Statement::assign(0, ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, 0), fn->loc())));
     }
@@ -7462,7 +7496,7 @@ namespace
 
       auto arg = ctx.add_variable();
 
-      realise(ctx, arg, result);
+      realise_as_reference(ctx, arg, result);
 
       commit_type(ctx, arg, result.type.type, result.type.flags);
 
@@ -8210,7 +8244,8 @@ namespace
       ctx.unreachable = false;
     }
 
-    ctx.unreachable = false;
+    if (ctx.barriers.back().firstbreak != ctx.breaks.size())
+      ctx.unreachable = false;
 
     for(auto i = ctx.barriers.back().firstbreak; i < ctx.breaks.size(); ++i)
       ctx.mir.blocks[ctx.breaks[i]].terminator.blockid = ctx.currentblockid;
@@ -8463,11 +8498,7 @@ namespace
       ctx.stack.back().goalpost = stmt;
 
       if (ctx.unreachable)
-      {
-        ctx.diag.warn("unreachable code", ctx.mir.fx.fn, stmt->loc());
-
         break;
-      }
 
       lower_statement(ctx, stmt);
     }
@@ -8941,6 +8972,12 @@ namespace
 
           if (dst.type == ctx.floatliteraltype)
             changed |= promote_type(ctx, statement.dst, type(Builtin::Type_F64));
+
+          if (dst.type->klass() == Type::Array && type_cast<ArrayType>(dst.type)->type == ctx.intliteraltype)
+            changed |= promote_type(ctx, statement.dst, ctx.typetable.find_or_create<ArrayType>(type(Builtin::Type_I32), type_cast<ArrayType>(dst.type)->size));
+
+          if (dst.type->klass() == Type::Array && type_cast<ArrayType>(dst.type)->type == ctx.floatliteraltype)
+            changed |= promote_type(ctx, statement.dst, ctx.typetable.find_or_create<ArrayType>(type(Builtin::Type_F64), type_cast<ArrayType>(dst.type)->size));
         }
       }
     }

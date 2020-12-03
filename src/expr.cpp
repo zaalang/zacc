@@ -127,6 +127,10 @@ std::ostream &operator <<(std::ostream &os, Expr const &expr)
       os << "requires";
       break;
 
+    case Expr::Match:
+      os << "match";
+      break;
+
     case Expr::Lambda:
       os << "fn";
       break;

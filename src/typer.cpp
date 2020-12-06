@@ -363,6 +363,16 @@ namespace
 
         return false;
 
+      case Type::Function:
+
+        if (is_dependant_type(ctx, type_cast<FunctionType>(type)->returntype))
+          return true;
+
+        if (is_dependant_type(ctx, type_cast<FunctionType>(type)->paramtuple))
+          return true;
+
+        return false;
+
       case Type::TypeArg:
         return false;
 
@@ -877,6 +887,9 @@ namespace
               tx.set_type(arg, resolve_typearg(ctx, arg, sema));
             break;
 
+          case Decl::TypeAlias:
+            break;
+
           default:
             assert(false);
         }
@@ -932,6 +945,10 @@ namespace
 
       case Expr::StringLiteral:
         dst = type(Builtin::Type_StringLiteral);
+        break;
+
+      case Expr::Lambda:
+        resolve_type(ctx, scope, decl_cast<TagDecl>(expr_cast<LambdaExpr>(typedecl->expr)->decl), typeref, dst, sema);
         break;
 
       default:

@@ -68,9 +68,65 @@ namespace
   //|///////////////////// type /////////////////////////////////////////////
   void semantic_type(SemanticContext &ctx, Type *type, Sema &sema)
   {
-    if (type->klass() == Type::TypeLit)
+    switch (type->klass())
     {
-      semantic_expr(ctx, type_cast<TypeLitType>(type)->value, sema);
+      case Type::Builtin:
+        break;
+
+      case Type::Const:
+        semantic_type(ctx, type_cast<ConstType>(type)->type, sema);
+        break;
+
+      case Type::Pointer:
+        semantic_type(ctx, type_cast<PointerType>(type)->type, sema);
+        break;
+
+      case Type::Reference:
+        semantic_type(ctx, type_cast<ReferenceType>(type)->type, sema);
+        break;
+
+      case Type::Array:
+        semantic_type(ctx, type_cast<ArrayType>(type)->type, sema);
+        semantic_type(ctx, type_cast<ArrayType>(type)->size, sema);
+        break;
+
+      case Type::Tuple:
+        for(auto &field : type_cast<TupleType>(type)->fields)
+          semantic_type(ctx, field, sema);
+        break;
+
+      case Type::Function:
+        semantic_type(ctx, type_cast<FunctionType>(type)->returntype, sema);
+        semantic_type(ctx, type_cast<FunctionType>(type)->paramtuple, sema);
+        break;
+
+      case Type::Pack:
+        semantic_type(ctx, type_cast<PackType>(type)->type, sema);
+        break;
+
+      case Type::Unpack:
+        semantic_type(ctx, type_cast<UnpackType>(type)->type, sema);
+        break;
+
+      case Type::TypeRef:
+        if (type_cast<TypeRefType>(type)->decl->kind() == Decl::TypeOf)
+          semantic_decl(ctx, type_cast<TypeRefType>(type)->decl, sema);
+        break;
+
+      case Type::QualArg:
+        semantic_type(ctx, type_cast<QualArgType>(type)->type, sema);
+        break;
+
+      case Type::TypeLit:
+        semantic_expr(ctx, type_cast<TypeLitType>(type)->value, sema);
+        break;
+
+      case Type::TypeArg:
+      case Type::Tag:
+        break;
+
+      default:
+        assert(false);
     }
   }
 
@@ -134,6 +190,11 @@ namespace
   //|///////////////////// sizeof_expression ////////////////////////////////
   void semantic_expr(SemanticContext &ctx, SizeofExpr *call, Sema &sema)
   {
+    if (call->type)
+    {
+      semantic_type(ctx, call->type, sema);
+    }
+
     if (call->expr)
     {
       semantic_expr(ctx, call->expr, sema);
@@ -143,6 +204,11 @@ namespace
   //|///////////////////// alignof_expression ///////////////////////////////
   void semantic_expr(SemanticContext &ctx, AlignofExpr *call, Sema &sema)
   {
+    if (call->type)
+    {
+      semantic_type(ctx, call->type, sema);
+    }
+
     if (call->expr)
     {
       semantic_expr(ctx, call->expr, sema);
@@ -157,12 +223,16 @@ namespace
       cast->type = sema.make_typearg(sema.make_typearg("var", cast->loc()));
     }
 
+    semantic_type(ctx, cast->type, sema);
+
     semantic_expr(ctx, cast->expr, sema);
   }
 
   //|///////////////////// new_expression ///////////////////////////////////
   void semantic_expr(SemanticContext &ctx, NewExpr *call, Sema &sema)
   {
+    semantic_type(ctx, call->type, sema);
+
     semantic_expr(ctx, call->address, sema);
 
     for(auto &parm : call->parms)
@@ -282,17 +352,22 @@ namespace
   //|///////////////////// voidvar //////////////////////////////////////////
   void semantic_decl(SemanticContext &ctx, VoidVarDecl *var, Sema &sema)
   {
+    semantic_type(ctx, var->type, sema);
   }
 
   //|///////////////////// stmtvar //////////////////////////////////////////
   void semantic_decl(SemanticContext &ctx, StmtVarDecl *var, Sema &sema)
   {
+    semantic_type(ctx, var->type, sema);
+
     semantic_expr(ctx, var->value, sema);
   }
 
   //|///////////////////// parmvar //////////////////////////////////////////
   void semantic_decl(SemanticContext &ctx, ParmVarDecl *var, Sema &sema)
   {
+    semantic_type(ctx, var->type, sema);
+
     if (var->defult)
     {
       // default parameters are semantically owned by the functions parent scope
@@ -308,16 +383,19 @@ namespace
   //|///////////////////// thisvar //////////////////////////////////////////
   void semantic_decl(SemanticContext &ctx, ThisVarDecl *var, Sema &sema)
   {
+    semantic_type(ctx, var->type, sema);
   }
 
   //|///////////////////// errorvar /////////////////////////////////////////
   void semantic_decl(SemanticContext &ctx, ErrorVarDecl *var, Sema &sema)
   {
+    semantic_type(ctx, var->type, sema);
   }
 
   //|///////////////////// rangevar /////////////////////////////////////////
   void semantic_decl(SemanticContext &ctx, RangeVarDecl *var, Sema &sema)
   {
+    semantic_type(ctx, var->type, sema);
     semantic_expr(ctx, var->range, sema);
   }
 
@@ -359,6 +437,9 @@ namespace
     {
       semantic_decl(ctx, arg, sema);
     }
+
+    if (!(typealias->flags & TypeAliasDecl::Implicit))
+      semantic_type(ctx, typealias->type, sema);
 
     ctx.stack.pop_back();
   }
@@ -429,6 +510,11 @@ namespace
     ctx.stack.emplace_back(reqires);
 
     semantic_decl(ctx, reqires->fn, sema);
+
+    if (reqires->requirestype)
+    {
+      semantic_type(ctx, reqires->requirestype, sema);
+    }
 
     ctx.stack.pop_back();
   }
@@ -560,6 +646,7 @@ namespace
   //|///////////////////// field ////////////////////////////////////////////
   void semantic_decl(SemanticContext &ctx, FieldVarDecl *field, Sema &sema)
   {
+    semantic_type(ctx, field->type, sema);
   }
 
   //|///////////////////// initialiser //////////////////////////////////////

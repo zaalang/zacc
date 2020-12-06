@@ -298,6 +298,10 @@ namespace
     switch(type = remove_const_type(type); type->klass())
     {
       case Type::Tag:
+
+        if (is_lambda_type(type))
+          return type_scope(ctx, type);
+
         return parent_scope(type_scope(ctx, type));
 
       default:
@@ -487,7 +491,7 @@ namespace
   {
     if (is_pointer_type(rhs) || is_reference_type(rhs) || is_lambda_type(rhs))
     {
-      if (lhs->klass() == Type::Pointer || rhs->klass() == Type::Reference)
+      if (lhs->klass() == Type::Pointer || lhs->klass() == Type::Reference)
       {
         lhs = remove_const_type(remove_pointference_type(lhs));
         rhs = remove_const_type(remove_pointference_type(rhs));
@@ -1904,7 +1908,9 @@ namespace
     int depth = 0;
     int constdepth = 0;
     int pointerdepth = 0;
-    int inner = 0;
+    bool allow_const_downcast = true;
+    bool allow_object_downcast = true;
+    bool allow_pointer_downcast = true;
   };
 
   bool deduce_type(LowerContext &ctx, DeduceContext &tx, Scope const &scope, FnSig &fx, Type *lhs, Type *rhs)
@@ -1917,7 +1923,7 @@ namespace
     if (rhs->klass() == Type::TypeArg)
       return true;
 
-    if (is_struct_type(rhs) && !is_typearg_type(lhs) && tx.pointerdepth <= 1 && tx.inner == 0)
+    if (is_struct_type(rhs) && !is_const_type(lhs) && !is_typearg_type(lhs) && ((tx.pointerdepth == 0 && tx.allow_object_downcast) || (tx.pointerdepth == 1 && tx.allow_pointer_downcast)))
     {
       while (is_struct_type(rhs))
       {
@@ -1931,7 +1937,7 @@ namespace
       }
     }
 
-    if (lhs == type(Builtin::Type_Void) && !is_const_type(rhs) && tx.pointerdepth == 1 && tx.inner == 0)
+    if (lhs == type(Builtin::Type_Void) && !is_const_type(rhs) && tx.pointerdepth == 1 && tx.allow_pointer_downcast)
       return true;
 
     if (lhs == rhs)
@@ -1955,7 +1961,7 @@ namespace
 
         if (!is_const_type(rhs))
         {
-          if ((tx.depth > 1 && tx.constdepth < tx.pointerdepth) || tx.inner != 0)
+          if ((tx.depth > 1 && tx.constdepth < tx.pointerdepth) || !tx.allow_const_downcast)
             return false;
         }
 
@@ -1985,6 +1991,9 @@ namespace
 
         if (rhs->klass() == Type::Reference)
           return deduce_type(ctx, tx, scope, fx, type_cast<ReferenceType>(lhs)->type, type_cast<ReferenceType>(rhs)->type);
+
+        if (is_const_type(type_cast<ReferenceType>(lhs)->type) && is_function_type(remove_const_type(type_cast<ReferenceType>(lhs)->type)) && is_lambda_type(rhs))
+          return deduce_type(ctx, tx, scope, fx, remove_const_type(type_cast<ReferenceType>(lhs)->type), rhs);
 
         return false;
 
@@ -2067,7 +2076,10 @@ namespace
 
           for(auto field : type_cast<TupleType>(lhs)->fields)
           {
-            DeduceContext ttx;
+            DeduceContext ttx(tx);
+
+            ttx.allow_object_downcast = false;
+            ttx.allow_pointer_downcast = false;
 
             if (field->klass() == Type::Unpack)
             {
@@ -2104,14 +2116,16 @@ namespace
 
         if (rhs->klass() == Type::Tag)
         {
-          tx.inner += 1;
-
           if (type_cast<TagType>(lhs)->decl != type_cast<TagType>(rhs)->decl)
             return false;
 
           for(size_t i = 0, j = 0; i < type_cast<TagType>(lhs)->args.size(); ++i)
           {
             DeduceContext ttx(tx);
+
+            ttx.allow_const_downcast = false;
+            ttx.allow_object_downcast = false;
+            ttx.allow_pointer_downcast = false;
 
             while (type_cast<TagType>(lhs)->args[i].first != type_cast<TagType>(rhs)->args[j].first)
               ++j;
@@ -2129,7 +2143,9 @@ namespace
 
         if (rhs->klass() == Type::Function)
         {
-          tx.inner += 1;
+          tx.allow_const_downcast = false;
+          tx.allow_object_downcast = false;
+          tx.allow_pointer_downcast = false;
 
           if (!deduce_type(ctx, tx, scope, fx, type_cast<FunctionType>(lhs)->returntype, type_cast<FunctionType>(rhs)->returntype))
             return false;
@@ -2219,7 +2235,7 @@ namespace
     {
       lhs = type_cast<PackType>(lhs)->type;
 
-      auto type = rhs.type;
+      auto rhstype = rhs.type;
 
       if (is_reference_type(lhs))
       {
@@ -2246,8 +2262,10 @@ namespace
           field = remove_const_type(field);
         }
 
-        type = ctx.typetable.find_or_create<TupleType>(defns, fields);
+        rhstype = ctx.typetable.find_or_create<TupleType>(defns, fields);
       }
+
+      auto lhstype = lhs;
 
 #if PACK_REFS
       if (auto j = scope.find_type(type_cast<TypeArgType>(remove_const_type(lhs))->decl); j != scope.typeargs.end())
@@ -2274,11 +2292,11 @@ namespace
           }
         }
 
-        lhs = ctx.typetable.find_or_create<TupleType>(defns, fields);
+        lhstype = ctx.typetable.find_or_create<TupleType>(defns, fields);
       }
 #endif
 
-      if (!deduce_type(ctx, tx, scope, fx, remove_const_type(lhs), type))
+      if (!deduce_type(ctx, tx, scope, fx, remove_const_type(lhstype), rhstype))
         return false;
 
       if (is_qualarg_type(lhs))
@@ -2487,7 +2505,7 @@ namespace
             break;
 
           default:
-            assert(false);
+            break;
         }
 
         break;
@@ -3365,7 +3383,7 @@ namespace
             if (is_tuple_type(j->second))
               tx.name = "~#tuple";
 
-            if (is_builtin_type(j->second) || is_pointer_type(j->second) || is_reference_type(j->second))
+            if (is_builtin_type(j->second) || is_pointer_type(j->second) || is_reference_type(j->second) || is_enum_type(j->second))
               tx.name = "~#builtin";
 
             declref.scope = ctx.translationunit->builtins;
@@ -3428,7 +3446,7 @@ namespace
 
     parms[0].type = type;
 
-    if (is_tag_type(type))
+    if (is_struct_type(type))
     {
       auto name = "~" + decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->name;
 
@@ -3606,7 +3624,9 @@ namespace
         FnSig fx;
         DeduceContext tx;
 
-        tx.inner += 1;
+        tx.allow_const_downcast = true;
+        tx.allow_object_downcast = false;
+        tx.allow_pointer_downcast = false;
 
         if (deduce_type(ctx, tx, ctx.stack.back(), fx, rhs, lhs))
         {
@@ -4076,6 +4096,18 @@ namespace
         match = is_tuple_type(type[0]);
         break;
 
+      case Builtin::is_trivial_copy:
+        match = is_trivial_copy_type(type[0]);
+        break;
+
+      case Builtin::is_trivial_assign:
+        match = is_trivial_assign_type(type[0]);
+        break;
+
+      case Builtin::is_trivial_destroy:
+        match = is_trivial_destroy_type(type[0]);
+        break;
+
       case Builtin::is_allocator_aware:
         match = is_allocatoraware_type(type[0]);
         break;
@@ -4377,11 +4409,11 @@ namespace
   }
 
   //|///////////////////// lower_base_cast //////////////////////////////////
-  bool lower_base_cast(LowerContext &ctx, MIR::Fragment &result, ParmVarDecl *parm, Type *parmtype, MIR::Fragment &expr)
+  bool lower_base_cast(LowerContext &ctx, MIR::Fragment &result, Type *type, MIR::Fragment &expr)
   {
     while (is_struct_type(expr.type.type))
     {
-      if (expr.type.type == parmtype)
+      if (expr.type.type == type)
         break;
 
       if (auto field = find_field(ctx, type_cast<TagType>(expr.type.type), "super"))
@@ -4394,17 +4426,15 @@ namespace
       break;
     }
 
-    if (expr.type.type != parmtype)
+    if (expr.type.type != type)
     {
       auto arg = ctx.add_temporary();
 
-      if (is_reference_type(parm->type) || (!is_pointer_type(expr.type.type) && !is_reference_type(expr.type.type) && !is_builtin_type(expr.type.type)))
-        realise_as_reference(ctx, arg, expr);
-      else
-        realise_as_value(ctx, arg, expr);
+      realise_as_value(ctx, arg, expr);
 
       commit_type(ctx, arg, expr.type.type, expr.type.flags);
 
+      expr.type = MIR::Local(type, expr.type.flags);
       expr.value = MIR::RValue::cast(arg, expr.value.loc());
     }
 
@@ -4415,9 +4445,9 @@ namespace
   }
 
   //|///////////////////// lower_lambda_decay ///////////////////////////////
-  bool lower_lambda_decay(LowerContext &ctx, MIR::Fragment &result, Scope const &scope, Type *parmtype, MIR::Fragment &expr)
+  bool lower_lambda_decay(LowerContext &ctx, MIR::Fragment &result, Scope const &scope, Type *type, MIR::Fragment &expr)
   {
-    auto lhs = remove_const_type(remove_pointference_type(parmtype));
+    auto lhs = remove_const_type(remove_pointference_type(type));
     auto rhs = remove_const_type(remove_pointference_type(expr.type.type));
 
     FnSig callop(decl_cast<LambdaDecl>(type_cast<TagType>(rhs)->decl)->fn, type_cast<TagType>(rhs)->args);
@@ -4429,12 +4459,12 @@ namespace
       return false;
     }
 
-    if (!is_pointference_type(parmtype))
+    if (!is_pointference_type(type))
       expr.type.flags |= MIR::Local::Reference;
     else
       expr.type.flags &= ~MIR::Local::Reference;
 
-    result.type = MIR::Local(parmtype, expr.type.flags);
+    result.type = MIR::Local(type, expr.type.flags);
     result.value = MIR::RValue::function(callop, expr.value.loc());
 
     return true;
@@ -4482,7 +4512,7 @@ namespace
 #endif
 
       if (is_base_cast(ctx, type, exprs[i].type.type))
-        lower_base_cast(ctx, exprs[i], parm, type, exprs[i]);
+        lower_base_cast(ctx, exprs[i], type, exprs[i]);
 
       exprs[i].type.type = type;
 
@@ -4598,16 +4628,20 @@ namespace
           if (!lower_expr(ctx, expr, parm->defult))
             return false;
 
-          if (!deduce_type(ctx, ctx.stack.back(), callee, parm, expr.type))
+          if (expr.type.type != parmtype)
           {
-            ctx.diag.error("type mismatch", ctx.stack.back(), parm->loc());
-            ctx.diag << "  variable type: '" << *parm->type << "' required type: '" << *expr.type.type << "'\n";
-            return false;
+            if (!deduce_type(ctx, ctx.stack.back(), callee, parm, expr.type))
+            {
+              ctx.diag.error("type mismatch", ctx.stack.back(), parm->loc());
+              ctx.diag << "  variable type: '" << *parm->type << "' required type: '" << *expr.type.type << "'\n";
+              return false;
+            }
+
+            scope = Scope(callee.fn, callee.typeargs);
+            parmtype = resolve_type_as_reference(ctx, scope, parm);
           }
 
           parms.push_back(std::move(expr));
-
-          parmtype = parms[k].type.type;
 
           swap(ctx.site_override, loc);
           swap(ctx.stack, stack);
@@ -4644,7 +4678,7 @@ namespace
 
       if (is_base_cast(ctx, parmtype, parms[k].type.type))
       {
-        if (!lower_base_cast(ctx, parms[k], parm, parmtype, parms[k]))
+        if (!lower_base_cast(ctx, parms[k], parmtype, parms[k]))
           return false;
       }
 
@@ -4654,6 +4688,9 @@ namespace
     }
 
     result.type = find_returntype(ctx, callee);
+
+    if (is_function_type(result.type.type))
+      ctx.diag.error("cannot return a function type", ctx.stack.back(), loc);
 
     callee.returntype = resolve_as_value(ctx, result.type).type;
 
@@ -4717,6 +4754,9 @@ namespace
         case Builtin::is_rvalue:
         case Builtin::is_array:
         case Builtin::is_tuple:
+        case Builtin::is_trivial_copy:
+        case Builtin::is_trivial_assign:
+        case Builtin::is_trivial_destroy:
         case Builtin::is_allocator_aware:
         case Builtin::is_integral:
         case Builtin::is_floating_point:
@@ -5101,10 +5141,11 @@ namespace
     if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
       realise_destructor(ctx, arg, arrayliteral->loc());
 
-    result.type.flags |= MIR::Local::RValue;
     result.type.flags &= ~MIR::Local::Const;
     result.type.flags &= ~MIR::Local::Literal;
-    result.value = MIR::RValue::local(MIR::RValue::Val, arg, arrayliteral->loc());
+    result.type.flags |= MIR::Local::RValue;
+    result.type.flags |= MIR::Local::Reference;
+    result.value = MIR::RValue::local(MIR::RValue::Ref, arg, arrayliteral->loc());
   }
 
   //|///////////////////// lower_compound ///////////////////////////////////
@@ -5961,17 +6002,14 @@ namespace
       if (literal_cast(ctx, result.value, source.value, result.type.type))
       {
         result.type.flags = MIR::Local::Const | MIR::Local::Literal;
-
         return;
       }
     }
 
     if (is_function_type(remove_const_type(remove_pointference_type(result.type.type))) && is_lambda_type(source.type.type))
     {
-      if (lower_lambda_decay(ctx, result, ctx.stack.back(), result.type.type, source))
-      {
-        return;
-      }
+      lower_lambda_decay(ctx, result, ctx.stack.back(), result.type.type, source);
+      return;
     }
 
     auto arg = ctx.add_temporary();
@@ -6082,6 +6120,9 @@ namespace
 
           break;
         }
+
+        if (is_lambda_type(base.type.type))
+          is_callop = true;
       }
       else
       {
@@ -6134,7 +6175,18 @@ namespace
         basescope = type_scope(ctx, parms[0].type.type);
 
       if (is_lambda_type(parms[0].type.type) && !(decl_cast<LambdaDecl>(type_cast<TagType>(parms[0].type.type)->decl)->flags & LambdaDecl::Captures))
+      {
+        auto arg = ctx.add_variable();
+
+        realise(ctx, arg, parms[0]);
+
+        commit_type(ctx, arg, parms[0].type.type, parms[0].type.flags);
+
+        if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
+          realise_destructor(ctx, arg, call->loc());
+
         parms.erase(parms.begin());
+      }
     }
 
     auto callee = find_callee(ctx, ctx.stack, basescope, call->callee, parms, namedparms, is_callop);
@@ -6163,17 +6215,16 @@ namespace
   //|///////////////////// lower_lambda /////////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, LambdaExpr *lambda)
   {
+    auto decl = decl_cast<LambdaDecl>(lambda->decl);
+
     vector<MIR::Fragment> parms;
     map<string_view, MIR::Fragment> namedparms;
 
     Callee callee;
 
-    FindContext tx(decl_cast<LambdaDecl>(lambda->decl)->name, QueryFlags::Functions);
+    FindContext tx(decl->name, QueryFlags::Functions);
 
-    size_t k = 0;
-    auto typescope = child_scope(ctx, ctx.stack.back(), decl_cast<LambdaDecl>(lambda->decl), k, tx.args, tx.namedargs);
-
-    find_overloads(ctx, tx, typescope, parms, namedparms, callee.overloads);
+    find_overloads(ctx, tx, child_scope(ctx.stack.back(), decl), parms, namedparms, callee.overloads);
 
     resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
 
@@ -7496,7 +7547,7 @@ namespace
 
       auto arg = ctx.add_variable();
 
-      realise_as_reference(ctx, arg, result);
+      realise(ctx, arg, result);
 
       commit_type(ctx, arg, result.type.type, result.type.flags);
 
@@ -8423,6 +8474,21 @@ namespace
 
       if (!lower_expr(ctx, result, retrn->expr))
         return;
+
+      if (ctx.mir.fx.fn->returntype)
+      {
+        if (is_lambda_decay(ctx, ctx.mir.locals[0].type, result.type.type))
+        {
+          if (!lower_lambda_decay(ctx, result, ctx.stack.back(), ctx.mir.locals[0].type, result))
+            return;
+        }
+
+        if (is_base_cast(ctx, ctx.mir.locals[0].type, result.type.type))
+        {
+          if (!lower_base_cast(ctx, result, ctx.mir.locals[0].type, result))
+            return;
+        }
+      }
 
       // Implicit move from local
       if (result.value.kind() == MIR::RValue::Variable && !(result.type.flags & MIR::Local::Const))

@@ -507,6 +507,9 @@ namespace Builtin
     make_function(is_match, "pub const fn __is_match<T, U>() -> bool", __LINE__);
     make_function(is_array, "pub const fn __is_array<T>() -> bool", __LINE__);
     make_function(is_tuple, "pub const fn __is_tuple<T>() -> bool", __LINE__);
+    make_function(is_trivial_copy, "pub const fn __is_trivial_copy<T>() -> bool", __LINE__);
+    make_function(is_trivial_assign, "pub const fn __is_trivial_assign<T>() -> bool", __LINE__);
+    make_function(is_trivial_destroy, "pub const fn __is_trivial_destroy<T>() -> bool", __LINE__);
     make_function(is_allocator_aware, "pub const fn __is_allocator_aware<T>() -> bool", __LINE__);
     make_function(tuple_len, "pub const fn __tuple_len<T>() -> usize", __LINE__);
     make_function(array_len, "pub const fn __array_len<T>() -> usize", __LINE__);
@@ -795,6 +798,9 @@ namespace Builtin
       case Builtin::is_rvalue:
       case Builtin::is_array:
       case Builtin::is_tuple:
+      case Builtin::is_trivial_copy:
+      case Builtin::is_trivial_assign:
+      case Builtin::is_trivial_destroy:
       case Builtin::is_allocator_aware:
       case Builtin::is_integral:
       case Builtin::is_floating_point:

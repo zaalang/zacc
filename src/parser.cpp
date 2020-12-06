@@ -2870,7 +2870,7 @@ namespace
           case Token::semi:
             ctx.diag.warn("extra semi", ctx.text, tok.loc);
             ctx.consume_token(Token::semi);
-            break;
+            continue;
 
           case Token::kw_const:
             decl = parse_const_declaration(ctx, sema);
@@ -3126,7 +3126,7 @@ namespace
           case Token::semi:
             ctx.diag.warn("extra semi", ctx.text, tok.loc);
             ctx.consume_token(Token::semi);
-            break;
+            continue;
 
           case Token::kw_const:
             decl = parse_const_declaration(ctx, sema);
@@ -3879,7 +3879,7 @@ namespace
         case Token::semi:
           ctx.diag.warn("extra semi", ctx.text, tok.loc);
           ctx.consume_token(Token::semi);
-          break;
+          continue;
 
         case Token::kw_extern:
           decl = parse_function_declaration(ctx, sema);

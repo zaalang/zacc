@@ -986,13 +986,13 @@ void TagType::resolve(vector<Decl*> &&resolved_decls, vector<Type*> &&resolved_f
 
       if ((fn->flags & FunctionDecl::Defaulted) && (fn->builtin == Builtin::Default_Copytructor))
       {
-        if (all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::TrivialCopy); }) && !is_allocatoraware_type(this))
+        if (!is_allocatoraware_type(this) && all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::TrivialCopy); }))
           flags |= Type::TrivialCopy;
       }
 
       if ((fn->flags & FunctionDecl::Defaulted) && (fn->builtin == Builtin::Default_Assignment))
       {
-        if (all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::TrivialAssign); }) && !is_allocatoraware_type(this))
+        if (!is_allocatoraware_type(this) && all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::TrivialAssign); }))
           flags |= Type::TrivialAssign;
       }
 

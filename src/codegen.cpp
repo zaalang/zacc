@@ -254,6 +254,9 @@ namespace
   //|///////////////////// is_firstarg_return ///////////////////////////////
   bool is_firstarg_return(GenContext &ctx, FnSig const &fx, MIR::Local const &returntype)
   {
+    if (!is_concrete_type(returntype.type))
+      return false;
+
     if (fx.throwtype)
       return true;
 
@@ -263,22 +266,21 @@ namespace
     if (returntype.flags & MIR::Local::Reference)
       return false;
 
-    if (!is_concrete_type(returntype.type))
-      return false;
-
     if (is_tuple_type(returntype.type) && returntype.zerosized())
       return true;
 
     if (is_array_type(returntype.type) && returntype.zerosized())
       return true;
 
-    if (ctx.triple.getOS() == llvm::Triple::Win32)
+    if (fx.fn->flags & FunctionDecl::ExternC)
     {
-      if (fx.fn->flags & FunctionDecl::ExternC)
+      if (ctx.triple.getOS() == llvm::Triple::Win32)
         return sizeof_type(returntype.type) > 8;
+      else
+        return sizeof_type(returntype.type) > 16;
     }
 
-    return sizeof_type(returntype.type) > 16;
+    return !is_trivial_copy_type(returntype.type) || sizeof_type(returntype.type) > 16;
   }
 
   //|///////////////////// is_passarg_pointer ///////////////////////////////
@@ -290,13 +292,15 @@ namespace
     if (argtype.flags & MIR::Local::Reference)
       return false;
 
-    if (ctx.triple.getOS() == llvm::Triple::Win32)
+    if (fx.fn->flags & FunctionDecl::ExternC)
     {
-      if (fx.fn->flags & FunctionDecl::ExternC)
+      if (ctx.triple.getOS() == llvm::Triple::Win32)
         return sizeof_type(argtype.type) > 8;
+      else
+        return sizeof_type(argtype.type) > 16;
     }
 
-    return sizeof_type(argtype.type) > 16;
+    return !is_trivial_copy_type(argtype.type) || sizeof_type(argtype.type) > 16;
   }
 
   //|///////////////////// llvm_identifier //////////////////////////////////

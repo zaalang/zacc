@@ -153,7 +153,6 @@ namespace Builtin
     is_trivial_copy,
     is_trivial_assign,
     is_trivial_destroy,
-    is_allocator_aware,
     tuple_len,
     array_len,
 

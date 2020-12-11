@@ -394,6 +394,14 @@ class ParmVarDecl : public VarDecl
 class TagDecl : public Decl
 {
   public:
+
+    enum Flags
+    {
+      Public = 0x01,
+      Captures = 0x10,
+    };
+
+  public:
     TagDecl(Kind kind, SourceLocation loc);
 
     std::string name;
@@ -408,14 +416,6 @@ class TagDecl : public Decl
 class StructDecl : public TagDecl
 {
   public:
-
-    enum Flags
-    {
-      Public = 0x01,
-      AllocatorAware = 0x10,
-    };
-
-  public:
     StructDecl(SourceLocation loc);
 
     Type *basetype = nullptr;
@@ -429,14 +429,6 @@ class StructDecl : public TagDecl
 
 class LambdaDecl : public TagDecl
 {
-  public:
-
-    enum Flags
-    {
-      Public = 0x01,
-      Captures = 0x10,
-    };
-
   public:
     LambdaDecl(SourceLocation loc);
 
@@ -527,13 +519,6 @@ class InitialiserDecl : public Decl
 class ConceptDecl : public TagDecl
 {
   public:
-
-    enum Flags
-    {
-      Public = 0x01,
-    };
-
-  public:
     ConceptDecl(SourceLocation loc);
 
     void dump(int indent) const override;
@@ -568,13 +553,6 @@ class RequiresDecl : public Decl
 
 class EnumDecl : public TagDecl
 {
-  public:
-
-    enum Flags
-    {
-      Public = 0x01,
-    };
-
   public:
     EnumDecl(SourceLocation loc);
 

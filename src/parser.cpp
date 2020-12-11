@@ -369,7 +369,7 @@ namespace
 
     while (ctx.tok != Token::r_paren && ctx.tok != Token::r_square && ctx.tok != Token::semi && ctx.tok != Token::eof)
     {
-      if (ctx.tok == Token::identifier && ctx.token(1) == Token::colon)
+      if (ctx.tok == Token::identifier && (ctx.token(1) == Token::colon || (ctx.token(1) == Token::question && ctx.token(2) == Token::colon)))
         break;
 
       auto expr = parse_expression(ctx, sema);
@@ -402,12 +402,23 @@ namespace
 
     while (ctx.tok != Token::r_paren && ctx.tok != Token::eof)
     {
-      if (ctx.tok != Token::identifier || ctx.token(1) != Token::colon)
+      if (ctx.tok != Token::identifier || !(ctx.token(1) == Token::colon || (ctx.token(1) == Token::question && ctx.token(2) == Token::colon)))
         break;
 
       auto name = ctx.tok.text;
 
       ctx.consume_token(Token::identifier);
+
+      if (ctx.tok == Token::question)
+      {
+        if (ctx.tok.text.begin() != name.end())
+          ctx.diag.error("extra characters within parameter name", ctx.text, ctx.tok.loc);
+
+        name = string_view(name.data(), name.length() + 1);
+
+        ctx.consume_token(Token::question);
+      }
+
       ctx.consume_token(Token::colon);
 
       exprs.emplace(name, parse_expression(ctx, sema));
@@ -603,9 +614,7 @@ namespace
       ctx.consume_token();
 
       if (ctx.tok.text.begin() != name.end())
-      {
         ctx.diag.error("extra characters within function name", ctx.text, ctx.tok.loc);
-      }
 
       name = string_view(name.data(), ctx.tok.text.length() + 1);
     }
@@ -1086,9 +1095,7 @@ namespace
     if (ctx.tok == Token::numeric_constant)
     {
       if (ctx.tok.text.begin() != text.end())
-      {
         ctx.diag.warn("extra characters within numeric literal", ctx.text, op.loc);
-      }
 
       auto value = ctx.tok.text;
 
@@ -1490,6 +1497,23 @@ namespace
     return sema.make_match_expression(fn, fn->loc());
   }
 
+  //|///////////////////// parse_where //////////////////////////////////////
+  Expr *parse_where(ParseContext &ctx, Sema &sema)
+  {
+    ctx.consume_token(Token::identifier);
+
+    auto where = parse_expression(ctx, sema);
+
+    if (!where)
+    {
+      ctx.diag.error("expected where condition", ctx.text, ctx.tok.loc);
+      ctx.comsume_til_resumable();
+      return nullptr;
+    }
+
+    return where;
+  }
+
   //|///////////////////// parse_lambda /////////////////////////////////////
   Expr *parse_lambda(ParseContext &ctx, Sema &sema)
   {
@@ -1722,6 +1746,13 @@ namespace
       {
         middle = parse_expression(ctx, sema);
 
+        if (!middle)
+        {
+          ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+          ctx.comsume_til_resumable();
+          return nullptr;
+        }
+
         if (!ctx.try_consume_token(Token::colon))
         {
           ctx.diag.error("expected colon", ctx.text, ctx.tok.loc);
@@ -1909,13 +1940,6 @@ namespace
         if (imprt->flags & Decl::Public)
           usein->flags |= Decl::Public;
 
-        if (ctx.tok != Token::identifier)
-        {
-          ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
-          ctx.comsume_til_resumable();
-          return nullptr;
-        }
-
         auto loc = ctx.tok.loc;
         auto name = parse_name(ctx, sema);
 
@@ -2000,6 +2024,12 @@ namespace
     }
 
     alias->type = parse_type(ctx, sema);
+
+    if (!alias->type)
+    {
+      ctx.diag.error("expected type", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
 
     if (!ctx.try_consume_token(Token::semi))
     {
@@ -2401,9 +2431,7 @@ namespace
     if (ctx.tok == Token::equal)
     {
       if (ctx.tok.text.begin() != name.end())
-      {
         ctx.diag.error("extra characters within function name", ctx.text, ctx.tok.loc);
-      }
 
       name = string_view(name.data(), name.length() + 1);
 
@@ -2496,9 +2524,7 @@ namespace
 
     if (ctx.tok == Token::identifier && ctx.tok.text == "where")
     {
-      ctx.consume_token(Token::identifier);
-
-      fn->where = parse_expression(ctx, sema);
+      fn->where = parse_where(ctx, sema);
     }
 
     if (ctx.tok != Token::semi && ctx.tok != Token::l_brace)
@@ -2628,6 +2654,16 @@ namespace
       }
     }
 
+    if (ctx.tok == Token::identifier && ctx.tok.text == "match")
+    {
+      fn->match = parse_match(ctx, sema);
+    }
+
+    if (ctx.tok == Token::identifier && ctx.tok.text == "where")
+    {
+      fn->where = parse_where(ctx, sema);
+    }
+
     if (ctx.try_consume_token(Token::colon))
     {
       fn->inits = parse_initialiser_list(ctx, sema);
@@ -2738,46 +2774,6 @@ namespace
     {
       ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
       goto resume;
-    }
-
-    if (!ctx.try_consume_token(Token::semi))
-    {
-      ctx.diag.error("expected semi", ctx.text, ctx.tok.loc);
-      goto resume;
-    }
-
-    return field;
-
-    resume:
-      ctx.comsume_til_resumable();
-      return nullptr;
-  }
-
-  //|///////////////////// parse_allocator_declaration //////////////////////
-  Decl *parse_allocator_declaration(ParseContext &ctx, Sema &sema)
-  {
-    auto field = sema.field_declaration(ctx.tok.loc);
-
-    if (ctx.try_consume_token(Token::kw_pub))
-      field->flags |= FieldVarDecl::Public;
-
-    field->name = ctx.tok.text;
-
-    ctx.consume_token(Token::identifier);
-    ctx.consume_token(Token::colon);
-
-    field->type = parse_type(ctx, sema);
-
-    if (!field->type)
-    {
-      ctx.diag.error("expected type", ctx.text, ctx.tok.loc);
-      goto resume;
-    }
-
-    if (is_const_type(field->type))
-    {
-      field->flags |= VarDecl::Const;
-      field->type = remove_const_type(field->type);
     }
 
     if (!ctx.try_consume_token(Token::semi))
@@ -2932,14 +2928,6 @@ namespace
                 decl = parse_constructor_declaration(ctx, sema);
                 break;
               }
-            }
-
-            if (tok.text == "allocator" && ctx.token(nexttok) == Token::colon)
-            {
-              strct->flags |= StructDecl::AllocatorAware;
-
-              decl = parse_allocator_declaration(ctx, sema);
-              break;
             }
 
             decl = parse_field_declaration(ctx, sema);

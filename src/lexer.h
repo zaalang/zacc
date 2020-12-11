@@ -171,7 +171,7 @@ struct Token
 
 inline bool operator==(Token const &lhs, Token::Type type)
 {
-  return (lhs.type == type);
+  return lhs.type == type;
 }
 
 inline bool operator!=(Token const &lhs, Token::Type type)

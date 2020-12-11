@@ -38,139 +38,139 @@ namespace
 //|///////////////////// is_void_type ///////////////////////////////////////
 bool is_void_type(Type const *type)
 {
-  return (type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->is_void_type());
+  return type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->is_void_type();
 }
 
 //|///////////////////// is_int_type ////////////////////////////////////////
 bool is_int_type(Type const *type)
 {
-  return (type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->is_int_type());
+  return type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->is_int_type();
 }
 
 //|///////////////////// is_float_type /////////////////////////////////////
 bool is_float_type(Type const *type)
 {
-  return (type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->is_float_type());
+  return type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->is_float_type();
 }
 
 //|///////////////////// is_char_type ///////////////////////////////////////
 bool is_char_type(Type const *type)
 {
-  return (type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->is_char_type());
+  return type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->is_char_type();
 }
 
 //|///////////////////// is_string_type /////////////////////////////////////
 bool is_string_type(Type const *type)
 {
-  return (type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->kind() == BuiltinType::StringLiteral);
+  return type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->kind() == BuiltinType::StringLiteral;
 }
 
 //|///////////////////// is_bool_type ///////////////////////////////////////
 bool is_bool_type(Type const *type)
 {
-  return (type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->is_bool_type());
+  return type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->is_bool_type();
 }
 
 //|///////////////////// is_signed_type /////////////////////////////////////
 bool is_signed_type(Type const *type)
 {
-  return (type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->is_signed_type());
+  return type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->is_signed_type();
 }
 
 //|///////////////////// is_const_type //////////////////////////////////////
 bool is_const_type(Type const *type)
 {
-  return (type->klass() == Type::Const);
+  return type->klass() == Type::Const;
 }
 
 //|///////////////////// is_builtin_type ////////////////////////////////////
 bool is_builtin_type(Type const *type)
 {
-  return (type->klass() == Type::Builtin);
+  return type->klass() == Type::Builtin;
 }
 
 //|///////////////////// is_pointer_type ////////////////////////////////////
 bool is_pointer_type(Type const *type)
 {
-  return (type->klass() == Type::Pointer);
+  return type->klass() == Type::Pointer;
 }
 
 //|///////////////////// is_reference_type //////////////////////////////////
 bool is_reference_type(Type const *type)
 {
-  return (type->klass() == Type::Reference);
+  return type->klass() == Type::Reference;
 }
 
 //|///////////////////// is_typearg_type ////////////////////////////////////
 bool is_typearg_type(Type const *type)
 {
-  return (type->klass() == Type::TypeArg);
+  return type->klass() == Type::TypeArg;
 }
 
 //|///////////////////// is_qualarg_type ////////////////////////////////////
 bool is_qualarg_type(Type const *type)
 {
-  return (type->klass() == Type::QualArg);
+  return type->klass() == Type::QualArg;
 }
 
 //|///////////////////// is_typelit_type ////////////////////////////////////
 bool is_typelit_type(Type const *type)
 {
-  return (type->klass() == Type::TypeLit);
+  return type->klass() == Type::TypeLit;
 }
 
 //|///////////////////// is_array_type //////////////////////////////////////
 bool is_array_type(Type const *type)
 {
-  return (type->klass() == Type::Array);
+  return type->klass() == Type::Array;
 }
 
 //|///////////////////// is_tuple_type //////////////////////////////////////
 bool is_tuple_type(Type const *type)
 {
-  return (type->klass() == Type::Tuple);
+  return type->klass() == Type::Tuple;
 }
 
 //|///////////////////// is_function_type ///////////////////////////////////
 bool is_function_type(Type const *type)
 {
-  return (type->klass() == Type::Function);
+  return type->klass() == Type::Function;
 }
 
 //|///////////////////// is_pack_type ///////////////////////////////////////
 bool is_pack_type(Type const *type)
 {
-  return (type->klass() == Type::Pack);
+  return type->klass() == Type::Pack;
 }
 
 //|///////////////////// is_unpack_type /////////////////////////////////////
 bool is_unpack_type(Type const *type)
 {
-  return (type->klass() == Type::Unpack);
+  return type->klass() == Type::Unpack;
 }
 
 //|///////////////////// is_tag_type ////////////////////////////////////////
 bool is_tag_type(Type const *type)
 {
-  return (type->klass() == Type::Tag);
+  return type->klass() == Type::Tag;
 }
 
 //|///////////////////// is_struct_type /////////////////////////////////////
 bool is_struct_type(Type const *type)
 {
-  return (is_tag_type(type) && type_cast<TagType>(type)->decl->kind() == Decl::Struct);
+  return is_tag_type(type) && type_cast<TagType>(type)->decl->kind() == Decl::Struct;
 }
 
 //|///////////////////// is_lambda_type /////////////////////////////////////
 bool is_lambda_type(Type const *type)
 {
-  return (is_tag_type(type) && type_cast<TagType>(type)->decl->kind() == Decl::Lambda);
+  return is_tag_type(type) && type_cast<TagType>(type)->decl->kind() == Decl::Lambda;
 }
 
 //|///////////////////// is_enum_type ///////////////////////////////////////
 bool is_enum_type(Type const *type)
 {
-  return (is_tag_type(type) && type_cast<TagType>(type)->decl->kind() == Decl::Enum);
+  return is_tag_type(type) && type_cast<TagType>(type)->decl->kind() == Decl::Enum;
 }
 
 //|///////////////////// is_compound_type ///////////////////////////////////
@@ -216,12 +216,6 @@ bool is_trivial_assign_type(Type const *type)
 bool is_trivial_destroy_type(Type const *type)
 {
   return type->flags & Type::TrivialDestroy;
-}
-
-//|///////////////////// is_allocatoraware_type /////////////////////////////
-bool is_allocatoraware_type(Type const *type)
-{
-  return is_struct_type(type) && (type_cast<TagType>(type)->decl->flags & StructDecl::AllocatorAware);
 }
 
 //|///////////////////// remove_const_type //////////////////////////////////
@@ -986,13 +980,13 @@ void TagType::resolve(vector<Decl*> &&resolved_decls, vector<Type*> &&resolved_f
 
       if ((fn->flags & FunctionDecl::Defaulted) && (fn->builtin == Builtin::Default_Copytructor))
       {
-        if (!is_allocatoraware_type(this) && all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::TrivialCopy); }))
+        if (all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::TrivialCopy); }))
           flags |= Type::TrivialCopy;
       }
 
       if ((fn->flags & FunctionDecl::Defaulted) && (fn->builtin == Builtin::Default_Assignment))
       {
-        if (!is_allocatoraware_type(this) && all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::TrivialAssign); }))
+        if (all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::TrivialAssign); }))
           flags |= Type::TrivialAssign;
       }
 
@@ -1101,7 +1095,7 @@ size_t sizeof_type(TagType const *type)
     align = max(align, alignment);
   }
 
-  return ((size + align - 1) & -align);
+  return (size + align - 1) & -align;
 }
 
 //|///////////////////// sizeof_tuple ///////////////////////////////////////
@@ -1119,7 +1113,7 @@ size_t sizeof_type(TupleType const *type)
     align = max(align, alignment);
   }
 
-  return ((size + align - 1) & -align);
+  return (size + align - 1) & -align;
 }
 
 //|///////////////////// sizeof_type ////////////////////////////////////////

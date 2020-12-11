@@ -806,22 +806,21 @@ namespace
 
         if (fn->flags & FunctionDecl::Defaulted)
         {
-          bool allocatoraware = (decl_cast<TagDecl>(*owner)->flags & StructDecl::AllocatorAware);
-
-          if ((allocatoraware && fn->parms.size() > 2) || (!allocatoraware && fn->parms.size() > 1))
-            ctx.diag.error("invalid defaulted constructor parameters", ctx.file, fn->loc());
-
-          if ((allocatoraware && fn->parms.size() == 1) || (!allocatoraware && fn->parms.size() == 0))
+          if (fn->parms.size() == 0 || (fn->parms.size() == 1 && decl_cast<ParmVarDecl>(fn->parms[0])->name == "allocator"))
           {
             fn->builtin = Builtin::Default_Constructor;
           }
 
-          if ((allocatoraware && fn->parms.size() == 2) || (!allocatoraware && fn->parms.size() == 1))
+          else if (fn->parms.size() == 1 || (fn->parms.size() == 2 && decl_cast<ParmVarDecl>(fn->parms[1])->name == "allocator"))
           {
             if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[0])->type))
               ctx.diag.error("non-reference first parameter", ctx.file, fn->loc());
 
             fn->builtin = Builtin::Default_Copytructor;
+          }
+          else
+          {
+            ctx.diag.error("invalid defaulted constructor parameters", ctx.file, fn->loc());
           }
         }
       }

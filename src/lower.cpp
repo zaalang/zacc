@@ -2076,8 +2076,9 @@ namespace
 
           for(auto field : type_cast<TupleType>(lhs)->fields)
           {
-            DeduceContext ttx(tx);
+            DeduceContext ttx;
 
+            ttx.allow_const_downcast = true;
             ttx.allow_object_downcast = false;
             ttx.allow_pointer_downcast = false;
 
@@ -2121,7 +2122,7 @@ namespace
 
           for(size_t i = 0, j = 0; i < type_cast<TagType>(lhs)->args.size(); ++i)
           {
-            DeduceContext ttx(tx);
+            DeduceContext ttx;
 
             ttx.allow_const_downcast = false;
             ttx.allow_object_downcast = false;
@@ -2169,6 +2170,8 @@ namespace
         return false;
 
       case Type::QualArg:
+
+        tx.pointerdepth -= 1;
 
         return deduce_type(ctx, tx, scope, fx, type_cast<QualArgType>(lhs)->type, remove_const_type(rhs));
 
@@ -2389,13 +2392,22 @@ namespace
 
     bool make_pointer = false;
 
-    make_pointer |= is_pointer_type(rhs.type);
-    make_pointer |= is_pointer_type(lhs.type);
+    make_pointer |= is_pointer_type(rhs.type) || rhs.type == ctx.ptrliteraltype;
+    make_pointer |= is_pointer_type(lhs.type) || lhs.type == ctx.ptrliteraltype;
 
     auto type = lhs.type;
 
     if (is_reference_type(type) && make_pointer)
       type = ctx.typetable.find_or_create<PointerType>(remove_reference_type(type));
+
+    if (type == ctx.intliteraltype && is_int_type(rhs.type))
+      type = rhs.type;
+
+    if (type == ctx.floatliteraltype && is_float_type(rhs.type))
+      type = rhs.type;
+
+    if (type == ctx.ptrliteraltype && is_pointer_type(rhs.type))
+      type = rhs.type;
 
     if (is_reference_type(rhs.type) && make_pointer)
       rhs.type = ctx.typetable.find_or_create<PointerType>(remove_reference_type(rhs.type));
@@ -2406,7 +2418,7 @@ namespace
     if ((lhs.flags & MIR::Local::XValue) != (rhs.flags & MIR::Local::XValue))
       return false;
 
-    if (is_concrete_type(type))
+    if (is_builtin_type(rhs.type) && is_concrete_type(type))
       rhs.type = type;
 
     if (is_pointer_type(rhs.type) && !is_const_type(remove_pointer_type(rhs.type)) && make_const)
@@ -2647,6 +2659,12 @@ namespace
               continue;
           }
 
+          else if (auto j = find_if(namedparms.begin(), namedparms.end(), [&](auto &k) { return k.first.back() == '?' && k.first.substr(0, k.first.size()-1) == parm->name; }); j != namedparms.end())
+          {
+            if (deduce_type(ctx, fnscope, fx, parm, j->second.type))
+              continue;
+          }
+
           else if (parm->defult)
           {
             if (is_reference_type(parm->type) && is_qualarg_type(remove_reference_type(parm->type)))
@@ -2658,6 +2676,8 @@ namespace
           viable = false;
           break;
         }
+
+        k += count_if(namedparms.begin(), namedparms.end(), [&](auto &k) { return k.first.back() == '?'; });
 
         if (k != parms.size() + namedparms.size())
           continue;
@@ -3089,11 +3109,6 @@ namespace
         k = is_pack_type(parm->type) ? parms.size() : k + 1;
       }
 
-      if (!fx.fn->where)
-      {
-        rank += 1;
-      }
-
       if (rank <= best)
       {
         match.fn = nullptr;
@@ -3183,6 +3198,38 @@ namespace
     fx.returntype = find_returntype(ctx, fx).type;
 
     return fx;
+  }
+
+  FnSig map_builtin(LowerContext &ctx, BinaryOpExpr::OpCode op, Type *T1 = nullptr, Type *T2 = nullptr)
+  {
+    switch (op)
+    {
+      case BinaryOpExpr::LT:
+        return Builtin::fn(ctx.translationunit->builtins, Builtin::LT, T1, T2);
+
+      case BinaryOpExpr::LE:
+        return Builtin::fn(ctx.translationunit->builtins, Builtin::LE, T1, T2);
+
+      case BinaryOpExpr::GT:
+        return Builtin::fn(ctx.translationunit->builtins, Builtin::GT, T1, T2);
+
+      case BinaryOpExpr::GE:
+        return Builtin::fn(ctx.translationunit->builtins, Builtin::GE, T1, T2);
+
+      case BinaryOpExpr::EQ:
+        return Builtin::fn(ctx.translationunit->builtins, Builtin::EQ, T1, T2);
+
+      case BinaryOpExpr::NE:
+        return Builtin::fn(ctx.translationunit->builtins, Builtin::NE, T1, T2);
+
+      case BinaryOpExpr::Cmp:
+        return Builtin::fn(ctx.translationunit->builtins, Builtin::Cmp, T1, T2);
+
+      default:
+        assert(false);
+    }
+
+    throw std::logic_error("invalid map_builtin");
   }
 
   //|///////////////////// find_callee //////////////////////////////////////
@@ -4108,10 +4155,6 @@ namespace
         match = is_trivial_destroy_type(type[0]);
         break;
 
-      case Builtin::is_allocator_aware:
-        match = is_allocatoraware_type(type[0]);
-        break;
-
       case Builtin::is_integral:
         match = is_int_type(type[0]) || is_char_type(type[0]);
         break;
@@ -4615,7 +4658,13 @@ namespace
         {
           parms.push_back(std::move(j->second));
         }
-        else
+
+        else if (auto j = find_if(namedparms.begin(), namedparms.end(), [&](auto &k) { return k.first.back() == '?' && k.first.substr(0, k.first.size()-1) == parm->name; }); j != namedparms.end())
+        {
+          parms.push_back(std::move(j->second));
+        }
+
+        else if (parm->defult)
         {
           vector<Scope> stack;
           seed_stack(stack, scope);
@@ -4757,7 +4806,6 @@ namespace
         case Builtin::is_trivial_copy:
         case Builtin::is_trivial_assign:
         case Builtin::is_trivial_destroy:
-        case Builtin::is_allocator_aware:
         case Builtin::is_integral:
         case Builtin::is_floating_point:
         case Builtin::is_arithmetic:
@@ -4903,6 +4951,7 @@ namespace
     if (!callee)
     {
       ctx.diag.error("cannot resolve constructor", ctx.stack.back(), loc);
+      ctx.diag << "  for type: " << *type << '\n';
       diag_callee(ctx, callee, callparms, callnamedparms);
       return false;
     }
@@ -5536,19 +5585,43 @@ namespace
           rhs = remove_const_type(rhs);
         }
 
-        while (is_struct_type(lhs) && is_struct_type(rhs))
-        {
-          if (type_cast<TagType>(lhs)->decl == type_cast<TagType>(rhs)->decl)
-            break;
-
-          if (!decl_cast<StructDecl>(type_cast<TagType>(rhs)->decl)->basetype)
-            break;
-
+        while (lhs != rhs && is_struct_type(rhs) && decl_cast<StructDecl>(type_cast<TagType>(rhs)->decl)->basetype)
           rhs = type_cast<TagType>(rhs)->fields[0];
-        }
 
         if (lhs == rhs)
           callee.fx = Builtin::fn(ctx.translationunit->builtins, Builtin::Assign, parms[0].type.type);
+      }
+    }
+
+    if (!callee && (binaryop == BinaryOpExpr::LT || binaryop == BinaryOpExpr::GT || binaryop == BinaryOpExpr::LE || binaryop == BinaryOpExpr::GE || binaryop == BinaryOpExpr::EQ || binaryop == BinaryOpExpr::NE || binaryop == BinaryOpExpr::Cmp))
+    {
+      if (is_pointference_type(parms[0].type.type) && is_pointference_type(parms[1].type.type))
+      {
+        auto lhs = remove_const_type(remove_pointference_type(parms[0].type.type));
+        auto rhs = remove_const_type(remove_pointference_type(parms[1].type.type));
+
+        if (lhs == rhs)
+          callee.fx = map_builtin(ctx, binaryop, parms[0].type.type);
+
+        if (lhs != rhs)
+        {
+          while (lhs != rhs && is_struct_type(lhs) && decl_cast<StructDecl>(type_cast<TagType>(lhs)->decl)->basetype)
+            lhs = type_cast<TagType>(lhs)->fields[0];
+
+          if (lhs == rhs)
+            callee.fx = map_builtin(ctx, binaryop, parms[0].type.type);
+        }
+
+        if (lhs != rhs)
+        {
+          lhs = remove_const_type(remove_pointference_type(parms[0].type.type));
+
+          while (rhs != lhs && is_struct_type(rhs) && decl_cast<StructDecl>(type_cast<TagType>(rhs)->decl)->basetype)
+            rhs = type_cast<TagType>(rhs)->fields[0];
+
+          if (rhs == lhs)
+            callee.fx = map_builtin(ctx, binaryop, parms[1].type.type);
+        }
       }
     }
 
@@ -5637,27 +5710,7 @@ namespace
         if (swapped)
           swap(parms[0], parms[1]);
 
-        switch(binaryop)
-        {
-          case BinaryOpExpr::LT:
-            callee.fx = Builtin::fn(ctx.translationunit->builtins, Builtin::LT, type(Builtin::Type_I32));
-            break;
-
-          case BinaryOpExpr::LE:
-            callee.fx = Builtin::fn(ctx.translationunit->builtins, Builtin::LE, type(Builtin::Type_I32));
-            break;
-
-          case BinaryOpExpr::GT:
-            callee.fx = Builtin::fn(ctx.translationunit->builtins, Builtin::GT, type(Builtin::Type_I32));
-            break;
-
-          case BinaryOpExpr::GE:
-            callee.fx = Builtin::fn(ctx.translationunit->builtins, Builtin::GE, type(Builtin::Type_I32));
-            break;
-
-          default:
-            assert(false);
-        }
+        callee.fx = map_builtin(ctx, binaryop, type(Builtin::Type_I32));
       }
     }
 
@@ -6019,8 +6072,13 @@ namespace
       result.type = resolve_as_reference(ctx, result.type);
       result.type.defn = remove_const_type(remove_reference_type(result.type.defn));
 
+      // use &&cast<T mut &>(value) to cast away const, retain rvalue
+      // use &&cast<T &&>(value) to cast, retain rvalue and const
+
+      result.type.flags |= source.type.flags & MIR::Local::XValue;
+
       if (is_qualarg_type(remove_reference_type(cast->type)))
-        result.type.flags |= source.type.flags & (MIR::Local::Const | MIR::Local::XValue);
+        result.type.flags |= source.type.flags & MIR::Local::Const;
 
       realise_as_reference(ctx, arg, source);
     }
@@ -6494,12 +6552,6 @@ namespace
     auto fn = ctx.mir.fx.fn;
     auto thistype = type_cast<TagType>(ctx.mir.locals[0].type);
 
-    Expr *allocator = nullptr;
-    if (is_allocatoraware_type(thistype))
-    {
-      allocator = ctx.mir.make_expr<DeclRefExpr>(ctx.mir.make_expr<DeclRefDecl>("allocator", fn->loc()), fn->loc());
-    }
-
     auto sm = ctx.push_barrier();
 
     for(size_t index = 0; index < thistype->fields.size(); ++index)
@@ -6519,26 +6571,17 @@ namespace
       {
         auto init = decl_cast<InitialiserDecl>(*j);
 
-        if (!(init->flags & InitialiserDecl::VoidInit))
-        {
-          ctx.mir.add_lineinfo(ctx.currentblockid, ctx.currentblock.statements.size(), init->loc().lineno);
+        if (init->flags & InitialiserDecl::VoidInit)
+          continue;
 
-          lower_new(ctx, result, address, type, init->parms, init->namedparms, init->loc());
-        }
+        ctx.mir.add_lineinfo(ctx.currentblockid, ctx.currentblock.statements.size(), init->loc().lineno);
+
+        lower_new(ctx, result, address, type, init->parms, init->namedparms, decl->loc());
       }
       else
       {
         vector<Expr*> parms;
         map<string, Expr*> namedparms;
-
-        if (is_allocatoraware_type(thistype))
-        {
-          if (decl->name == "allocator")
-            parms.push_back(allocator);
-
-          else if (is_allocatoraware_type(type))
-            namedparms.emplace("allocator", allocator);
-        }
 
         lower_new(ctx, result, address, type, parms, namedparms, decl->loc());
       }
@@ -6611,7 +6654,7 @@ namespace
     auto thistype = type_cast<CompoundType>(ctx.mir.locals[0].type);
 
     MIR::Fragment allocator;
-    if (is_allocatoraware_type(thistype))
+    if (fn->parms.size() == 1)
     {
       if (!lower_expr(ctx, allocator, decl_cast<ParmVarDecl>(fn->parms[0]), fn->loc()))
         return;
@@ -6632,22 +6675,15 @@ namespace
       vector<MIR::Fragment> parms;
       map<string_view, MIR::Fragment> namedparms;
 
-      if (is_allocatoraware_type(thistype))
-      {
-        auto decl = decl_cast<FieldVarDecl>(type_cast<TagType>(thistype)->fieldvars[index]);
-
-        if (decl->name == "allocator")
-          parms.push_back(allocator);
-
-        else if (is_allocatoraware_type(type))
-          namedparms.emplace("allocator", allocator);
-      }
+      if (allocator)
+        namedparms.emplace("allocator?", allocator);
 
       auto callee = find_callee(ctx, type, parms, namedparms);
 
       if (!callee)
       {
         ctx.diag.error("cannot resolve constructor", ctx.stack.back(), fn->loc());
+        ctx.diag << "  for type: " << *type << '\n';
         diag_callee(ctx, callee, parms, namedparms);
         return;
       }
@@ -6679,7 +6715,7 @@ namespace
     auto thattype = resolve_as_reference(ctx, ctx.mir.locals[1]);
 
     MIR::Fragment allocator;
-    if (is_allocatoraware_type(thistype))
+    if (fn->parms.size() == 2)
     {
       if (!lower_expr(ctx, allocator, decl_cast<ParmVarDecl>(fn->parms[1]), fn->loc()))
         return;
@@ -6700,22 +6736,15 @@ namespace
       if (parms[0].type.flags & MIR::Local::XValue)
         parms[0].type.flags = (parms[0].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
 
-      if (is_allocatoraware_type(thistype))
-      {
-        auto decl = decl_cast<FieldVarDecl>(type_cast<TagType>(thistype)->fieldvars[index]);
-
-        if (decl->name == "allocator")
-          parms[0] = allocator;
-
-        else if (is_allocatoraware_type(type))
-          namedparms.emplace("allocator", allocator);
-      }
+      if (allocator)
+        namedparms.emplace("allocator?", allocator);
 
       auto callee = find_callee(ctx, type, parms, namedparms);
 
       if (!callee)
       {
         ctx.diag.error("cannot resolve constructor", ctx.stack.back(), fn->loc());
+        ctx.diag << "  for type: " << *type << '\n';
         diag_callee(ctx, callee, parms, namedparms);
         return;
       }
@@ -6748,9 +6777,6 @@ namespace
 
     for(size_t index = 0; index < thistype->fields.size(); ++index)
     {
-      if (is_allocatoraware_type(thistype) && decl_cast<FieldVarDecl>(type_cast<TagType>(thistype)->fieldvars[index])->name == "allocator")
-        continue;
-
       MIR::Fragment result;
 
       vector<MIR::Fragment> parms(2);
@@ -6794,9 +6820,6 @@ namespace
 
     for(size_t index = 0; index < thistype->fields.size(); ++index)
     {
-      if (is_allocatoraware_type(thistype) && decl_cast<FieldVarDecl>(type_cast<TagType>(thistype)->fieldvars[index])->name == "allocator")
-        continue;
-
       MIR::Fragment result;
 
       vector<MIR::Fragment> parms(2);
@@ -6840,9 +6863,6 @@ namespace
 
     for(size_t index = 0; index < thistype->fields.size(); ++index)
     {
-      if (is_allocatoraware_type(thistype) && decl_cast<FieldVarDecl>(type_cast<TagType>(thistype)->fieldvars[index])->name == "allocator")
-        continue;
-
       MIR::Fragment result;
 
       vector<MIR::Fragment> parms(2);
@@ -6897,8 +6917,9 @@ namespace
     for(size_t index = thistype->fields.size(); index-- != 0; )
     {
       auto type = thistype->fields[index];
+      auto decl = decl_cast<FieldVarDecl>(type_cast<TagType>(thistype)->fieldvars[index]);
 
-      if (auto callee = find_destructor(ctx, type, fn->loc()))
+      if (auto callee = find_destructor(ctx, type, decl->loc()))
       {
         auto src = ctx.add_temporary(type, MIR::Local::Reference);
 
@@ -7684,6 +7705,9 @@ namespace
 
         realise(ctx, arg, range);
 
+        if (is_reference_type(rangevar->type))
+          range.type.flags &= ~MIR::Local::RValue;
+
         commit_type(ctx, arg, range.type.type, range.type.flags);
 
         auto beg = ctx.add_variable();
@@ -7836,6 +7860,8 @@ namespace
       block_conds.push_back(ctx.add_block(MIR::Terminator::switcher(cond, ctx.currentblockid + 1)));
     }
 
+    auto ssm = ctx.push_barrier();
+
     for(auto &range : ranges)
     {
       MIR::Fragment value;
@@ -7853,8 +7879,6 @@ namespace
     ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1));
 
     auto block_step = ctx.currentblockid;
-
-    auto ssm = ctx.push_barrier();
 
     for(auto &range : ranges)
     {
@@ -7938,6 +7962,9 @@ namespace
         auto arg = ctx.add_variable();
 
         realise(ctx, arg, range);
+
+        if (is_reference_type(rangevar->type))
+          range.type.flags &= ~MIR::Local::RValue;
 
         commit_type(ctx, arg, range.type.type, range.type.flags);
 
@@ -8114,8 +8141,6 @@ namespace
       lower_statement(ctx, iter);
     }
 
-    ctx.retire_barrier(ssm);
-
     for(auto &range : ranges)
     {
       MIR::Fragment value;
@@ -8129,6 +8154,8 @@ namespace
     }
 
     lower_statement(ctx, rofs->stmt);
+
+    ctx.retire_barrier(ssm);
 
     ctx.add_block(MIR::Terminator::gotoer(block_loop));
 
@@ -8475,6 +8502,16 @@ namespace
       if (!lower_expr(ctx, result, retrn->expr))
         return;
 
+      if (ctx.mir.locals[0])
+      {
+        if (!deduce_returntype(ctx, ctx.stack.back(), ctx.mir.fx, ctx.mir.locals[0], result.type))
+        {
+          ctx.diag.error("type mismatch", ctx.stack.back(), retrn->loc());
+          ctx.diag << "  return type: '" << *result.type.type << "' required type: '" << *ctx.mir.locals[0].type << "'\n";
+          return;
+        }
+      }
+
       if (ctx.mir.fx.fn->returntype)
       {
         if (is_lambda_decay(ctx, ctx.mir.locals[0].type, result.type.type))
@@ -8500,16 +8537,6 @@ namespace
       }
 
       realise_as_value(ctx, 0, result);
-
-      if (ctx.mir.locals[0])
-      {
-        if (!deduce_returntype(ctx, ctx.stack.back(), ctx.mir.fx, ctx.mir.locals[0], result.type))
-        {
-          ctx.diag.error("type mismatch", ctx.stack.back(), retrn->loc());
-          ctx.diag << "  return type: '" << *result.type.type << "' required type: '" << *ctx.mir.locals[0].type << "'\n";
-          return;
-        }
-      }
 
       if (!ctx.mir.fx.fn->returntype)
       {

@@ -442,14 +442,6 @@ namespace Builtin
     make_function(NE, "pub const fn !=::<T>(T, T) -> bool", __LINE__);
     make_function(Cmp, "pub const fn <=>::<T>(T, T) -> int", __LINE__);
 
-    make_function(LT, "pub const fn <::<T>(T*, T*) -> bool", __LINE__);
-    make_function(GT, "pub const fn >::<T>(T*, T*) -> bool", __LINE__);
-    make_function(LE, "pub const fn <=::<T>(T*, T*) -> bool", __LINE__);
-    make_function(GE, "pub const fn >=::<T>(T*, T*) -> bool", __LINE__);
-    make_function(EQ, "pub const fn ==::<T>(T*, T*) -> bool", __LINE__);
-    make_function(NE, "pub const fn !=::<T>(T*, T*) -> bool", __LINE__);
-    make_function(Cmp, "pub const fn <=>::<T>(T*, T*) -> int", __LINE__);
-
     make_function(OffsetAdd, "pub fn +<T>(T, usize) -> T", __LINE__);
     make_function(OffsetSub, "pub fn -<T>(T, usize) -> T", __LINE__);
     make_function(Difference, "pub fn -<T>(T*, T*) -> usize", __LINE__);
@@ -510,7 +502,6 @@ namespace Builtin
     make_function(is_trivial_copy, "pub const fn __is_trivial_copy<T>() -> bool", __LINE__);
     make_function(is_trivial_assign, "pub const fn __is_trivial_assign<T>() -> bool", __LINE__);
     make_function(is_trivial_destroy, "pub const fn __is_trivial_destroy<T>() -> bool", __LINE__);
-    make_function(is_allocator_aware, "pub const fn __is_allocator_aware<T>() -> bool", __LINE__);
     make_function(tuple_len, "pub const fn __tuple_len<T>() -> usize", __LINE__);
     make_function(array_len, "pub const fn __array_len<T>() -> usize", __LINE__);
 
@@ -738,10 +729,8 @@ namespace Builtin
       case Builtin::EQ:
       case Builtin::NE:
       case Builtin::Cmp:
-        if (is_pointer(decl_cast<ParmVarDecl>(fx.fn->parms[0])->type))
-          return true;
         if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
-          return is_builtin(T->second) || is_enum(T->second);
+          return is_builtin(T->second) || is_enum(T->second) || is_pointer(T->second);
         break;
 
       case Builtin::OffsetAdd:
@@ -801,7 +790,6 @@ namespace Builtin
       case Builtin::is_trivial_copy:
       case Builtin::is_trivial_assign:
       case Builtin::is_trivial_destroy:
-      case Builtin::is_allocator_aware:
       case Builtin::is_integral:
       case Builtin::is_floating_point:
       case Builtin::is_arithmetic:

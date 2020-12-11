@@ -96,32 +96,32 @@ class BuiltinType : public Type
 
     bool is_void_type() const
     {
-      return (m_kind == Void);
+      return m_kind == Void;
     }
 
     bool is_int_type() const
     {
-      return (m_kind == I8 || m_kind == I16 || m_kind == I32 || m_kind == I64 || m_kind == ISize || m_kind == U8 || m_kind == U16 || m_kind == U32 || m_kind == U64 || m_kind == USize || m_kind == IntLiteral);
+      return m_kind == I8 || m_kind == I16 || m_kind == I32 || m_kind == I64 || m_kind == ISize || m_kind == U8 || m_kind == U16 || m_kind == U32 || m_kind == U64 || m_kind == USize || m_kind == IntLiteral;
     }
 
     bool is_float_type() const
     {
-      return (m_kind == F32 || m_kind == F64 || m_kind == FloatLiteral);
+      return m_kind == F32 || m_kind == F64 || m_kind == FloatLiteral;
     }
 
     bool is_char_type() const
     {
-      return (m_kind == Char);
+      return m_kind == Char;
     }
 
     bool is_bool_type() const
     {
-      return (m_kind == Bool);
+      return m_kind == Bool;
     }
 
     bool is_signed_type() const
     {
-      return (m_kind == I8 || m_kind == I16 || m_kind == I32 || m_kind == I64 || m_kind == ISize || m_kind == F32 || m_kind == F64 || m_kind == IntLiteral || m_kind == FloatLiteral);
+      return m_kind == I8 || m_kind == I16 || m_kind == I32 || m_kind == I64 || m_kind == ISize || m_kind == F32 || m_kind == F64 || m_kind == IntLiteral || m_kind == FloatLiteral;
     }
 
     bool is_concrete_type() const
@@ -423,7 +423,6 @@ bool is_concrete_type(Type const *type);
 bool is_trivial_copy_type(Type const *type);
 bool is_trivial_assign_type(Type const *type);
 bool is_trivial_destroy_type(Type const *type);
-bool is_allocatoraware_type(Type const *type);
 
 Type *remove_const_type(Type *type);
 Type const *remove_const_type(Type const *type);

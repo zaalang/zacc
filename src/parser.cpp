@@ -830,9 +830,7 @@ namespace
       auto kw_const = ctx.try_consume_token(Token::kw_const);
 
       if (kw_mut && kw_const)
-      {
         ctx.diag.warn("mut has no effect when const", ctx.text, ctx.tok.loc);
-      }
 
       if (ctx.try_consume_token(Token::star))
       {
@@ -853,9 +851,7 @@ namespace
       else if (ctx.try_consume_token(Token::ampamp))
       {
         if (kw_mut || kw_const)
-        {
           ctx.diag.warn("invalid qualifiers", ctx.text, ctx.tok.loc);
-        }
 
         type = sema.make_reference(sema.make_qualarg(type));
       }

@@ -64,6 +64,7 @@ namespace
     llvm::DIFile *difile;
     llvm::DICompileUnit *diunit;
     unordered_map<Type*, llvm::DIType*> ditypes;
+    vector<Type*> deferred_enums;
     llvm::SmallString<128> current_directory;
 
     llvm::Function *assert_div0 = nullptr;
@@ -732,7 +733,13 @@ namespace
 
     if (is_enum_type(local.type))
     {
-      ditype = ctx.di.createUnspecifiedType("enum");
+      auto type = type_cast<TagType>(local.type);
+      auto decl = decl_cast<TagDecl>(type->decl);
+      auto difile = llvm_difile(ctx, decl);
+
+      ditype = ctx.di.createEnumerationType(llvm_discope(ctx, decl), decl->name, difile, decl->loc().lineno, sizeof_type(type) * 8, alignof_type(type) * 8, ctx.di.getOrCreateArray({}), llvm_ditype(ctx, type->fields[0]));
+
+      ctx.deferred_enums.push_back(type);
     }
 
     if (is_function_type(local.type))
@@ -3221,6 +3228,9 @@ namespace
     {
       vector<llvm::Value*> parms;
 
+      if (fx.locals[dst].writes != 1)
+        fx.locals[dst].firstarg_return = is_firstarg_return(ctx, callee, fx.mir.locals[dst]);
+
       if (fx.locals[dst].firstarg_return)
       {
         parms.push_back(fx.locals[dst].alloca);
@@ -4192,6 +4202,38 @@ namespace
     }
   }
 
+  //|///////////////////// codegen_finalise /////////////////////////////////
+  void codegen_finalise(GenContext &ctx)
+  {
+    for(auto enumm : ctx.deferred_enums)
+    {
+      auto type = type_cast<TagType>(enumm);
+      auto decl = decl_cast<TagDecl>(type->decl);
+      auto ditype = llvm::cast<llvm::DICompositeType>(ctx.ditypes.find(enumm)->second);
+
+      vector<llvm::Metadata*> elements;
+
+      for(auto &field : decl->decls)
+      {
+        if (field->kind() == Decl::EnumConstant)
+        {
+          if (auto constant = ctx.typetable.find<ConstantType>(field, type))
+          {
+            auto &name = decl_cast<EnumConstantDecl>(field)->name;
+            auto value = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(constant->expr)->value)->value().value;
+
+            elements.push_back(ctx.di.createEnumerator(name, value));
+          }
+        }
+      }
+
+      ctx.di.replaceArrays(ditype, ctx.di.getOrCreateArray(elements));
+    }
+
+
+    ctx.di.finalize();
+  }
+
   //|///////////////////// write_module /////////////////////////////////////
   bool write_module(GenContext &ctx, string const &file)
   {
@@ -4373,7 +4415,7 @@ void codegen(AST *ast, string const &target, GenOpts const &genopts, Diag &diag)
   if (diag.has_errored())
     return;
 
-  ctx.di.finalize();
+  codegen_finalise(ctx);
 
   llvm::verifyModule(ctx.module);
 

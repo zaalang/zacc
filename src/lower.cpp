@@ -260,7 +260,7 @@ namespace
   Type *resolve_defn(LowerContext &ctx, Type *type);
   Type *resolve_type(LowerContext &ctx, Scope const &scope, Type *type);
   Type *resolve_type(LowerContext &ctx, Scope const &scope, TagDecl *tagdecl);
-  Type *resolve_type(LowerContext &ctx, Scope const &scope, EnumConstantDecl *constant);
+  Type *resolve_type(LowerContext &ctx, Scope const &scope, Type *enumm, EnumConstantDecl *constant);
   Type *resolve_type(LowerContext &ctx, Scope const &scope, TypeOfDecl *typedecl);
   Type *resolve_type_as_value(LowerContext &ctx, Scope const &scope, ParmVarDecl *parm);
   Type *resolve_type_as_reference(LowerContext &ctx, Scope const &scope, ParmVarDecl *parm);
@@ -507,6 +507,9 @@ namespace
   //|///////////////////// is_base_cast /////////////////////////////////////
   bool is_base_cast(LowerContext &ctx, Type *lhs, Type *rhs)
   {
+    if (lhs == ctx.ptrliteraltype || rhs == ctx.ptrliteraltype)
+      return false;
+
     if (is_pointer_type(rhs) || is_reference_type(rhs) || is_struct_type(rhs))
     {
       if (rhs->klass() == Type::Pointer || rhs->klass() == Type::Reference)
@@ -1215,9 +1218,9 @@ namespace
     return typelit;
   }
 
-  Type *resolve_type(LowerContext &ctx, Scope const &scope, EnumConstantDecl *constant)
+  Type *resolve_type(LowerContext &ctx, Scope const &scope, Type *enumm, EnumConstantDecl *constant)
   {
-    auto enumm = resolve_type(ctx, scope, decl_cast<EnumDecl>(get<Decl*>(scope.owner)));
+    assert(is_enum_type(enumm));
 
     if (auto type = ctx.typetable.find<ConstantType>(constant, enumm))
       return type;
@@ -1286,7 +1289,7 @@ namespace
     switch(constant->decl->kind())
     {
       case Decl::EnumConstant:
-        return resolve_type(ctx, type_scope(ctx, tagtype), decl_cast<EnumConstantDecl>(constant->decl));
+        return resolve_type(ctx, type_scope(ctx, tagtype), tagtype, decl_cast<EnumConstantDecl>(constant->decl));
 
       default:
         assert(false);
@@ -2383,34 +2386,26 @@ namespace
   //|///////////////////// deduce_returntype ////////////////////////////////
   bool deduce_returntype(LowerContext &ctx, Scope const &scope, FnSig &fx, MIR::Local const &lhs, MIR::Local &rhs)
   {
+    auto type = lhs.type;
+
     bool make_const = false;
 
-    make_const |= is_pointer_type(rhs.type) && is_const_type(remove_pointer_type(rhs.type));
-    make_const |= is_reference_type(rhs.type) && is_const_type(remove_reference_type(rhs.type));
     make_const |= is_pointer_type(lhs.type) && is_const_type(remove_pointer_type(lhs.type));
     make_const |= is_reference_type(lhs.type) && is_const_type(remove_reference_type(lhs.type));
 
-    bool make_pointer = false;
+    if (!fx.fn->returntype)
+    {
+      promote_type(ctx, type, rhs.type);
 
-    make_pointer |= is_pointer_type(rhs.type) || rhs.type == ctx.ptrliteraltype;
-    make_pointer |= is_pointer_type(lhs.type) || lhs.type == ctx.ptrliteraltype;
+      make_const |= is_pointer_type(rhs.type) && is_const_type(remove_pointer_type(rhs.type));
+      make_const |= is_reference_type(rhs.type) && is_const_type(remove_reference_type(rhs.type));
 
-    auto type = lhs.type;
+      if (is_pointer_type(type) && !is_const_type(remove_pointer_type(type)) && make_const)
+        type = ctx.typetable.find_or_create<PointerType>(ctx.typetable.find_or_create<ConstType>(remove_pointer_type(type)));
 
-    if (is_reference_type(type) && make_pointer)
-      type = ctx.typetable.find_or_create<PointerType>(remove_reference_type(type));
-
-    if (type == ctx.intliteraltype && is_int_type(rhs.type))
-      type = rhs.type;
-
-    if (type == ctx.floatliteraltype && is_float_type(rhs.type))
-      type = rhs.type;
-
-    if (type == ctx.ptrliteraltype && is_pointer_type(rhs.type))
-      type = rhs.type;
-
-    if (is_reference_type(rhs.type) && make_pointer)
-      rhs.type = ctx.typetable.find_or_create<PointerType>(remove_reference_type(rhs.type));
+      if (is_reference_type(type) && !is_const_type(remove_reference_type(type)) && make_const)
+        type = ctx.typetable.find_or_create<ReferenceType>(ctx.typetable.find_or_create<ConstType>(remove_reference_type(type)));
+    }
 
     if (!deduce_type(ctx, scope, fx, type, rhs.type))
       return false;
@@ -2418,8 +2413,7 @@ namespace
     if ((lhs.flags & MIR::Local::XValue) != (rhs.flags & MIR::Local::XValue))
       return false;
 
-    if (is_builtin_type(rhs.type) && is_concrete_type(type))
-      rhs.type = type;
+    promote_type(ctx, rhs.type, type);
 
     if (is_pointer_type(rhs.type) && !is_const_type(remove_pointer_type(rhs.type)) && make_const)
       rhs.type = ctx.typetable.find_or_create<PointerType>(ctx.typetable.find_or_create<ConstType>(remove_pointer_type(rhs.type)));
@@ -2427,7 +2421,10 @@ namespace
     if (is_reference_type(rhs.type) && !is_const_type(remove_reference_type(rhs.type)) && make_const)
       rhs.type = ctx.typetable.find_or_create<ReferenceType>(ctx.typetable.find_or_create<ConstType>(remove_reference_type(rhs.type)));
 
-    return true;
+    if (is_pointer_type(rhs.type))
+      rhs.defn = ctx.typetable.var_defn;
+
+    return !!fx.fn->returntype || type == rhs.type;
   }
 
   //|///////////////////// find_overloads ///////////////////////////////////
@@ -2843,7 +2840,7 @@ namespace
           continue;
 
         auto enumm = resolve_type(ctx, scope, decl_cast<EnumDecl>(get<Decl*>(scope.owner)));
-        auto value = resolve_type(ctx, scope, decl_cast<EnumConstantDecl>(decl));
+        auto value = resolve_type(ctx, scope, enumm, decl_cast<EnumConstantDecl>(decl));
 
         results.push_back(Builtin::fn(ctx.translationunit->builtins, Builtin::Type_Lit, enumm, type_cast<ConstantType>(value)->expr));
       }
@@ -8510,10 +8507,7 @@ namespace
           ctx.diag << "  return type: '" << *result.type.type << "' required type: '" << *ctx.mir.locals[0].type << "'\n";
           return;
         }
-      }
 
-      if (ctx.mir.fx.fn->returntype)
-      {
         if (is_lambda_decay(ctx, ctx.mir.locals[0].type, result.type.type))
         {
           if (!lower_lambda_decay(ctx, result, ctx.stack.back(), ctx.mir.locals[0].type, result))
@@ -8540,28 +8534,13 @@ namespace
 
       if (!ctx.mir.fx.fn->returntype)
       {
-        if (ctx.mir.locals[0])
-        {
-          auto lhs = result.type.defn;
-          auto rhs = ctx.mir.locals[0].defn;
-
-          while (is_reference_type(lhs) && is_reference_type(rhs))
-          {
-            lhs = remove_const_type(remove_reference_type(lhs));
-            rhs = remove_const_type(remove_reference_type(rhs));
-          }
-
-          if (is_reference_type(lhs) || is_reference_type(rhs))
-          {
-            ctx.diag.error("ambiguous return definitions", ctx.stack.back(), retrn->loc());
-            ctx.diag << "  return type: '" << *result.type.defn << "' required type: '" << *ctx.mir.locals[0].defn << "'\n";
-            return;
-          }
-        }
-
         commit_type(ctx, 0, result.type.type, result.type.flags);
 
         ctx.mir.locals[0].defn = result.type.defn;
+
+        if (!is_reference_type(ctx.mir.locals[0].type))
+          ctx.mir.locals[0].flags &= ~MIR::Local::LValue;
+
         ctx.mir.locals[0].flags &= ~MIR::Local::RValue;
       }
     }

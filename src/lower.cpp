@@ -8960,7 +8960,7 @@ namespace
 
               if (fields.size() != 0)
               {
-                if (fields.size() != 1 || fields[0].op != MIR::RValue::Ref)
+                if (fields.size() != 1)
                   continue;
 
                 if (is_array_type(mir.locals[arg].type))

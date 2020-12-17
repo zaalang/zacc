@@ -4140,6 +4140,10 @@ namespace
         match = is_tuple_type(type[0]);
         break;
 
+      case Builtin::is_builtin:
+        match = is_builtin_type(type[0]);
+        break;
+
       case Builtin::is_trivial_copy:
         match = is_trivial_copy_type(type[0]);
         break;
@@ -4800,6 +4804,7 @@ namespace
         case Builtin::is_rvalue:
         case Builtin::is_array:
         case Builtin::is_tuple:
+        case Builtin::is_builtin:
         case Builtin::is_trivial_copy:
         case Builtin::is_trivial_assign:
         case Builtin::is_trivial_destroy:
@@ -5558,7 +5563,9 @@ namespace
   //|///////////////////// lower_binaryop ///////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, BinaryOpExpr::OpCode binaryop, vector<MIR::Fragment> &parms, map<string_view, MIR::Fragment> &namedparms, SourceLocation loc)
   {
-    if (binaryop == BinaryOpExpr::Assign)
+    if (binaryop == BinaryOpExpr::Assign || binaryop == BinaryOpExpr::MulAssign || binaryop == BinaryOpExpr::DivAssign || binaryop == BinaryOpExpr::RemAssign ||
+        binaryop == BinaryOpExpr::AddAssign || binaryop == BinaryOpExpr::SubAssign || binaryop == BinaryOpExpr::ShlAssign || binaryop == BinaryOpExpr::ShrAssign ||
+        binaryop == BinaryOpExpr::AndAssign || binaryop == BinaryOpExpr::XorAssign || binaryop == BinaryOpExpr::OrAssign)
     {
       if (parms[0].type.flags & MIR::Local::RValue)
       {
@@ -6914,9 +6921,8 @@ namespace
     for(size_t index = thistype->fields.size(); index-- != 0; )
     {
       auto type = thistype->fields[index];
-      auto decl = decl_cast<FieldVarDecl>(type_cast<TagType>(thistype)->fieldvars[index]);
 
-      if (auto callee = find_destructor(ctx, type, decl->loc()))
+      if (auto callee = find_destructor(ctx, type, fn->loc()))
       {
         auto src = ctx.add_temporary(type, MIR::Local::Reference);
 
@@ -8954,17 +8960,30 @@ namespace
 
               if (fields.size() != 0)
               {
-                if (!is_tuple_type(mir.locals[arg].type) || fields.size() != 1)
+                if (fields.size() != 1 || fields[0].op != MIR::RValue::Ref)
                   continue;
 
-                auto tupletype = type_cast<TupleType>(mir.locals[arg].type);
+                if (is_array_type(mir.locals[arg].type))
+                {
+                  auto arraytype = type_cast<ArrayType>(mir.locals[arg].type);
+                  auto arrayelem = arraytype->type;
 
-                auto tupledefns = tupletype->defns;
-                auto tuplefields = tupletype->fields;
+                  promote_type(ctx, arrayelem, vartype);
 
-                promote_type(ctx, tuplefields[fields[0].index], vartype);
+                  vartype = ctx.typetable.find_or_create<ArrayType>(arrayelem, arraytype->size);
+                }
 
-                vartype = ctx.typetable.find_or_create<TupleType>(tupledefns, tuplefields);
+                if (is_tuple_type(mir.locals[arg].type))
+                {
+                  auto tupletype = type_cast<TupleType>(mir.locals[arg].type);
+
+                  auto tupledefns = tupletype->defns;
+                  auto tuplefields = tupletype->fields;
+
+                  promote_type(ctx, tuplefields[fields[0].index], vartype);
+
+                  vartype = ctx.typetable.find_or_create<TupleType>(tupledefns, tuplefields);
+                }
 
                 if (mir.locals[arg].flags & MIR::Local::Reference)
                   vartype = ctx.typetable.find_or_create<ReferenceType>(vartype);

@@ -605,15 +605,6 @@ namespace
           return;
         }
 
-        if (usein->flags & Decl::Public)
-        {
-          if (get_module(decls[0]) == get_module(usein))
-          {
-            ctx.diag.error("recursive public using", usein, usein->loc());
-            return;
-          }
-        }
-
         if (decls[0]->kind() == Decl::Import || decls[0]->kind() == Decl::Module)
           queryflags |= QueryFlags::Public;
 
@@ -662,6 +653,15 @@ namespace
         {
           ctx.diag.error("no such declaration found", usein, usein->loc());
           return;
+        }
+
+        if (usein->flags & Decl::Public)
+        {
+          if (get_module(decls[0]) == get_module(usein))
+          {
+            ctx.diag.error("recursive public using", usein, usein->loc());
+            return;
+          }
         }
 
         if (!all_of(decls.begin(), decls.end(), [](auto *decl) { return decl->kind() == Decl::Function || decl->kind() == Decl::DeclScoped; }))

@@ -644,7 +644,8 @@ ArrayType::ArrayType(Type *type, Type *size)
 
   if (size->klass() == Type::TypeLit && type_cast<TypeLitType>(size)->value->kind() == Expr::IntLiteral)
   {
-    flags |= type->flags & Type::Concrete;
+    if (is_concrete_type(type))
+      flags |= Type::Concrete;
 
     if (expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(size)->value)->value().value == 0)
     {

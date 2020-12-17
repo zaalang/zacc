@@ -150,6 +150,7 @@ namespace Builtin
     is_match,
     is_array,
     is_tuple,
+    is_builtin,
     is_trivial_copy,
     is_trivial_assign,
     is_trivial_destroy,

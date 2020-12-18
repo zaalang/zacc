@@ -816,7 +816,7 @@ namespace
       diag_args(ctx, declref, decl, sema);
     }
 
-    resolve_type(ctx, scope, dst, sema);
+    resolve_type(ctx, decl, dst, sema);
   }
 
   //|///////////////////// resolve_typearg //////////////////////////////////
@@ -828,12 +828,12 @@ namespace
   //|///////////////////// resolve_typealias ////////////////////////////////
   void resolve_type(TyperContext &ctx, Scope const &scope, TypeAliasDecl *alias, TypeRefType *typeref, Type *&dst, Sema &sema)
   {
-    alias->type = resolve_alias(ctx, Scope(alias, typeref->args), alias->type, sema);
+    alias->type = resolve_alias(ctx, alias, alias->type, sema);
 
-    if (is_dependant_type(ctx, alias->type))
-      return;
-
-    dst = alias->type;
+    if (!is_dependant_type(ctx, alias->type))
+    {
+      dst = resolve_alias(ctx, Scope(alias, typeref->args), alias->type, sema);
+    }
   }
 
   //|///////////////////// resolve_tagdecl //////////////////////////////////

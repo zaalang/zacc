@@ -2420,7 +2420,8 @@ namespace
     if (ctx.try_consume_token(Token::kw_const))
       fn->flags |= FunctionDecl::Const;
 
-    ctx.consume_token(Token::kw_fn);
+    if (!ctx.try_consume_token(Token::kw_fn))
+      ctx.diag.error("expected function", ctx.text, ctx.tok.loc);
 
     auto name = parse_name(ctx, sema);
 

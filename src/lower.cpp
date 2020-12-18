@@ -2679,14 +2679,6 @@ namespace
         if (k != parms.size() + namedparms.size())
           continue;
 
-        if (viable)
-        {
-          if (fn->match)
-          {
-            viable &= match_arguments(ctx, scope, fx, expr_cast<MatchExpr>(fn->match));
-          }
-        }
-
 #if DEFERRED_DEFAULT_ARGS
         if (viable)
         {
@@ -2711,6 +2703,14 @@ namespace
           }
         }
 #endif
+
+        if (viable)
+        {
+          if (fn->match)
+          {
+            viable &= match_arguments(ctx, scope, fx, expr_cast<MatchExpr>(fn->match));
+          }
+        }
 
         if (viable)
         {

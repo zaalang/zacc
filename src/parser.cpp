@@ -292,6 +292,9 @@ namespace
 
       auto type = parse_type_ex(ctx, sema);
 
+      if (!type)
+        break;
+
       if (ctx.try_consume_token(Token::ellipsis))
         type = sema.make_unpack(type);
 
@@ -319,7 +322,12 @@ namespace
       ctx.consume_token(Token::identifier);
       ctx.consume_token(Token::colon);
 
-      args.emplace(name, parse_type_ex(ctx, sema));
+      auto type = parse_type_ex(ctx, sema);
+
+      if (!type)
+        break;
+
+      args.emplace(name, type);
 
       if (!ctx.try_consume_token(Token::comma))
         break;

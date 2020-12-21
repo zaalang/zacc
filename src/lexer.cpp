@@ -51,11 +51,6 @@ namespace
     return (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch == '_');
   }
 
-  bool is_number_body(char ch)
-  {
-    return (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch == '_') || (ch == '.');
-  }
-
   bool is_identifier_body(char ch)
   {
     return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || (ch == '_');
@@ -208,26 +203,31 @@ namespace
     while (is_integer_body(*ptr))
       ++ptr;
 
-    if (ptr[0] == '.' && ptr[1] != '.')
+    if ((cursor.position == 0 || beg[-1] != '.') || (cursor.position > 1 && beg[-2] == '.'))
     {
-      while (is_number_body(*ptr))
+      if (ptr[0] == '.' && ptr[1] != '.')
+      {
         ++ptr;
-    }
 
-    if ((ptr[0] == '-' || ptr[0] == '+') && (ptr[-1] == 'e' || ptr[-1] == 'E'))
-    {
-      ++ptr;
+        while (is_integer_body(*ptr))
+          ++ptr;
+      }
 
-      while (is_number_body(*ptr))
+      if ((ptr[0] == '-' || ptr[0] == '+') && (ptr[-1] == 'e' || ptr[-1] == 'E'))
+      {
         ++ptr;
-    }
 
-    if ((ptr[0] == '-' || ptr[0] == '+') && (ptr[-1] == 'p' || ptr[-1] == 'P'))
-    {
-      ++ptr;
+        while (is_integer_body(*ptr))
+          ++ptr;
+      }
 
-      while (is_number_body(*ptr))
+      if ((ptr[0] == '-' || ptr[0] == '+') && (ptr[-1] == 'p' || ptr[-1] == 'P'))
+      {
         ++ptr;
+
+        while (is_integer_body(*ptr))
+          ++ptr;
+      }
     }
 
     tok = make_token(Token::numeric_constant, beg, ptr, cursor);

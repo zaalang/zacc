@@ -3442,6 +3442,12 @@ namespace
               if (decl->kind() == Decl::Function && (decl->flags & FunctionDecl::Destructor))
                 tx.name = decl_cast<FunctionDecl>(decl)->name;
             }
+
+            if (is_enum_type(j->second))
+            {
+              tx.name = "~#builtin";
+              declref.scope = ctx.translationunit->builtins;
+            }
           }
           else
           {
@@ -3474,6 +3480,7 @@ namespace
             fn->parms = ctor.fx.fn->parms;
             fn->args.push_back(type_cast<TagType>(type)->fieldvars[field.index]);
             fn->args.push_back(ctor.fx.fn);
+            fn->owner = ctor.fx.fn->owner;
 
             callee.fx = FnSig(fn, ctor.fx.typeargs);
 
@@ -6772,7 +6779,7 @@ namespace
         return;
     }
 
-    if (is_struct_type(thistype))
+    if (is_struct_type(thistype) || is_tuple_type(thistype))
     {
       for(size_t index = 0; index < thistype->fields.size(); ++index)
       {
@@ -6830,7 +6837,7 @@ namespace
         return;
     }
 
-    if (is_struct_type(thistype))
+    if (is_struct_type(thistype) || is_tuple_type(thistype))
     {
       for(size_t index = 0; index < thistype->fields.size(); ++index)
       {
@@ -6934,7 +6941,7 @@ namespace
     auto thistype = type_cast<CompoundType>(resolve_as_reference(ctx, ctx.mir.locals[1]).type);
     auto thattype = resolve_as_reference(ctx, ctx.mir.locals[2]);
 
-    if (is_struct_type(thistype))
+    if (is_struct_type(thistype) || is_tuple_type(thistype))
     {
       for(size_t index = 0; index < thistype->fields.size(); ++index)
       {
@@ -6986,7 +6993,7 @@ namespace
     auto thistype = type_cast<CompoundType>(resolve_as_reference(ctx, ctx.mir.locals[1]).type);
     auto thattype = type_cast<CompoundType>(resolve_as_reference(ctx, ctx.mir.locals[2]).type);
 
-    if (is_struct_type(thistype))
+    if (is_struct_type(thistype) || is_tuple_type(thistype))
     {
       for(size_t index = 0; index < thistype->fields.size(); ++index)
       {

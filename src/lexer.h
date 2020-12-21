@@ -140,6 +140,7 @@ struct Token
     kw_typedef,
     kw_class,
     kw_struct,
+    kw_union,
     kw_sizeof,
     kw_alignof,
     kw_typeof,

@@ -276,6 +276,7 @@ namespace
   Expr *parse_expression_left(ParseContext &ctx, Sema &sema);
   Decl *parse_enum_declaration(ParseContext &ctx, Sema &sema);
   Decl *parse_struct_declaration(ParseContext &ctx, Sema &sema);
+  Decl *parse_union_declaration(ParseContext &ctx, Sema &sema);
   Stmt *parse_statement(ParseContext &ctx, Sema &sema);
   Stmt *parse_compound_statement(ParseContext &ctx, Sema &sema);
 
@@ -2375,7 +2376,7 @@ namespace
     auto var = sema.var_declaration(ctx.tok.loc);
 
     var->flags |= VarDecl::Const;
-    var->type = sema.make_typearg(sema.make_typearg("lambda", ctx.tok.loc));
+    var->type = sema.make_typearg(sema.make_typearg("var", ctx.tok.loc));
 
     var->value = parse_lambda(ctx, sema);
 
@@ -2773,11 +2774,7 @@ namespace
       goto resume;
     }
 
-    if (!ctx.try_consume_token(Token::semi))
-    {
-      ctx.diag.error("expected semi", ctx.text, ctx.tok.loc);
-      goto resume;
-    }
+    ctx.try_consume_token(Token::semi) || ctx.try_consume_token(Token::comma);
 
     return field;
 
@@ -2875,6 +2872,10 @@ namespace
 
           case Token::kw_struct:
             decl = parse_struct_declaration(ctx, sema);
+            break;
+
+          case Token::kw_union:
+            decl = parse_union_declaration(ctx, sema);
             break;
 
           case Token::kw_concept:
@@ -3014,6 +3015,239 @@ namespace
       return nullptr;
   }
 
+  //|///////////////////// parse_subject_declaration ////////////////////////
+  Decl *parse_subject_declaration(ParseContext &ctx, Sema &sema)
+  {
+    auto field = sema.field_declaration(ctx.tok.loc);
+
+    field->flags |= Decl::Public;
+
+    field->name = ctx.tok.text;
+
+    ctx.consume_token(Token::identifier);
+
+    if (ctx.try_consume_token(Token::l_paren))
+    {
+      field->type = parse_type(ctx, sema);
+
+      if (!field->type)
+      {
+        ctx.diag.error("expected type", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
+
+      if (!ctx.try_consume_token(Token::r_paren))
+      {
+        ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
+    }
+
+    ctx.try_consume_token(Token::semi) || ctx.try_consume_token(Token::comma);
+
+    return field;
+
+    resume:
+      ctx.comsume_til_resumable();
+      return nullptr;
+  }
+
+  //|///////////////////// parse_union_declaration //////////////////////////
+  Decl *parse_union_declaration(ParseContext &ctx, Sema &sema)
+  {
+    auto unnion = sema.union_declaration(ctx.tok.loc);
+
+    if (ctx.try_consume_token(Token::kw_pub))
+      unnion->flags |= StructDecl::Public;
+
+    ctx.consume_token(Token::kw_union);
+
+    if (ctx.tok == Token::identifier)
+    {
+      unnion->name = ctx.tok.text;
+
+      ctx.consume_token(Token::identifier);
+    }
+
+    if (ctx.try_consume_token(Token::less))
+    {
+      unnion->args = parse_args_list(ctx, sema);
+
+      if (!ctx.try_consume_token(Token::greater))
+      {
+        ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
+    }
+
+    if (!ctx.try_consume_token(Token::semi))
+    {
+      if (!ctx.try_consume_token(Token::l_brace))
+      {
+        ctx.diag.error("expected brace", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
+
+      Decl *decl = nullptr;
+
+      IfDecl *conditional = nullptr;
+      vector<IfDecl*> conditionals_stack;
+
+      while (ctx.tok != Token::r_brace && ctx.tok != Token::eof)
+      {
+        auto tok = ctx.tok;
+        auto nexttok = 1;
+
+        if (tok == Token::kw_pub)
+        {
+          tok = ctx.token(nexttok++);
+        }
+
+        if (tok == Token::kw_const)
+        {
+          switch (ctx.token(nexttok).type)
+          {
+            case Token::kw_fn:
+              tok = ctx.token(nexttok++);
+              break;
+
+            case Token::identifier:
+              break;
+
+            default:
+              goto unhandled;
+          }
+        }
+
+        switch(tok.type)
+        {
+          case Token::semi:
+            ctx.diag.warn("extra semi", ctx.text, tok.loc);
+            ctx.consume_token(Token::semi);
+            continue;
+
+          case Token::kw_const:
+            decl = parse_const_declaration(ctx, sema);
+            break;
+
+          case Token::kw_fn:
+            decl = parse_function_declaration(ctx, sema);
+            break;
+
+          case Token::kw_struct:
+            decl = parse_struct_declaration(ctx, sema);
+            break;
+
+          case Token::kw_union:
+            decl = parse_union_declaration(ctx, sema);
+            break;
+
+          case Token::kw_concept:
+            decl = parse_concept_declaration(ctx, sema);
+            break;
+
+          case Token::kw_enum:
+            decl = parse_enum_declaration(ctx, sema);
+            break;
+
+          case Token::kw_using:
+            decl = parse_using_or_alias_declaration(ctx, sema);
+            break;
+
+          case Token::identifier:
+            if (tok.text == unnion->name)
+            {
+              decl = parse_constructor_declaration(ctx, sema);
+              break;
+            }
+
+            decl = parse_subject_declaration(ctx, sema);
+            break;
+
+          case Token::tilde:
+            decl = parse_destructor_declaration(ctx, sema);
+            break;
+
+          case Token::hash:
+            switch (auto tok = ctx.token(nexttok); tok.type)
+            {
+              case Token::kw_if:
+                conditionals_stack.push_back(conditional);
+                conditionals_stack.push_back(parse_if_declaration(ctx, sema));
+                conditional = conditionals_stack.back();
+                continue;
+
+              case Token::kw_else:
+                if (conditionals_stack.empty())
+                  goto unhandled;
+
+                conditional = parse_else_declaration(ctx, conditional, sema);
+                continue;
+
+              case Token::identifier:
+                if (tok.text != "end")
+                  goto unhandled;
+                if (conditionals_stack.empty())
+                  goto unhandled;
+
+                decl = parse_endif_declaration(ctx, conditionals_stack.back(), sema);
+
+                conditionals_stack.pop_back();
+                conditional = conditionals_stack.back();
+                conditionals_stack.pop_back();
+                break;
+
+              default:
+                goto unhandled;
+            }
+            break;
+
+          case Token::eof:
+            break;
+
+          default:
+          unhandled:
+            ctx.diag.error("expected member declaration", ctx.text, tok.loc);
+            goto resume;
+        }
+
+        if (!decl)
+          break;
+
+        decl->flags |= Decl::Public;
+
+        if (conditional)
+        {
+          decl->flags |= Decl::Conditional;
+
+          conditional->decls.push_back(decl);
+
+          continue;
+        }
+
+        unnion->decls.push_back(decl);
+      }
+
+      if (ctx.tok == Token::eof)
+      {
+        ctx.diag.error("unexpected end of file", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
+
+      if (!ctx.try_consume_token(Token::r_brace))
+      {
+        ctx.diag.error("expected brace", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
+    }
+
+    return unnion;
+
+    resume:
+      ctx.comsume_til_resumable();
+      return nullptr;
+  }
+
   //|///////////////////// parse_constant_declaration ///////////////////////
   Decl *parse_constant_declaration(ParseContext &ctx, Sema &sema)
   {
@@ -3036,7 +3270,7 @@ namespace
       }
     }
 
-    ctx.try_consume_token(Token::comma);
+    ctx.try_consume_token(Token::semi) || ctx.try_consume_token(Token::comma);
 
     return constant;
 
@@ -3216,6 +3450,10 @@ namespace
 
       case Token::kw_struct:
         stmt->decl = parse_struct_declaration(ctx, sema);
+        break;
+
+      case Token::kw_union:
+        stmt->decl = parse_union_declaration(ctx, sema);
         break;
 
       case Token::kw_concept:
@@ -3726,6 +3964,7 @@ namespace
         case Token::kw_import:
         case Token::kw_using:
         case Token::kw_struct:
+        case Token::kw_union:
         case Token::kw_concept:
         case Token::kw_enum:
         case Token::kw_let:
@@ -3880,6 +4119,10 @@ namespace
 
         case Token::kw_struct:
           decl = parse_struct_declaration(ctx, sema);
+          break;
+
+        case Token::kw_union:
+          decl = parse_union_declaration(ctx, sema);
           break;
 
         case Token::kw_concept:

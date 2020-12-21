@@ -697,6 +697,8 @@ namespace
       case 'u':
         if (identifier == "using")
           type = Token::kw_using;
+        else if (identifier == "union")
+          type = Token::kw_union;
         break;
 
       case 'v':

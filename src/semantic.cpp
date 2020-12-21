@@ -445,27 +445,27 @@ namespace
   }
 
   //|///////////////////// tagdecl //////////////////////////////////////////
-  void semantic_decl(SemanticContext &ctx, TagDecl *tag, Sema &sema)
+  void semantic_decl(SemanticContext &ctx, TagDecl *tagdecl, Sema &sema)
   {
-    for(auto &arg : tag->args)
+    for(auto &arg : tagdecl->args)
     {
       semantic_decl(ctx, arg, sema);
     }
 
-    if (tag->args.size() != 0)
+    if (tagdecl->args.size() != 0)
     {
       // implicit self alias
 
-      auto selfalias = sema.alias_declaration(tag->loc());
+      auto selfalias = sema.alias_declaration(tagdecl->loc());
 
-      selfalias->name = tag->name;
-      selfalias->type = sema.make_typeref(tag);
+      selfalias->name = tagdecl->name;
+      selfalias->type = sema.make_typeref(tagdecl);
       selfalias->flags |= TypeAliasDecl::Implicit;
 
-      tag->decls.insert(tag->decls.begin(), selfalias);
+      tagdecl->decls.insert(tagdecl->decls.begin(), selfalias);
     }
 
-    for(auto &decl : tag->decls)
+    for(auto &decl : tagdecl->decls)
     {
       semantic_decl(ctx, decl, sema);
     }
@@ -490,6 +490,59 @@ namespace
     }
 
     semantic_decl(ctx, decl_cast<TagDecl>(strct), sema);
+
+    ctx.stack.pop_back();
+  }
+
+  //|///////////////////// union ////////////////////////////////////////////
+  void semantic_decl(SemanticContext &ctx, UnionDecl *unnion, Sema &sema)
+  {
+    ctx.stack.emplace_back(unnion);
+
+    auto kindtype = sema.enum_declaration(unnion->loc());
+
+    kindtype->name = "#kind";
+    kindtype->flags |= EnumDecl::Public;
+
+    kindtype->decls.push_back(sema.enum_constant_declaration(unnion->loc()));
+
+    for(auto &decl : unnion->decls)
+    {
+      if (decl->kind() == Decl::FieldVar)
+      {
+        auto tag = sema.enum_constant_declaration(decl->loc());
+
+        tag->flags |= Decl::Public;
+
+        tag->name = decl_cast<FieldVarDecl>(decl)->name;
+
+        kindtype->decls.push_back(tag);
+      }
+    }
+
+    unnion->decls.insert(unnion->decls.begin(), kindtype);
+
+    auto kindfield = sema.field_declaration(unnion->loc());
+
+    kindfield->name = "kind";
+    kindfield->flags = VarDecl::Public;
+    kindfield->flags = VarDecl::Const;
+    kindfield->type = sema.make_typeref(kindtype);
+
+    unnion->decls.insert(unnion->decls.begin(), kindfield);
+
+    for(auto &decl : unnion->decls)
+    {
+      if (decl->kind() == Decl::FieldVar)
+      {
+        auto field = decl_cast<FieldVarDecl>(decl);
+
+        if (!field->type)
+          field->type = type(Builtin::Type_Void);
+      }
+    }
+
+    semantic_decl(ctx, decl_cast<TagDecl>(unnion), sema);
 
     ctx.stack.pop_back();
   }
@@ -1005,6 +1058,10 @@ namespace
         semantic_decl(ctx, decl_cast<StructDecl>(decl), sema);
         break;
 
+      case Decl::Union:
+        semantic_decl(ctx, decl_cast<UnionDecl>(decl), sema);
+        break;
+
       case Decl::Concept:
         semantic_decl(ctx, decl_cast<ConceptDecl>(decl), sema);
         break;
@@ -1061,7 +1118,7 @@ namespace
     {
       if (auto var = decl_cast<StmtVarDecl>(stmt->decl); var->value->kind() == Expr::Call)
       {
-        if (auto call = expr_cast<CallExpr>(var->value); call->parms.size() == 1 && call->parms[0]->kind() == Expr::DeclRef)
+        if (auto call = expr_cast<CallExpr>(var->value); call->callee->kind() == Decl::DeclRef && call->parms.size() == 1 && call->parms[0]->kind() == Expr::DeclRef)
         {
           if (auto declref = expr_cast<DeclRefExpr>(call->parms[0]); declref->decl->kind() == Decl::DeclRef && decl_cast<DeclRefDecl>(declref->decl)->name == "void")
           {

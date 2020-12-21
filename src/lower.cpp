@@ -385,6 +385,7 @@ namespace
         return Scope(decl_cast<ImportDecl>(decl)->decl);
 
       case Decl::Struct:
+      case Decl::Union:
       case Decl::Concept:
       case Decl::Enum:
         return child_scope(ctx, scope, decl_cast<TagDecl>(decl), k, args, namedargs);
@@ -780,6 +781,7 @@ namespace
             break;
 
           case Decl::Struct:
+          case Decl::Union:
           case Decl::Concept:
           case Decl::Enum:
             if (decl_cast<TagDecl>(usein->decl)->name == name && (queryflags & QueryFlags::Types))
@@ -998,6 +1000,7 @@ namespace
 
         case Type::Tag:
           field.defn = decl_cast<FieldVarDecl>(type_cast<TagType>(type)->fieldvars[index])->type;
+          field.flags = decl_cast<FieldVarDecl>(type_cast<TagType>(type)->fieldvars[index])->flags;
           break;
 
         default:
@@ -1446,7 +1449,7 @@ namespace
           }
         }
 
-        if (auto owner = get_if<Decl*>(&declref.scope.owner); owner && *owner && ((*owner)->kind() == Decl::TypeArg || (*owner)->kind() == Decl::TypeAlias))
+        if (auto owner = get_if<Decl*>(&declref.scope.owner); owner && *owner)
         {
           auto type = ctx.voidtype;
 
@@ -1461,13 +1464,18 @@ namespace
             type = resolve_type(ctx, declref.scope, decl_cast<TypeAliasDecl>(*owner)->type);
           }
 
-          if (is_tuple_type(type))
+          if (is_tag_decl(*owner))
           {
-            auto tupletype = type_cast<TupleType>(type);
+            type = resolve_type(ctx, declref.scope, decl_cast<TagDecl>(*owner));
+          }
+
+          if (is_compound_type(type))
+          {
+            auto compoundtype = type_cast<CompoundType>(type);
 
             if (auto index = find_index(ctx, stack, declref.decl->name); index != size_t(-1))
             {
-              if (auto field = find_field(ctx, tupletype, index))
+              if (auto field = find_field(ctx, compoundtype, index))
               {
                 types.push_back(resolve_deref(ctx, field.type, field.defn));
               }
@@ -2860,6 +2868,21 @@ namespace
         find_overloads(ctx, ttx, typescope, parms, namedparms, results);
       }
 
+      if (decl->kind() == Decl::Union)
+      {
+        FindContext ttx(tx.name, QueryFlags::Functions);
+
+        size_t k = 0;
+
+        auto tagdecl = decl_cast<TagDecl>(decl);
+        auto typescope = child_scope(ctx, scope, tagdecl, k, tx.args, tx.namedargs);
+
+        if ((k & ~IllSpecified) != tx.args.size() + tx.namedargs.size())
+          continue;
+
+        find_overloads(ctx, ttx, typescope, parms, namedparms, results);
+      }
+
       if (decl->kind() == Decl::TypeAlias)
       {
         size_t k = 0;
@@ -2895,6 +2918,7 @@ namespace
             break;
 
           case Decl::Struct:
+          case Decl::Union:
           case Decl::Concept:
           case Decl::Enum:
             find_overloads(ctx, ttx, parent_scope(usein->decl), parms, namedparms, results);
@@ -3435,6 +3459,29 @@ namespace
         }
       }
 
+      if (auto owner = get_if<Decl*>(&declref.scope.owner); owner && *owner && (*owner)->kind() == Decl::Union)
+      {
+        auto type = resolve_type(ctx, declref.scope, decl_cast<TagDecl>(*owner));
+
+        if (auto field = find_field(ctx, type_cast<TagType>(type), tx.name))
+        {
+          if (auto ctor = find_callee(ctx, field.type, parms, namedparms))
+          {
+            auto fn = ctx.mir.make_decl<FunctionDecl>(scoped->loc());
+
+            fn->name = "#union";
+            fn->returntype = type;
+            fn->parms = ctor.fx.fn->parms;
+            fn->args.push_back(type_cast<TagType>(type)->fieldvars[field.index]);
+            fn->args.push_back(ctor.fx.fn);
+
+            callee.fx = FnSig(fn, ctor.fx.typeargs);
+
+            return callee;
+          }
+        }
+      }
+
       tx.args = typeargs(ctx, ctx.stack.back(), declref.decl->args);
       tx.namedargs = typeargs(ctx, ctx.stack.back(), declref.decl->namedargs);
 
@@ -3485,37 +3532,40 @@ namespace
   {
     Callee callee;
 
-    vector<MIR::Fragment> parms(1);
-    map<string_view, MIR::Fragment> namedparms;
-
-    parms[0].type = type;
-
-    if (is_struct_type(type))
+    if (!is_trivial_destroy_type(type))
     {
-      auto name = "~" + decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->name;
+      vector<MIR::Fragment> parms(1);
+      map<string_view, MIR::Fragment> namedparms;
 
-      callee = find_callee(ctx, type, name, parms, namedparms);
+      parms[0].type = type;
 
-      if (!callee)
+      if (is_tag_type(type))
       {
-        ctx.diag.error("cannot resolve destructor", ctx.stack.back(), loc);
-        diag_callee(ctx, callee, parms, namedparms);
+        auto name = "~" + decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->name;
+
+        callee = find_callee(ctx, type, name, parms, namedparms);
+
+        if (!callee)
+        {
+          ctx.diag.error("cannot resolve destructor", ctx.stack.back(), loc);
+          diag_callee(ctx, callee, parms, namedparms);
+        }
       }
-    }
 
-    if (is_array_type(type))
-    {
-      callee.fx = find_builtin(ctx, Builtin::Array_Destructor, type);
-    }
+      if (is_array_type(type))
+      {
+        callee.fx = find_builtin(ctx, Builtin::Array_Destructor, type);
+      }
 
-    if (is_tuple_type(type))
-    {
-      callee.fx = find_builtin(ctx, Builtin::Tuple_Destructor, type);
-    }
+      if (is_tuple_type(type))
+      {
+        callee.fx = find_builtin(ctx, Builtin::Tuple_Destructor, type);
+      }
 
-    if (callee)
-    {
-      callee.fx.returntype = ctx.voidtype;
+      if (callee)
+      {
+        callee.fx.returntype = ctx.voidtype;
+      }
     }
 
     return callee;
@@ -3719,6 +3769,33 @@ namespace
     if (flags & VarDecl::Const)
       expr.type.flags |= MIR::Local::Const;
 
+    if (expr.value.kind() == MIR::RValue::Call && get<0>(expr.value.get<MIR::RValue::Call>()).fn->name == "#union")
+    {
+      auto &[callee, args, loc] = expr.value.get<MIR::RValue::Call>();
+
+      auto tagtype = type_cast<TagType>(callee.returntype);
+      size_t kind = find(tagtype->fieldvars.begin(), tagtype->fieldvars.end(), callee.fn->args[0]) - tagtype->fieldvars.begin();
+
+      callee = FnSig(decl_cast<FunctionDecl>(callee.fn->args[1]), callee.typeargs, tagtype->fields[kind]);
+
+      if (callee.fn->flags & FunctionDecl::Builtin)
+        expr.value = MIR::RValue::local(MIR::RValue::Val, args[0], loc);
+
+      auto kinddst = ctx.add_temporary(tagtype->fields[0], MIR::Local::LValue | MIR::Local::Reference);
+      auto kindres = ctx.add_temporary(tagtype->fields[0], MIR::Local::LValue | MIR::Local::Reference);
+
+      ctx.add_statement(MIR::Statement::assign(kinddst, MIR::RValue::field(MIR::RValue::Ref, dst.local, MIR::RValue::Field{ MIR::RValue::Ref, 0 }, loc)));
+      ctx.add_statement(MIR::Statement::construct(kindres, MIR::RValue::literal(ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(kind), loc))));
+
+      auto datadst = ctx.add_temporary(tagtype->fields[kind], MIR::Local::LValue | MIR::Local::Reference);
+      auto datares = ctx.add_temporary(tagtype->fields[kind], MIR::Local::LValue | MIR::Local::Reference);
+
+      ctx.add_statement(MIR::Statement::assign(datadst, MIR::RValue::field(MIR::RValue::Ref, dst.local, MIR::RValue::Field{ MIR::RValue::Ref, kind }, loc)));
+      ctx.add_statement(MIR::Statement::construct(datares, std::move(expr.value)));
+
+      return;
+    }
+
     switch (dst.op)
     {
       case Place::Val:
@@ -3752,9 +3829,6 @@ namespace
     assert(!(ctx.mir.locals[arg].flags & MIR::Local::Reference));
 
     auto type = ctx.mir.locals[arg].type;
-
-    if (is_trivial_destroy_type(type))
-      return;
 
     if (auto callee = find_destructor(ctx, type, loc))
     {
@@ -3793,7 +3867,7 @@ namespace
 
     if (expr.value.kind() == MIR::RValue::Variable || (expr.value.kind() == MIR::RValue::Constant && !(flags & VarDecl::Const)))
     {
-      if (is_struct_type(expr.type.type) || is_array_type(expr.type.type) || is_tuple_type(expr.type.type) || is_lambda_type(expr.type.type) || is_function_type(expr.type.type))
+      if (is_struct_type(expr.type.type) || is_union_type(expr.type.type) || is_array_type(expr.type.type) || is_tuple_type(expr.type.type) || is_lambda_type(expr.type.type) || is_function_type(expr.type.type))
       {
         vector<MIR::Fragment> parms(1);
         map<string_view, MIR::Fragment> namedparms;
@@ -4090,7 +4164,7 @@ namespace
   }
 
   //|///////////////////// lower_lit ////////////////////////////////////////
-  void lower_lit(LowerContext &ctx, MIR::Fragment &result, FnSig &callee)
+  void lower_lit(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
   {
     auto V = callee.find_type(callee.fn->args[1])->second;
 
@@ -4392,6 +4466,25 @@ namespace
       expr.type = resolve_as_reference(ctx, expr.type);
       expr.type.defn = remove_const_type(remove_reference_type(expr.type.defn));
     }
+
+    return true;
+  }
+
+  //|///////////////////// lower_copy ///////////////////////////////////////
+  bool lower_copy(LowerContext &ctx, MIR::Fragment &result, Type *type, vector<MIR::Fragment> &parms, map<string_view, MIR::Fragment> &namedparms, SourceLocation loc)
+  {
+    auto callee = find_callee(ctx, type, parms, namedparms);
+
+    if (!callee)
+    {
+      ctx.diag.error("cannot resolve constructor", ctx.stack.back(), loc);
+      ctx.diag << "  for type: " << *type << '\n';
+      diag_callee(ctx, callee, parms, namedparms);
+      return false;
+    }
+
+    if (!lower_call(ctx, result, callee.fx, parms, namedparms, loc))
+      return false;
 
     return true;
   }
@@ -4783,7 +4876,7 @@ namespace
           return true;
 
         case Builtin::Type_Lit:
-          lower_lit(ctx, result, callee);
+          lower_lit(ctx, result, callee, loc);
           return true;
 
         case Builtin::Builtin_Destructor:
@@ -4942,23 +5035,8 @@ namespace
       callnamedparms.emplace(name, std::move(expr));
     }
 
-    if (type->klass() == Type::TypeArg)
-    {
-      ctx.diag.error("unresolved type for constructor", ctx.stack.back(), loc);
+    if (!lower_copy(ctx, result, type, callparms, callnamedparms, loc))
       return false;
-    }
-
-    auto callee = find_callee(ctx, type, callparms, callnamedparms);
-
-    if (!callee)
-    {
-      ctx.diag.error("cannot resolve constructor", ctx.stack.back(), loc);
-      ctx.diag << "  for type: " << *type << '\n';
-      diag_callee(ctx, callee, callparms, callnamedparms);
-      return false;
-    }
-
-    lower_call(ctx, result, callee.fx, callparms, callnamedparms, loc);
 
     auto dst = ctx.add_temporary();
     auto res = ctx.add_temporary();
@@ -5171,16 +5249,8 @@ namespace
       vector<MIR::Fragment> parms = { value };
       map<string_view, MIR::Fragment> namedparms;
 
-      auto callee = find_callee(ctx, type, parms, namedparms);
-
-      if (!callee)
-      {
-        ctx.diag.error("cannot resolve array element constructor", ctx.stack.back(), value.value.loc());
-        diag_callee(ctx, callee, parms, namedparms);
+      if (!lower_copy(ctx, result, type, parms, namedparms, value.value.loc()))
         return;
-      }
-
-      lower_call(ctx, result, callee.fx, parms, namedparms, value.value.loc());
 
       realise_as_value(ctx, Place(Place::Fer, res), result);
 
@@ -5313,19 +5383,19 @@ namespace
 
     parms.push_back(base);
 
-    if (is_tuple_type(base.type.type))
+    if (is_compound_type(base.type.type))
     {
-      auto tupletype = type_cast<TupleType>(base.type.type);
+      auto compoundtype = type_cast<CompoundType>(base.type.type);
 
       if (auto index = find_index(ctx, ctx.stack, name); index != size_t(-1))
       {
-        if (tupletype->fields.size() <= index)
+        if (compoundtype->fields.size() <= index)
         {
-          ctx.diag.error("tuple field out of range", ctx.stack.back(), declref->loc());
+          ctx.diag.error("field out of range", ctx.stack.back(), declref->loc());
           return;
         }
 
-        if (auto field = find_field(ctx, tupletype, index))
+        if (auto field = find_field(ctx, compoundtype, index))
         {
           lower_field(ctx, result, base, field, declref->loc());
 
@@ -5334,7 +5404,7 @@ namespace
       }
     }
 
-    while (is_struct_type(base.type.type))
+    while (is_tag_type(base.type.type))
     {
       auto tagtype = type_cast<TagType>(base.type.type);
 
@@ -5424,7 +5494,7 @@ namespace
   }
 
   //|///////////////////// lower_unaryop ////////////////////////////////////
-  void lower_expr(LowerContext &ctx, MIR::Fragment &result, UnaryOpExpr::OpCode unaryop, vector<MIR::Fragment> &parms, map<string_view, MIR::Fragment> &namedparms, SourceLocation loc)
+  bool lower_expr(LowerContext &ctx, MIR::Fragment &result, UnaryOpExpr::OpCode unaryop, vector<MIR::Fragment> &parms, map<string_view, MIR::Fragment> &namedparms, SourceLocation loc)
   {
     if (unaryop == UnaryOpExpr::Unpack)
     {
@@ -5433,10 +5503,10 @@ namespace
       if (!is_tuple_type(result.type.type))
       {
         ctx.diag.error("tuple type required", ctx.stack.back(), loc);
-        return;
+        return false;
       }
 
-      return;
+      return true;
     }
 
     if (unaryop == UnaryOpExpr::Ref && (parms[0].type.flags & MIR::Local::Reference))
@@ -5446,7 +5516,7 @@ namespace
       result.type = resolve_as_value(ctx, result.type);
       result.type.defn = ctx.typetable.find_or_create<ReferenceType>(result.type.defn);
 
-      return;
+      return true;
     }
 
     if (unaryop == UnaryOpExpr::Fer && is_reference_type(parms[0].type.type))
@@ -5459,7 +5529,7 @@ namespace
       result.type = resolve_as_reference(ctx, result.type);
       result.type.defn = remove_const_type(remove_reference_type(result.type.defn));
 
-      return;
+      return true;
     }
 
     if (unaryop == UnaryOpExpr::Fwd && (parms[0].type.flags & MIR::Local::Reference))
@@ -5469,7 +5539,7 @@ namespace
       if (result.type.flags & MIR::Local::XValue)
         result.type.flags = (result.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
 
-      return;
+      return true;
     }
 
     if (unaryop == UnaryOpExpr::PostInc || unaryop == UnaryOpExpr::PostDec)
@@ -5514,14 +5584,14 @@ namespace
 
         result.value = MIR::RValue::local(MIR::RValue::Ref, arg, loc);
 
-        return;
+        return true;
       }
     }
 
     if (!callee && unaryop == UnaryOpExpr::LNot)
     {
       if (!lower_cast(ctx, parms[0], parms[0], ctx.booltype, parms[0].value.loc()))
-        return;
+        return false;
 
       callee.fx = Builtin::fn(ctx.translationunit->builtins, Builtin::LNot);
     }
@@ -5530,10 +5600,13 @@ namespace
     {
       ctx.diag.error("cannot resolve operator reference", ctx.stack.back(), loc);
       diag_callee(ctx, callee, parms, namedparms);
-      return;
+      return false;
     }
 
-    lower_call(ctx, result, callee.fx, parms, namedparms, loc);
+    if (!lower_call(ctx, result, callee.fx, parms, namedparms, loc))
+      return false;
+
+    return true;
   }
 
   //|///////////////////// lower_unaryop ////////////////////////////////////
@@ -5561,7 +5634,7 @@ namespace
   }
 
   //|///////////////////// lower_binaryop ///////////////////////////////////
-  void lower_expr(LowerContext &ctx, MIR::Fragment &result, BinaryOpExpr::OpCode binaryop, vector<MIR::Fragment> &parms, map<string_view, MIR::Fragment> &namedparms, SourceLocation loc)
+  bool lower_expr(LowerContext &ctx, MIR::Fragment &result, BinaryOpExpr::OpCode binaryop, vector<MIR::Fragment> &parms, map<string_view, MIR::Fragment> &namedparms, SourceLocation loc)
   {
     if (binaryop == BinaryOpExpr::Assign || binaryop == BinaryOpExpr::MulAssign || binaryop == BinaryOpExpr::DivAssign || binaryop == BinaryOpExpr::RemAssign ||
         binaryop == BinaryOpExpr::AddAssign || binaryop == BinaryOpExpr::SubAssign || binaryop == BinaryOpExpr::ShlAssign || binaryop == BinaryOpExpr::ShrAssign ||
@@ -5570,7 +5643,7 @@ namespace
       if (parms[0].type.flags & MIR::Local::RValue)
       {
         ctx.diag.error("invalid assignment epression", ctx.stack.back(), loc);
-        return;
+        return false;
       }
     }
 
@@ -5722,10 +5795,13 @@ namespace
     {
       ctx.diag.error("cannot resolve operator reference", ctx.stack.back(), loc);
       diag_callee(ctx, callee, parms, namedparms);
-      return;
+      return false;
     }
 
-    lower_call(ctx, result, callee.fx, parms, namedparms, loc);
+    if (!lower_call(ctx, result, callee.fx, parms, namedparms, loc))
+      return false;
+
+    return true;
   }
 
   //|///////////////////// lower_binaryop ///////////////////////////////////
@@ -6584,10 +6660,13 @@ namespace
       }
       else
       {
-        vector<Expr*> parms;
-        map<string, Expr*> namedparms;
+        if (is_struct_type(thistype))
+        {
+          vector<Expr*> parms;
+          map<string, Expr*> namedparms;
 
-        lower_new(ctx, result, address, type, parms, namedparms, decl->loc());
+          lower_new(ctx, result, address, type, parms, namedparms, decl->loc());
+        }
       }
     }
 
@@ -6598,22 +6677,51 @@ namespace
   void lower_deinitialisers(LowerContext &ctx)
   {
     auto fn = ctx.mir.fx.fn;
-    auto thistype = type_cast<TagType>(resolve_as_reference(ctx, ctx.mir.locals[1]).type);
+    auto thistype = type_cast<CompoundType>(resolve_as_reference(ctx, ctx.mir.locals[1]).type);
 
     auto sm = ctx.push_barrier();
 
     auto res = ctx.add_temporary(ctx.voidtype, MIR::Local::LValue);
 
-    for(size_t index = thistype->fields.size(); index-- != 0; )
+    if (is_struct_type(thistype))
     {
-      auto type = thistype->fields[index];
-
-      if (auto callee = find_destructor(ctx, type, fn->loc()))
+      for(size_t index = thistype->fields.size(); index-- != 0; )
       {
-        auto src = ctx.add_temporary(type, MIR::Local::Reference);
+        auto type = thistype->fields[index];
 
-        ctx.add_statement(MIR::Statement::assign(src, MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc())));
-        ctx.add_statement(MIR::Statement::assign(res, MIR::RValue::call(callee.fx, { src }, fn->loc())));
+        if (auto callee = find_destructor(ctx, type, fn->loc()))
+        {
+          auto src = ctx.add_temporary(type, MIR::Local::Reference);
+
+          ctx.add_statement(MIR::Statement::assign(src, MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc())));
+          ctx.add_statement(MIR::Statement::assign(res, MIR::RValue::call(callee.fx, { src }, fn->loc())));
+        }
+      }
+    }
+
+    if (is_union_type(thistype))
+    {
+      auto cond = ctx.add_temporary(ctx.isizetype);
+
+      ctx.add_statement(MIR::Statement::assign(cond, MIR::RValue::field(MIR::RValue::Val, 1, MIR::RValue::Field{ MIR::RValue::Val, 0 }, fn->loc())));
+
+      auto endblock = ctx.currentblockid + thistype->fields.size();
+      auto switcher = ctx.add_block(MIR::Terminator::switcher(cond, endblock));
+
+      for(size_t index = 1; index < thistype->fields.size(); ++index)
+      {
+        auto type = thistype->fields[index];
+
+        if (auto callee = find_destructor(ctx, type, fn->loc()))
+        {
+          auto src = ctx.add_temporary(type, MIR::Local::Reference);
+
+          ctx.add_statement(MIR::Statement::assign(src, MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc())));
+          ctx.add_statement(MIR::Statement::assign(res, MIR::RValue::call(callee.fx, { src }, fn->loc())));
+        }
+
+        ctx.mir.blocks[switcher].terminator.targets.emplace_back(index, ctx.currentblockid);
+        ctx.add_block(MIR::Terminator::gotoer(endblock));
       }
     }
 
@@ -6664,50 +6772,47 @@ namespace
         return;
     }
 
-    for(size_t index = 0; index < thistype->fields.size(); ++index)
+    if (is_struct_type(thistype))
     {
-      auto type = thistype->fields[index];
-
-      if (is_typearg_type(type))
+      for(size_t index = 0; index < thistype->fields.size(); ++index)
       {
-        ctx.diag.error("unresolved type for constructor", ctx.stack.back(), fn->loc());
-        return;
+        auto type = thistype->fields[index];
+
+        MIR::Fragment result;
+
+        vector<MIR::Fragment> parms;
+        map<string_view, MIR::Fragment> namedparms;
+
+        if (allocator)
+          namedparms.emplace("allocator?", allocator);
+
+        if (!lower_copy(ctx, result, type, parms, namedparms, fn->loc()))
+          return;
+
+        auto dst = ctx.add_temporary();
+        auto res = ctx.add_temporary();
+
+        MIR::Fragment address;
+        address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(type), MIR::Local::LValue);
+        address.value = MIR::RValue::field(MIR::RValue::Ref, 0, MIR::RValue::Field{ MIR::RValue::Ref, index }, fn->loc());
+
+        realise_as_value(ctx, dst, address);
+
+        commit_type(ctx, dst, address.type.type, address.type.flags);
+
+        realise_as_value(ctx, Place(Place::Fer, res), result);
+
+        commit_type(ctx, res, result.type.type, result.type.flags);
       }
+    }
 
-      MIR::Fragment result;
+    if (is_union_type(thistype))
+    {
+      auto kinddst = ctx.add_temporary(thistype->fields[0], MIR::Local::LValue | MIR::Local::Reference);
+      auto kindres = ctx.add_temporary(thistype->fields[0], MIR::Local::LValue | MIR::Local::Reference);
 
-      vector<MIR::Fragment> parms;
-      map<string_view, MIR::Fragment> namedparms;
-
-      if (allocator)
-        namedparms.emplace("allocator?", allocator);
-
-      auto callee = find_callee(ctx, type, parms, namedparms);
-
-      if (!callee)
-      {
-        ctx.diag.error("cannot resolve constructor", ctx.stack.back(), fn->loc());
-        ctx.diag << "  for type: " << *type << '\n';
-        diag_callee(ctx, callee, parms, namedparms);
-        return;
-      }
-
-      lower_call(ctx, result, callee.fx, parms, namedparms, fn->loc());
-
-      auto dst = ctx.add_temporary();
-      auto res = ctx.add_temporary();
-
-      MIR::Fragment address;
-      address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(type), MIR::Local::LValue);
-      address.value = MIR::RValue::field(MIR::RValue::Ref, 0, MIR::RValue::Field{ MIR::RValue::Ref, index }, fn->loc());
-
-      realise_as_value(ctx, dst, address);
-
-      commit_type(ctx, dst, address.type.type, address.type.flags);
-
-      realise_as_value(ctx, Place(Place::Fer, res), result);
-
-      commit_type(ctx, res, result.type.type, result.type.flags);
+      ctx.add_statement(MIR::Statement::assign(kinddst, MIR::RValue::field(MIR::RValue::Ref, 0, MIR::RValue::Field{ MIR::RValue::Ref, 0 }, fn->loc())));
+      ctx.add_statement(MIR::Statement::construct(kindres, MIR::RValue::literal(ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(0), fn->loc()))));
     }
   }
 
@@ -6725,50 +6830,100 @@ namespace
         return;
     }
 
-    for(size_t index = 0; index < thistype->fields.size(); ++index)
+    if (is_struct_type(thistype))
     {
-      auto type = thistype->fields[index];
-
-      MIR::Fragment result;
-
-      vector<MIR::Fragment> parms(1);
-      map<string_view, MIR::Fragment> namedparms;
-
-      parms[0].type = MIR::Local(type, thattype.flags);
-      parms[0].value = MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
-
-      if (parms[0].type.flags & MIR::Local::XValue)
-        parms[0].type.flags = (parms[0].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
-
-      if (allocator)
-        namedparms.emplace("allocator?", allocator);
-
-      auto callee = find_callee(ctx, type, parms, namedparms);
-
-      if (!callee)
+      for(size_t index = 0; index < thistype->fields.size(); ++index)
       {
-        ctx.diag.error("cannot resolve constructor", ctx.stack.back(), fn->loc());
-        ctx.diag << "  for type: " << *type << '\n';
-        diag_callee(ctx, callee, parms, namedparms);
-        return;
+        auto type = thistype->fields[index];
+
+        MIR::Fragment result;
+
+        vector<MIR::Fragment> parms(1);
+        map<string_view, MIR::Fragment> namedparms;
+
+        parms[0].type = MIR::Local(type, thattype.flags);
+        parms[0].value = MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
+
+        if (parms[0].type.flags & MIR::Local::XValue)
+          parms[0].type.flags = (parms[0].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
+
+        if (allocator)
+          namedparms.emplace("allocator?", allocator);
+
+        if (!lower_copy(ctx, result, type, parms, namedparms, fn->loc()))
+          return;
+
+        auto dst = ctx.add_temporary();
+        auto res = ctx.add_temporary();
+
+        MIR::Fragment address;
+        address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(type), MIR::Local::LValue);
+        address.value = MIR::RValue::field(MIR::RValue::Ref, 0, MIR::RValue::Field{ MIR::RValue::Ref, index }, fn->loc());
+
+        realise_as_value(ctx, dst, address);
+
+        commit_type(ctx, dst, address.type.type, address.type.flags);
+
+        realise_as_value(ctx, Place(Place::Fer, res), result);
+
+        commit_type(ctx, res, result.type.type, result.type.flags);
       }
+    }
 
-      lower_call(ctx, result, callee.fx, parms, namedparms, fn->loc());
+    if (is_union_type(thistype))
+    {
+      auto kinddst = ctx.add_temporary(thistype->fields[0], MIR::Local::LValue | MIR::Local::Reference);
+      auto kindres = ctx.add_temporary(thistype->fields[0], MIR::Local::LValue | MIR::Local::Reference);
 
-      auto dst = ctx.add_temporary();
-      auto res = ctx.add_temporary();
+      ctx.add_statement(MIR::Statement::assign(kinddst, MIR::RValue::field(MIR::RValue::Ref, 0, MIR::RValue::Field{ MIR::RValue::Ref, 0 }, fn->loc())));
+      ctx.add_statement(MIR::Statement::construct(kindres, MIR::RValue::field(MIR::RValue::Val, 1, MIR::RValue::Field{ MIR::RValue::Val, 0 }, fn->loc())));
 
-      MIR::Fragment address;
-      address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(type), MIR::Local::LValue);
-      address.value = MIR::RValue::field(MIR::RValue::Ref, 0, MIR::RValue::Field{ MIR::RValue::Ref, index }, fn->loc());
+      auto cond = ctx.add_temporary(ctx.isizetype);
 
-      realise_as_value(ctx, dst, address);
+      ctx.add_statement(MIR::Statement::assign(cond, MIR::RValue::field(MIR::RValue::Val, 1, MIR::RValue::Field{ MIR::RValue::Val, 0 }, fn->loc())));
 
-      commit_type(ctx, dst, address.type.type, address.type.flags);
+      auto endblock = ctx.currentblockid + thistype->fields.size();
+      auto switcher = ctx.add_block(MIR::Terminator::switcher(cond, endblock));
 
-      realise_as_value(ctx, Place(Place::Fer, res), result);
+      for(size_t index = 1; index < thistype->fields.size(); ++index)
+      {
+        auto type = thistype->fields[index];
 
-      commit_type(ctx, res, result.type.type, result.type.flags);
+        MIR::Fragment result;
+
+        vector<MIR::Fragment> parms(1);
+        map<string_view, MIR::Fragment> namedparms;
+
+        parms[0].type = MIR::Local(type, thattype.flags);
+        parms[0].value = MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
+
+        if (parms[0].type.flags & MIR::Local::XValue)
+          parms[0].type.flags = (parms[0].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
+
+        if (allocator)
+          namedparms.emplace("allocator?", allocator);
+
+        if (!lower_copy(ctx, result, type, parms, namedparms, fn->loc()))
+          return;
+
+        auto dst = ctx.add_temporary();
+        auto res = ctx.add_temporary();
+
+        MIR::Fragment address;
+        address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(type), MIR::Local::LValue);
+        address.value = MIR::RValue::field(MIR::RValue::Ref, 0, MIR::RValue::Field{ MIR::RValue::Ref, index }, fn->loc());
+
+        realise_as_value(ctx, dst, address);
+
+        commit_type(ctx, dst, address.type.type, address.type.flags);
+
+        realise_as_value(ctx, Place(Place::Fer, res), result);
+
+        commit_type(ctx, res, result.type.type, result.type.flags);
+
+        ctx.mir.blocks[switcher].terminator.targets.emplace_back(index, ctx.currentblockid);
+        ctx.add_block(MIR::Terminator::gotoer(endblock));
+      }
     }
   }
 
@@ -6779,37 +6934,46 @@ namespace
     auto thistype = type_cast<CompoundType>(resolve_as_reference(ctx, ctx.mir.locals[1]).type);
     auto thattype = resolve_as_reference(ctx, ctx.mir.locals[2]);
 
-    for(size_t index = 0; index < thistype->fields.size(); ++index)
+    if (is_struct_type(thistype))
     {
-      MIR::Fragment result;
+      for(size_t index = 0; index < thistype->fields.size(); ++index)
+      {
+        MIR::Fragment result;
 
-      vector<MIR::Fragment> parms(2);
-      map<string_view, MIR::Fragment> namedparms;
+        vector<MIR::Fragment> parms(2);
+        map<string_view, MIR::Fragment> namedparms;
 
-      auto lhsfield = find_field(ctx, thistype, index);
+        auto lhsfield = find_field(ctx, thistype, index);
 
-      parms[0].type = MIR::Local(lhsfield.type, lhsfield.defn, MIR::Local::LValue | MIR::Local::Reference);
-      parms[0].value = MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
+        parms[0].type = MIR::Local(lhsfield.type, lhsfield.defn, MIR::Local::LValue | MIR::Local::Reference);
+        parms[0].value = MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
 
-      lower_expr_deref(ctx, parms[0]);
+        lower_expr_deref(ctx, parms[0]);
 
-      auto rhsfield = find_field(ctx, type_cast<CompoundType>(thattype.type), index);
+        auto rhsfield = find_field(ctx, type_cast<CompoundType>(thattype.type), index);
 
-      parms[1].type = MIR::Local(rhsfield.type, rhsfield.defn, thattype.flags);
-      parms[1].value = MIR::RValue::field(MIR::RValue::Ref, 2, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
+        parms[1].type = MIR::Local(rhsfield.type, rhsfield.defn, thattype.flags);
+        parms[1].value = MIR::RValue::field(MIR::RValue::Ref, 2, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
 
-      if (parms[1].type.flags & MIR::Local::XValue)
-        parms[1].type.flags = (parms[1].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
+        if (parms[1].type.flags & MIR::Local::XValue)
+          parms[1].type.flags = (parms[1].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
 
-      lower_expr_deref(ctx, parms[1]);
+        lower_expr_deref(ctx, parms[1]);
 
-      lower_expr(ctx, result, BinaryOpExpr::Assign, parms, namedparms, fn->loc());
+        if (!lower_expr(ctx, result, BinaryOpExpr::Assign, parms, namedparms, fn->loc()))
+          return;
 
-      auto res = ctx.add_temporary();
+        auto res = ctx.add_temporary();
 
-      realise(ctx, Place(Place::Val, res), result);
+        realise(ctx, Place(Place::Val, res), result);
 
-      commit_type(ctx, res, result.type.type, result.type.flags);
+        commit_type(ctx, res, result.type.type, result.type.flags);
+      }
+    }
+
+    if (is_union_type(thistype))
+    {
+      ctx.diag.error("non-trivial union operator cannot be defaulted", ctx.stack.back(), ctx.mir.fx.fn->loc());
     }
 
     ctx.add_statement(MIR::Statement::assign(0, MIR::RValue::local(MIR::RValue::Val, 1, fn->loc())));
@@ -6822,39 +6986,48 @@ namespace
     auto thistype = type_cast<CompoundType>(resolve_as_reference(ctx, ctx.mir.locals[1]).type);
     auto thattype = type_cast<CompoundType>(resolve_as_reference(ctx, ctx.mir.locals[2]).type);
 
-    for(size_t index = 0; index < thistype->fields.size(); ++index)
+    if (is_struct_type(thistype))
     {
-      MIR::Fragment result;
+      for(size_t index = 0; index < thistype->fields.size(); ++index)
+      {
+        MIR::Fragment result;
 
-      vector<MIR::Fragment> parms(2);
-      map<string_view, MIR::Fragment> namedparms;
+        vector<MIR::Fragment> parms(2);
+        map<string_view, MIR::Fragment> namedparms;
 
-      auto lhsfield = find_field(ctx, thistype, index);
+        auto lhsfield = find_field(ctx, thistype, index);
 
-      parms[0].type = MIR::Local(lhsfield.type, lhsfield.defn, MIR::Local::LValue | MIR::Local::Const | MIR::Local::Reference);
-      parms[0].value = MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
+        parms[0].type = MIR::Local(lhsfield.type, lhsfield.defn, MIR::Local::LValue | MIR::Local::Const | MIR::Local::Reference);
+        parms[0].value = MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
 
-      lower_expr_deref(ctx, parms[0]);
+        lower_expr_deref(ctx, parms[0]);
 
-      auto rhsfield = find_field(ctx, thattype, index);
+        auto rhsfield = find_field(ctx, thattype, index);
 
-      parms[1].type = MIR::Local(rhsfield.type, rhsfield.defn, MIR::Local::LValue | MIR::Local::Const | MIR::Local::Reference);
-      parms[1].value = MIR::RValue::field(MIR::RValue::Ref, 2, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
+        parms[1].type = MIR::Local(rhsfield.type, rhsfield.defn, MIR::Local::LValue | MIR::Local::Const | MIR::Local::Reference);
+        parms[1].value = MIR::RValue::field(MIR::RValue::Ref, 2, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
 
-      lower_expr_deref(ctx, parms[1]);
+        lower_expr_deref(ctx, parms[1]);
 
-      lower_expr(ctx, result, BinaryOpExpr::EQ, parms, namedparms, fn->loc());
+        if (!lower_expr(ctx, result, BinaryOpExpr::EQ, parms, namedparms, fn->loc()))
+          return;
 
-      realise(ctx, Place(Place::Val, 0), result);
+        realise(ctx, Place(Place::Val, 0), result);
 
-      commit_type(ctx, 0, result.type.type, result.type.flags);
+        commit_type(ctx, 0, result.type.type, result.type.flags);
 
-      ctx.add_block(MIR::Terminator::switcher(0, ctx.currentblockid + thistype->fields.size() - index, ctx.currentblockid + 1));
+        ctx.add_block(MIR::Terminator::switcher(0, ctx.currentblockid + thistype->fields.size() - index, ctx.currentblockid + 1));
+      }
+
+      if (thistype->fields.empty())
+      {
+        ctx.add_statement(MIR::Statement::assign(0, ctx.mir.make_expr<BoolLiteralExpr>(true, fn->loc())));
+      }
     }
 
-    if (thistype->fields.empty())
+    if (is_union_type(thistype))
     {
-      ctx.add_statement(MIR::Statement::assign(0, ctx.mir.make_expr<BoolLiteralExpr>(true, fn->loc())));
+      ctx.diag.error("non-trivial union operator cannot be defaulted", ctx.stack.back(), ctx.mir.fx.fn->loc());
     }
   }
 
@@ -6865,70 +7038,57 @@ namespace
     auto thistype = type_cast<CompoundType>(resolve_as_reference(ctx, ctx.mir.locals[1]).type);
     auto thattype = type_cast<CompoundType>(resolve_as_reference(ctx, ctx.mir.locals[2]).type);
 
-    for(size_t index = 0; index < thistype->fields.size(); ++index)
+    if (is_struct_type(thistype))
     {
-      MIR::Fragment result;
-
-      vector<MIR::Fragment> parms(2);
-      map<string_view, MIR::Fragment> namedparms;
-
-      auto lhsfield = find_field(ctx, thistype, index);
-
-      parms[0].type = MIR::Local(lhsfield.type, lhsfield.defn, MIR::Local::LValue | MIR::Local::Const | MIR::Local::Reference);
-      parms[0].value = MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
-
-      lower_expr_deref(ctx, parms[0]);
-
-      auto rhsfield = find_field(ctx, thattype, index);
-
-      parms[1].type = MIR::Local(rhsfield.type, rhsfield.defn, MIR::Local::LValue | MIR::Local::Const | MIR::Local::Reference);
-      parms[1].value = MIR::RValue::field(MIR::RValue::Ref, 2, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
-
-      lower_expr_deref(ctx, parms[1]);
-
-      lower_expr(ctx, result, BinaryOpExpr::Cmp, parms, namedparms, fn->loc());
-
-      realise(ctx, Place(Place::Val, 0), result);
-
-      commit_type(ctx, 0, result.type.type, result.type.flags);
-
-      auto tst = find_builtin(ctx, Builtin::EQ, Builtin::type(Builtin::Type_I32));
-      auto zero = ctx.add_temporary(Builtin::type(Builtin::Type_I32), MIR::Local::Const | MIR::Local::Literal);
-
-      ctx.add_statement(MIR::Statement::assign(zero, ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, 0), fn->loc())));
-
-      auto res = ctx.add_temporary(ctx.booltype, MIR::Local::LValue);
-
-      ctx.add_statement(MIR::Statement::assign(res, MIR::RValue::call(tst, { 0, zero }, fn->loc())));
-
-      ctx.add_block(MIR::Terminator::switcher(res, ctx.currentblockid + thistype->fields.size() - index, ctx.currentblockid + 1));
-    }
-
-    if (thistype->fields.empty())
-    {
-      ctx.add_statement(MIR::Statement::assign(0, ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, 0), fn->loc())));
-    }
-  }
-
-  //|///////////////////// lower_default_destructor /////////////////////////
-  void lower_default_destructor(LowerContext &ctx)
-  {
-    auto fn = ctx.mir.fx.fn;
-    auto thistype = type_cast<CompoundType>(resolve_as_reference(ctx, ctx.mir.locals[1]).type);
-
-    auto res = ctx.add_temporary(ctx.voidtype, MIR::Local::LValue);
-
-    for(size_t index = thistype->fields.size(); index-- != 0; )
-    {
-      auto type = thistype->fields[index];
-
-      if (auto callee = find_destructor(ctx, type, fn->loc()))
+      for(size_t index = 0; index < thistype->fields.size(); ++index)
       {
-        auto src = ctx.add_temporary(type, MIR::Local::Reference);
+        MIR::Fragment result;
 
-        ctx.add_statement(MIR::Statement::assign(src, MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc())));
-        ctx.add_statement(MIR::Statement::assign(res, MIR::RValue::call(callee.fx, { src }, fn->loc())));
+        vector<MIR::Fragment> parms(2);
+        map<string_view, MIR::Fragment> namedparms;
+
+        auto lhsfield = find_field(ctx, thistype, index);
+
+        parms[0].type = MIR::Local(lhsfield.type, lhsfield.defn, MIR::Local::LValue | MIR::Local::Const | MIR::Local::Reference);
+        parms[0].value = MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
+
+        lower_expr_deref(ctx, parms[0]);
+
+        auto rhsfield = find_field(ctx, thattype, index);
+
+        parms[1].type = MIR::Local(rhsfield.type, rhsfield.defn, MIR::Local::LValue | MIR::Local::Const | MIR::Local::Reference);
+        parms[1].value = MIR::RValue::field(MIR::RValue::Ref, 2, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
+
+        lower_expr_deref(ctx, parms[1]);
+
+        if (!lower_expr(ctx, result, BinaryOpExpr::Cmp, parms, namedparms, fn->loc()))
+          return;
+
+        realise(ctx, Place(Place::Val, 0), result);
+
+        commit_type(ctx, 0, result.type.type, result.type.flags);
+
+        auto tst = find_builtin(ctx, Builtin::EQ, Builtin::type(Builtin::Type_I32));
+        auto zero = ctx.add_temporary(Builtin::type(Builtin::Type_I32), MIR::Local::Const | MIR::Local::Literal);
+
+        ctx.add_statement(MIR::Statement::assign(zero, ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, 0), fn->loc())));
+
+        auto res = ctx.add_temporary(ctx.booltype, MIR::Local::LValue);
+
+        ctx.add_statement(MIR::Statement::assign(res, MIR::RValue::call(tst, { 0, zero }, fn->loc())));
+
+        ctx.add_block(MIR::Terminator::switcher(res, ctx.currentblockid + thistype->fields.size() - index, ctx.currentblockid + 1));
       }
+
+      if (thistype->fields.empty())
+      {
+        ctx.add_statement(MIR::Statement::assign(0, ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, 0), fn->loc())));
+      }
+    }
+
+    if (is_union_type(thistype))
+    {
+      ctx.diag.error("non-trivial union operator cannot be defaulted", ctx.stack.back(), ctx.mir.fx.fn->loc());
     }
   }
 
@@ -6996,16 +7156,8 @@ namespace
       vector<MIR::Fragment> parms;
       map<string_view, MIR::Fragment> namedparms;
 
-      auto callee = find_callee(ctx, type, parms, namedparms);
-
-      if (!callee)
-      {
-        ctx.diag.error("cannot resolve array element constructor", ctx.stack.back(), fn->loc());
-        diag_callee(ctx, callee, parms, namedparms);
+      if (!lower_copy(ctx, result, type, parms, namedparms, fn->loc()))
         return;
-      }
-
-      lower_call(ctx, result, callee.fx, parms, namedparms, fn->loc());
 
       realise_as_value(ctx, Place(Place::Fer, res), result);
 
@@ -7072,16 +7224,8 @@ namespace
       if (parms[0].type.flags & MIR::Local::XValue)
         parms[0].type.flags = (parms[0].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
 
-      auto callee = find_callee(ctx, type, parms, namedparms);
-
-      if (!callee)
-      {
-        ctx.diag.error("cannot resolve array element constructor", ctx.stack.back(), fn->loc());
-        diag_callee(ctx, callee, parms, namedparms);
+      if (!lower_copy(ctx, result, type, parms, namedparms, fn->loc()))
         return;
-      }
-
-      lower_call(ctx, result, callee.fx, parms, namedparms, fn->loc());
 
       realise_as_value(ctx, Place(Place::Fer, res), result);
 
@@ -7149,7 +7293,8 @@ namespace
       if (parms[1].type.flags & MIR::Local::XValue)
         parms[1].type.flags = (parms[1].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
 
-      lower_expr(ctx, result, BinaryOpExpr::Assign, parms, namedparms, fn->loc());
+      if (!lower_expr(ctx, result, BinaryOpExpr::Assign, parms, namedparms, fn->loc()))
+        return;
 
       realise(ctx, Place(Place::Val, res), result);
 
@@ -7214,7 +7359,8 @@ namespace
       parms[1].type = MIR::Local(type, MIR::Local::LValue | MIR::Local::Const | MIR::Local::Reference);
       parms[1].value = MIR::RValue::local(MIR::RValue::Val, lhs, fn->loc());
 
-      lower_expr(ctx, result, BinaryOpExpr::EQ, parms, namedparms, fn->loc());
+      if (!lower_expr(ctx, result, BinaryOpExpr::EQ, parms, namedparms, fn->loc()))
+        return;
 
       realise(ctx, Place(Place::Val, 0), result);
 
@@ -7284,7 +7430,8 @@ namespace
       parms[1].type = MIR::Local(type, MIR::Local::LValue | MIR::Local::Const | MIR::Local::Reference);
       parms[1].value = MIR::RValue::local(MIR::RValue::Val, lhs, fn->loc());
 
-      lower_expr(ctx, result, BinaryOpExpr::Cmp, parms, namedparms, fn->loc());
+      if (!lower_expr(ctx, result, BinaryOpExpr::Cmp, parms, namedparms, fn->loc()))
+        return;
 
       realise(ctx, Place(Place::Val, 0), result);
 
@@ -7381,16 +7528,8 @@ namespace
       if (parms[0].type.flags & MIR::Local::XValue)
         parms[0].type.flags = (parms[0].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
 
-      auto callee = find_callee(ctx, type, parms, namedparms);
-
-      if (!callee)
-      {
-        ctx.diag.error("cannot resolve tuple element constructor", ctx.stack.back(), fn->loc());
-        diag_callee(ctx, callee, parms, namedparms);
+      if (!lower_copy(ctx, result, type, parms, namedparms, fn->loc()))
         return;
-      }
-
-      lower_call(ctx, result, callee.fx, parms, namedparms, fn->loc());
 
       auto dst = ctx.add_temporary();
       auto res = ctx.add_temporary();
@@ -7443,7 +7582,7 @@ namespace
         break;
 
       case Builtin::Default_Destructor:
-        lower_default_destructor(ctx);
+        lower_deinitialisers(ctx);
         break;
 
       case Builtin::Array_Constructor:
@@ -7513,7 +7652,7 @@ namespace
         break;
 
       case Builtin::Tuple_Destructor:
-        lower_default_destructor(ctx);
+        lower_deinitialisers(ctx);
         break;
 
       default:
@@ -7546,6 +7685,7 @@ namespace
       case Decl::Function:
       case Decl::TypeAlias:
       case Decl::Struct:
+      case Decl::Union:
       case Decl::Concept:
       case Decl::Enum:
       case Decl::Import:

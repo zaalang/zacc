@@ -122,6 +122,7 @@ namespace
         return Scope(decl_cast<ImportDecl>(decl)->decl);
 
       case Decl::Struct:
+      case Decl::Union:
       case Decl::Lambda:
       case Decl::Concept:
       case Decl::Enum:
@@ -165,6 +166,7 @@ namespace
         break;
 
       case Decl::Struct:
+      case Decl::Union:
         declargs = &decl_cast<TagDecl>(decl)->args;
         break;
 
@@ -277,6 +279,7 @@ namespace
             break;
 
           case Decl::Struct:
+          case Decl::Union:
           case Decl::Concept:
           case Decl::Enum:
             if (decl_cast<TagDecl>(usein->decl)->name == name && (queryflags & QueryFlags::Types))
@@ -692,6 +695,7 @@ namespace
         case Decl::TypeArg:
         case Decl::TypeAlias:
         case Decl::Struct:
+        case Decl::Union:
         case Decl::Concept:
         case Decl::Enum:
           usein->decl = decl;
@@ -794,6 +798,7 @@ namespace
         break;
 
       case Decl::Struct:
+      case Decl::Union:
       case Decl::Concept:
       case Decl::Enum:
         typeref->decl = decl;
@@ -856,6 +861,7 @@ namespace
             break;
 
           case Decl::Struct:
+          case Decl::Union:
           case Decl::Concept:
           case Decl::Enum:
             for(auto &arg : decl_cast<TagDecl>(*decl)->args)
@@ -1161,6 +1167,7 @@ namespace
         break;
 
       case Decl::Struct:
+      case Decl::Union:
       case Decl::Lambda:
       case Decl::Enum:
         resolve_type(ctx, scope, decl_cast<TagDecl>(typeref->decl), typeref, dst, sema);
@@ -1462,13 +1469,13 @@ namespace
     }
   }
 
-  //|///////////////////// typer_voidvar ////////////////////////////////////
+  //|///////////////////// voidvar //////////////////////////////////////////
   void typer_decl(TyperContext &ctx, VoidVarDecl *var, Sema &sema)
   {
     resolve_type(ctx, ctx.stack.back(), var->type, sema);
   }
 
-  //|///////////////////// typer_stmtvar ////////////////////////////////////
+  //|///////////////////// stmtvar //////////////////////////////////////////
   void typer_decl(TyperContext &ctx, StmtVarDecl *var, Sema &sema)
   {
     resolve_type(ctx, ctx.stack.back(), var->type, sema);
@@ -1476,7 +1483,7 @@ namespace
     resolve_expr(ctx, ctx.stack.back(), var->value, sema);
   }
 
-  //|///////////////////// typer_parmvar ////////////////////////////////////
+  //|///////////////////// parmvar //////////////////////////////////////////
   void typer_decl(TyperContext &ctx, ParmVarDecl *var, Sema &sema)
   {
     resolve_type(ctx, ctx.stack.back(), var->type, sema);
@@ -1487,26 +1494,26 @@ namespace
     }
   }
 
-  //|///////////////////// typer_thisvar ////////////////////////////////////
+  //|///////////////////// thisvar //////////////////////////////////////////
   void typer_decl(TyperContext &ctx, ThisVarDecl *var, Sema &sema)
   {
     resolve_type(ctx, ctx.stack.back(), var->type, sema);
   }
 
-  //|///////////////////// typer_errorvar ///////////////////////////////////
+  //|///////////////////// errorvar /////////////////////////////////////////
   void typer_decl(TyperContext &ctx, ErrorVarDecl *var, Sema &sema)
   {
     resolve_type(ctx, ctx.stack.back(), var->type, sema);
   }
 
-  //|///////////////////// typer_rangevar ///////////////////////////////////
+  //|///////////////////// rangevar /////////////////////////////////////////
   void typer_decl(TyperContext &ctx, RangeVarDecl *var, Sema &sema)
   {
     resolve_type(ctx, ctx.stack.back(), var->type, sema);
     resolve_expr(ctx, ctx.stack.back(), var->range, sema);
   }
 
-  //|///////////////////// typer_typearg ////////////////////////////////////
+  //|///////////////////// typearg //////////////////////////////////////////
   void typer_decl(TyperContext &ctx, TypeArgDecl *typearg, Sema &sema)
   {
     if (typearg->defult)
@@ -1515,13 +1522,13 @@ namespace
     }
   }
 
-  //|///////////////////// typer_declref ////////////////////////////////////
+  //|///////////////////// declref //////////////////////////////////////////
   void typer_decl(TyperContext &ctx, DeclRefDecl *declref, Sema &sema)
   {
     resolve_decl(ctx, ctx.stack.back(), declref, sema);
   }
 
-  //|///////////////////// typer_scoped /////////////////////////////////////
+  //|///////////////////// scoped ///////////////////////////////////////////
   void typer_decl(TyperContext &ctx, DeclScopedDecl *scoped, Sema &sema)
   {
     for(auto &decl : scoped->decls)
@@ -1530,7 +1537,7 @@ namespace
     }
   }
 
-  //|///////////////////// typer_typealias //////////////////////////////////
+  //|///////////////////// typealias ////////////////////////////////////////
   void typer_decl(TyperContext &ctx, TypeAliasDecl *typealias, Sema &sema)
   {
     ctx.stack.emplace_back(typealias);
@@ -1545,21 +1552,21 @@ namespace
     ctx.stack.pop_back();
   }
 
-  //|///////////////////// typer_tagdecl ////////////////////////////////////
-  void typer_decl(TyperContext &ctx, TagDecl *tag, Sema &sema)
+  //|///////////////////// tagdecl //////////////////////////////////////////
+  void typer_decl(TyperContext &ctx, TagDecl *tagdecl, Sema &sema)
   {
-    for(auto &arg : tag->args)
+    for(auto &arg : tagdecl->args)
     {
       typer_decl(ctx, arg, sema);
     }
 
-    for(auto &decl : tag->decls)
+    for(auto &decl : tagdecl->decls)
     {
       typer_decl(ctx, decl, sema);
     }
   }
 
-  //|///////////////////// typer_struct /////////////////////////////////////
+  //|///////////////////// struct ///////////////////////////////////////////
   void typer_decl(TyperContext &ctx, StructDecl *strct, Sema &sema)
   {
     ctx.stack.emplace_back(strct);
@@ -1574,7 +1581,17 @@ namespace
     ctx.stack.pop_back();
   }
 
-  //|///////////////////// typer_concept ////////////////////////////////////
+  //|///////////////////// union ////////////////////////////////////////////
+  void typer_decl(TyperContext &ctx, UnionDecl *unnion, Sema &sema)
+  {
+    ctx.stack.emplace_back(unnion);
+
+    typer_decl(ctx, decl_cast<TagDecl>(unnion), sema);
+
+    ctx.stack.pop_back();
+  }
+
+  //|///////////////////// concept //////////////////////////////////////////
   void typer_decl(TyperContext &ctx, ConceptDecl *koncept, Sema &sema)
   {
     ctx.stack.emplace_back(koncept);
@@ -1584,7 +1601,7 @@ namespace
     ctx.stack.pop_back();
   }
 
-  //|///////////////////// typer_requires ///////////////////////////////////
+  //|///////////////////// requires /////////////////////////////////////////
   void typer_decl(TyperContext &ctx, RequiresDecl *reqires, Sema &sema)
   {
     ctx.stack.emplace_back(reqires);
@@ -1599,7 +1616,7 @@ namespace
     ctx.stack.pop_back();
   }
 
-  //|///////////////////// typer_lambda /////////////////////////////////////
+  //|///////////////////// lambda ///////////////////////////////////////////
   void typer_decl(TyperContext &ctx, LambdaDecl *lambda, Sema &sema)
   {
     ctx.stack.emplace_back(lambda);
@@ -1609,7 +1626,7 @@ namespace
     ctx.stack.pop_back();
   }
 
-  //|///////////////////// typer_enum ///////////////////////////////////////
+  //|///////////////////// enum /////////////////////////////////////////////
   void typer_decl(TyperContext &ctx, EnumDecl *enumm, Sema &sema)
   {
     ctx.stack.emplace_back(enumm);
@@ -1619,7 +1636,7 @@ namespace
     ctx.stack.pop_back();
   }
 
-  //|///////////////////// typer_constant ///////////////////////////////////
+  //|///////////////////// constant /////////////////////////////////////////
   void typer_decl(TyperContext &ctx, EnumConstantDecl *constant, Sema &sema)
   {
     if (constant->value)
@@ -1628,13 +1645,13 @@ namespace
     }
   }
 
-  //|///////////////////// typer_field //////////////////////////////////////
+  //|///////////////////// field ////////////////////////////////////////////
   void typer_decl(TyperContext &ctx, FieldVarDecl *field, Sema &sema)
   {
     resolve_type(ctx, ctx.stack.back(), field->type, sema);
   }
 
-  //|///////////////////// typer_initialiser ////////////////////////////////
+  //|///////////////////// initialiser //////////////////////////////////////
   void typer_decl(TyperContext &ctx, InitialiserDecl *init, Sema &sema)
   {
     for(auto &parm : init->parms)
@@ -1650,7 +1667,7 @@ namespace
     resolve_decl(ctx, ctx.stack.back(), init, sema);
   }
 
-  //|///////////////////// typer_import /////////////////////////////////////
+  //|///////////////////// import ///////////////////////////////////////////
   void typer_decl(TyperContext &ctx, ImportDecl *imprt, Sema &sema)
   {
     for(auto &usein : imprt->usings)
@@ -1659,13 +1676,13 @@ namespace
     }
   }
 
-  //|///////////////////// typer_using //////////////////////////////////////
+  //|///////////////////// using ////////////////////////////////////////////
   void typer_decl(TyperContext &ctx, UsingDecl *usein, Sema &sema)
   {
     resolve_decl(ctx, ctx.stack.back(), usein, sema);
   }
 
-  //|///////////////////// typer_function ///////////////////////////////////
+  //|///////////////////// function /////////////////////////////////////////
   void typer_decl(TyperContext &ctx, FunctionDecl *fn, Sema &sema)
   {
     ctx.stack.emplace_back(fn);
@@ -1718,7 +1735,7 @@ namespace
     ctx.stack.pop_back();
   }
 
-  //|///////////////////// typer_if /////////////////////////////////////////
+  //|///////////////////// if ///////////////////////////////////////////////
   void typer_decl(TyperContext &ctx, IfDecl *ifd, Sema &sema)
   {
     resolve_expr(ctx, ctx.stack.back(), ifd->cond, sema);
@@ -1787,6 +1804,10 @@ namespace
 
       case Decl::Struct:
         typer_decl(ctx, decl_cast<StructDecl>(decl), sema);
+        break;
+
+      case Decl::Union:
+        typer_decl(ctx, decl_cast<UnionDecl>(decl), sema);
         break;
 
       case Decl::Concept:

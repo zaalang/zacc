@@ -161,6 +161,12 @@ bool is_struct_type(Type const *type)
   return is_tag_type(type) && type_cast<TagType>(type)->decl->kind() == Decl::Struct;
 }
 
+//|///////////////////// is_union_type //////////////////////////////////////
+bool is_union_type(Type const *type)
+{
+  return is_tag_type(type) && type_cast<TagType>(type)->decl->kind() == Decl::Union;
+}
+
 //|///////////////////// is_lambda_type /////////////////////////////////////
 bool is_lambda_type(Type const *type)
 {
@@ -176,7 +182,7 @@ bool is_enum_type(Type const *type)
 //|///////////////////// is_compound_type ///////////////////////////////////
 bool is_compound_type(Type const *type)
 {
-  return is_tuple_type(type) || is_struct_type(type) || is_lambda_type(type);
+  return is_tuple_type(type) || is_struct_type(type) || is_union_type(type) || is_lambda_type(type);
 }
 
 //|///////////////////// is_concrete_type ///////////////////////////////////
@@ -948,7 +954,7 @@ void TagType::resolve(vector<Decl*> &&resolved_decls, vector<Type*> &&resolved_f
   decls = std::move(resolved_decls);
   fields = std::move(resolved_fields);
 
-  if (decl->kind() == Decl::Struct || decl->kind() == Decl::Lambda)
+  if (decl->kind() == Decl::Struct || decl->kind() == Decl::Union || decl->kind() == Decl::Lambda)
   {
     if (any_of(args.begin(), args.end(), [](auto k) { return !is_concrete_type(k.second) && !is_typelit_type(k.second); }))
       flags &= ~Type::Concrete;
@@ -1087,13 +1093,29 @@ size_t sizeof_type(TagType const *type)
   size_t size = 0;
   size_t align = 1;
 
-  for(auto &field : type->fields)
+  if (is_union_type(type))
   {
-    auto alignment = alignof_type(field);
+    auto tagsize = sizeof_type(type->fields[0]);
 
-    size = ((size + alignment - 1) & -alignment) + sizeof_type(field);
+    for(size_t i = 1; i < type->fields.size(); ++i)
+    {
+      size = max(size, sizeof_type(type->fields[i]));
+      align = max(align, alignof_type(type->fields[i]));
+    }
 
-    align = max(align, alignment);
+    size = ((tagsize + align - 1) & -align) + size;
+    align = max(align, alignof_type(type->fields[0]));
+  }
+  else
+  {
+    for(auto &field : type->fields)
+    {
+      auto alignment = alignof_type(field);
+
+      size = ((size + alignment - 1) & -alignment) + sizeof_type(field);
+
+      align = max(align, alignment);
+    }
   }
 
   return (size + align - 1) & -align;
@@ -1323,18 +1345,30 @@ size_t offsetof_field(CompoundType const *type, size_t index)
 {
   size_t offset = 0;
 
-  for(auto &field : type->fields)
+  if (is_union_type(type))
   {
-    auto alignment = alignof_field(type, &field - &type->fields[0]);
+     if (index != 0)
+     {
+       auto alignment = alignof_type(type);
 
-    offset = (offset + alignment - 1) & -alignment;
+       offset = (sizeof_field(type, 0) + alignment - 1) & -alignment;
+     }
+  }
+  else
+  {
+    for(auto &field : type->fields)
+    {
+      auto alignment = alignof_field(type, &field - &type->fields[0]);
 
-    if (index == 0)
-      break;
+      offset = (offset + alignment - 1) & -alignment;
 
-    offset += sizeof_type(field);
+      if (index == 0)
+        break;
 
-    index -= 1;
+      offset += sizeof_type(field);
+
+      index -= 1;
+    }
   }
 
   return offset;

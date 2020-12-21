@@ -55,6 +55,7 @@ class Decl
       Requires,
       Enum,
       EnumConstant,
+      Union,
       If,
     };
 
@@ -578,6 +579,18 @@ class EnumConstantDecl : public Decl
 };
 
 
+//---------------------- UnionDecl ------------------------------------------
+//---------------------------------------------------------------------------
+
+class UnionDecl : public TagDecl
+{
+  public:
+    UnionDecl(SourceLocation loc);
+
+    void dump(int indent) const override;
+};
+
+
 //---------------------- IfDecl ---------------------------------------------
 //---------------------------------------------------------------------------
 
@@ -640,6 +653,7 @@ template<> inline auto decl_cast<ConceptDecl>(Decl *decl) { assert(decl && decl-
 template<> inline auto decl_cast<RequiresDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Requires); return static_cast<RequiresDecl*>(decl); };
 template<> inline auto decl_cast<EnumDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Enum); return static_cast<EnumDecl*>(decl); };
 template<> inline auto decl_cast<EnumConstantDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::EnumConstant); return static_cast<EnumConstantDecl*>(decl); };
+template<> inline auto decl_cast<UnionDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Union); return static_cast<UnionDecl*>(decl); };
 template<> inline auto decl_cast<IfDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::If); return static_cast<IfDecl*>(decl); };
 
 template<> inline auto decl_cast<VarDecl>(Decl *decl) { assert(decl && is_var_decl(decl)); return static_cast<VarDecl*>(decl); };

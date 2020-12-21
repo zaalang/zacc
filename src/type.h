@@ -414,6 +414,7 @@ bool is_unpack_type(Type const *type);
 
 bool is_tag_type(Type const *type);
 bool is_struct_type(Type const *type);
+bool is_union_type(Type const *type);
 bool is_lambda_type(Type const *type);
 bool is_enum_type(Type const *type);
 

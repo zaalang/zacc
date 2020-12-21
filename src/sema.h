@@ -49,6 +49,7 @@ class Sema
     TypeAliasDecl *alias_declaration(SourceLocation loc);
     TypeArgDecl *typearg_declaration(SourceLocation loc);
     StructDecl *struct_declaration(SourceLocation loc);
+    UnionDecl *union_declaration(SourceLocation loc);
     LambdaDecl *lambda_declaration(SourceLocation loc);
     StmtVarDecl *var_declaration(SourceLocation loc);
     ParmVarDecl *parm_declaration(SourceLocation loc);

@@ -367,8 +367,18 @@ class MIR
   public:
 
     template<typename T, typename ...Args>
+    T *make_decl(Args&&... args);
+
+    template<typename T, typename ...Args>
     T *make_expr(Args&&... args);
 };
+
+//|///////////////////// make_decl //////////////////////////////////////////
+template<typename T, typename ...Args>
+T *MIR::make_decl(Args&&... args)
+{
+  return new T(std::forward<Args>(args)...);
+}
 
 //|///////////////////// make_expr //////////////////////////////////////////
 template<typename T, typename ...Args>

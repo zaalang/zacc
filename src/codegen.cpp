@@ -222,6 +222,7 @@ namespace
         switch (type_cast<TagType>(type)->decl->kind())
         {
           case Decl::Struct:
+          case Decl::Union:
           case Decl::Lambda:
             return TypeCategory::Struct;
 
@@ -232,8 +233,6 @@ namespace
             assert(false);
         }
         break;
-
-        return TypeCategory::Struct;
 
       case Type::Function:
         return TypeCategory::Pointer;
@@ -416,6 +415,50 @@ namespace
     return strct;
   }
 
+  //|///////////////////// llvm_union ///////////////////////////////////////
+  llvm::Type *llvm_union(GenContext &ctx, TagType *type)
+  {
+    if (auto j = ctx.structtypes.find(type); j != ctx.structtypes.end())
+      return j->second;
+
+    auto strct = llvm::StructType::create(ctx.context, llvm_identifier("union", type));
+
+    ctx.structtypes.emplace(type, strct);
+
+    vector<llvm::Type*> elements;
+
+    auto remainder = sizeof_type(type);
+
+    elements.push_back(llvm_type(ctx, type->fields[0], true));
+
+    auto max_align = size_t(0);
+    auto max_align_type = ctx.voidtype;
+
+    for(size_t i = 1; i < type->fields.size(); ++i)
+    {
+      auto alignment = alignof_type(type->fields[i]);
+
+      if (max_align < alignment)
+      {
+        max_align = alignment;
+        max_align_type = type->fields[i];
+      }
+    }
+
+    elements.push_back(llvm_type(ctx, max_align_type, true));
+
+    remainder -= ((sizeof_field(type, 0) + max_align - 1) & -max_align) + sizeof_type(max_align_type);
+
+    if (remainder != 0)
+    {
+      elements.push_back(llvm::ArrayType::get(ctx.builder.getInt8Ty(), remainder));
+    }
+
+    strct->setBody(elements);
+
+    return strct;
+  }
+
   //|///////////////////// llvm_fntype //////////////////////////////////////
   llvm::Type *llvm_fntype(GenContext &ctx, FunctionType *type)
   {
@@ -506,6 +549,9 @@ namespace
           case Decl::Lambda:
             return llvm_struct(ctx, type_cast<TagType>(type));
 
+          case Decl::Union:
+            return llvm_union(ctx, type_cast<TagType>(type));
+
           case Decl::Enum:
             return llvm_type(ctx, type_cast<TagType>(type)->fields[0]);
 
@@ -575,12 +621,15 @@ namespace
   //|///////////////////// store ////////////////////////////////////////////
   void store(GenContext &ctx, FunctionContext &fx, llvm::Value *dst, Type *type, llvm::Value *src, long flags = 0)
   {
-    auto align = (flags & MIR::Local::Reference) ? alignof(void*) : alignof_type(type);
+    if (type == ctx.voidtype)
+      return;
 
     if (type == ctx.booltype && !src->getType()->isPointerTy())
       src = ctx.builder.CreateZExt(src, ctx.builder.getInt8Ty());
 
     assert(dst->getType()->getPointerElementType() == src->getType());
+
+    auto align = (flags & MIR::Local::Reference) ? alignof(void*) : alignof_type(type);
 
     ctx.builder.CreateAlignedStore(src, dst, llvm::Align(align));
   }
@@ -700,7 +749,7 @@ namespace
       ditype = ctx.di.createUnspecifiedType("array");
     }
 
-    if (is_struct_type(local.type) || is_lambda_type(local.type))
+    if (is_struct_type(local.type) || is_union_type(local.type) || is_lambda_type(local.type))
     {
       auto type = type_cast<TagType>(local.type);
       auto decl = decl_cast<TagDecl>(type->decl);
@@ -1211,23 +1260,50 @@ namespace
   {
     auto base = fx.locals[arg].alloca;
     auto index = vector<llvm::Value*>{ ctx.builder.getInt32(0) };
+    auto rhs = fx.mir.locals[arg].type;
 
-    if (fields[0].op == MIR::RValue::Val)
+    for(auto &field : fields)
     {
-      base = load(ctx, fx, arg);
-    }
-
-    index.push_back(ctx.builder.getInt32(fields[0].index));
-
-    for(size_t i = 1; i < fields.size(); ++i)
-    {
-      if (fields[i].op == MIR::RValue::Val)
+      if (field.op == MIR::RValue::Val)
       {
-        base = load(ctx, fx, ctx.builder.CreateInBoundsGEP(base, index), ctx.voidtype, MIR::Local::Reference);
+        if (&field == &fields.front())
+          base = load(ctx, fx, arg);
+        else
+          base = load(ctx, fx, ctx.builder.CreateInBoundsGEP(base, index), rhs);
+
+        rhs = remove_pointference_type(rhs);
+
         index.resize(1);
       }
 
-      index.push_back(ctx.builder.getInt32(fields[i].index));
+      rhs = remove_const_type(rhs);
+
+      if (is_union_type(rhs) && field.index != 0)
+      {
+        index.push_back(ctx.builder.getInt32(1));
+
+        rhs = type_cast<CompoundType>(rhs)->fields[field.index];
+        base = ctx.builder.CreatePointerCast(ctx.builder.CreateInBoundsGEP(base, index), llvm_type(ctx, rhs, true)->getPointerTo());
+        index.resize(1);
+        continue;
+      }
+
+      switch(rhs->klass())
+      {
+        case Type::Tag:
+        case Type::Tuple:
+          rhs = type_cast<CompoundType>(rhs)->fields[field.index];
+          break;
+
+        case Type::Array:
+          rhs = type_cast<ArrayType>(rhs)->type;
+          break;
+
+        default:
+          assert(false);
+      }
+
+      index.push_back(ctx.builder.getInt32(field.index));
     }
 
     return ctx.builder.CreateInBoundsGEP(base, index);
@@ -3457,6 +3533,16 @@ namespace
       else
         ctx.builder.CreateCondBr(cond, fx.blocks[blockid].bx, fx.blocks[get<1>(targets[0])].bx);
     }
+    else if (is_int_type(type))
+    {
+      auto value = ctx.builder.CreateZExt(cond, ctx.builder.getInt64Ty());
+      auto swtch = ctx.builder.CreateSwitch(value, fx.blocks[blockid].bx, targets.size());
+
+      for(auto &[k, v] : targets)
+      {
+        swtch->addCase(ctx.builder.getInt64(k), fx.blocks[v].bx);
+      }
+    }
     else
     {
       ctx.diag.error("invalid type on conditional");
@@ -4417,12 +4503,12 @@ void codegen(AST *ast, string const &target, GenOpts const &genopts, Diag &diag)
 
   codegen_finalise(ctx);
 
-  llvm::verifyModule(ctx.module);
-
-  write_module(ctx, target);
-
 #if 0
   ctx.module.print(llvm::outs(), nullptr);
   cout << "--" << endl;
 #endif
+
+  llvm::verifyModule(ctx.module);
+
+  write_module(ctx, target);
 }

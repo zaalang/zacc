@@ -50,7 +50,7 @@ bool is_var_decl(Decl const *decl)
 //|///////////////////// is_tag_decl ////////////////////////////////////////
 bool is_tag_decl(Decl const *decl)
 {
-  return decl->kind() == Decl::Struct || decl->kind() == Decl::Concept || decl->kind() == Decl::Lambda || decl->kind() == Decl::Enum;
+  return decl->kind() == Decl::Struct || decl->kind() == Decl::Concept || decl->kind() == Decl::Lambda || decl->kind() == Decl::Enum || decl->kind() == Decl::Union;
 }
 
 //|///////////////////// is_module_decl /////////////////////////////////////
@@ -174,7 +174,10 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
       break;
 
     case Decl::Struct:
+    case Decl::Union:
     case Decl::Lambda:
+    case Decl::Concept:
+    case Decl::Enum:
       if (auto &tag = static_cast<TagDecl const &>(decl); true)
       {
         os << tag.name;
@@ -260,34 +263,10 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
       }
       break;
 
-    case Decl::Concept:
-      if (auto &koncept = static_cast<ConceptDecl const &>(decl); true)
-      {
-        os << koncept.name;
-
-        if (koncept.args.size() != 0)
-        {
-          os << '<';
-
-          for(auto &arg : koncept.args)
-            os << *arg << (&arg != &koncept.args.back() ? ", " : "");
-
-          os << '>';
-        }
-      }
-      break;
-
     case Decl::Requires:
       if (auto &reqires = static_cast<RequiresDecl const &>(decl); true)
       {
         os << reqires.fn;
-      }
-      break;
-
-    case Decl::Enum:
-      if (auto &tag = static_cast<EnumDecl const &>(decl); true)
-      {
-        os << tag.name;
       }
       break;
 
@@ -669,6 +648,27 @@ void StructDecl::dump(int indent) const
 }
 
 
+//|--------------------- UnionDecl ------------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// UnionDecl::Constructor /////////////////////////////
+UnionDecl::UnionDecl(SourceLocation loc)
+  : TagDecl(Union, loc)
+{
+}
+
+//|///////////////////// UnionDecl::dump ////////////////////////////////////
+void UnionDecl::dump(int indent) const
+{
+  cout << spaces(indent) << "UnionDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
+
+  for(auto &decl : decls)
+  {
+    decl->dump(indent + 2);
+  }
+}
+
+
 //|--------------------- LambdaDecl -----------------------------------------
 //|--------------------------------------------------------------------------
 
@@ -676,7 +676,7 @@ void StructDecl::dump(int indent) const
 LambdaDecl::LambdaDecl(SourceLocation loc)
   : TagDecl(Lambda, loc)
 {
-  name = "lambda";
+  name = "#lambda";
 }
 
 //|///////////////////// LambdaDecl::dump ///////////////////////////////////

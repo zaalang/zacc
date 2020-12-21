@@ -206,6 +206,12 @@ StructDecl *Sema::struct_declaration(SourceLocation loc)
   return ast->make_decl<StructDecl>(loc);
 }
 
+//|///////////////////// union_declaration //////////////////////////////////
+UnionDecl *Sema::union_declaration(SourceLocation loc)
+{
+  return ast->make_decl<UnionDecl>(loc);
+}
+
 //|///////////////////// lambda_declaration //////////////////////////////////
 LambdaDecl *Sema::lambda_declaration(SourceLocation loc)
 {

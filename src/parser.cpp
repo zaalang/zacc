@@ -3456,6 +3456,10 @@ namespace
         stmt->decl = parse_lambda_declaration(ctx, sema);
         break;
 
+      case Token::kw_extern:
+        stmt->decl = parse_function_declaration(ctx, sema);
+        break;
+
       case Token::kw_struct:
         stmt->decl = parse_struct_declaration(ctx, sema);
         break;
@@ -3967,6 +3971,7 @@ namespace
       switch(ctx.tok.type)
       {
         case Token::kw_fn:
+        case Token::kw_extern:
         case Token::kw_const:
         case Token::kw_static:
         case Token::kw_import:

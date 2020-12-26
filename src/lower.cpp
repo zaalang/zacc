@@ -1255,6 +1255,11 @@ namespace
             {
               expr = evaluate(scope, expr, ctx.symbols, ctx.typetable, ctx.diag, constant->loc()).value;
 
+              if (expr->kind() == Expr::CharLiteral)
+              {
+                expr = ctx.mir.make_expr<IntLiteralExpr>(expr_cast<CharLiteralExpr>(expr)->value(), constant->loc());
+              }
+
               if (!expr || expr->kind() != Expr::IntLiteral)
               {
                 ctx.diag.error("invalid enum value", scope, decl->loc());
@@ -1263,11 +1268,11 @@ namespace
             }
 
             if (value != 0)
-              expr = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(expr_cast<IntLiteralExpr>(expr)->value().sign, expr_cast<IntLiteralExpr>(expr)->value().value + value), constant->loc());
+              expr = ctx.mir.make_expr<IntLiteralExpr>(expr_cast<IntLiteralExpr>(expr)->value() + Numeric::int_literal(value), constant->loc());
           }
           else
           {
-            expr = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, value), constant->loc());
+            expr = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(value), constant->loc());
           }
 
           type->resolve(ctx.typetable.find_or_create<TypeLitType>(expr));
@@ -9152,6 +9157,9 @@ namespace
             {
               if (callee.fn->returntype)
               {
+                if (is_reference_type(callee.fn->returntype) && is_pointer_type(dst.type))
+                  dst.type = ctx.typetable.find_or_create<ReferenceType>(remove_pointer_type(dst.type));
+
                 deduce_type(ctx, callee.fn, callee, callee.fn->returntype, dst);
               }
 

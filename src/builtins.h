@@ -111,7 +111,7 @@ namespace Builtin
     XorAssign,
     OrAssign,
     AddCarry,
-    SubCarry,
+    SubBorrow,
     MulCarry,
 
     OffsetAdd,

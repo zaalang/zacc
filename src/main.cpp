@@ -47,7 +47,7 @@ int main(int argc, char *argv[])
 
   if (file == "")
   {
-    cerr << "no input files" << endl;
+    cerr << "no input files\n";
     exit(1);
   }
 
@@ -70,7 +70,7 @@ int main(int argc, char *argv[])
 
     if (diag.has_errored())
     {
-      cerr << diag << endl;
+      cerr << diag;
 
       exit(1);
     }
@@ -119,7 +119,7 @@ int main(int argc, char *argv[])
 
     if (!toolchain)
     {
-      cerr << "unable to initialise toolchain" << endl;
+      cerr << "unable to initialise toolchain\n";
       exit(1);
     }
 
@@ -127,7 +127,7 @@ int main(int argc, char *argv[])
 
     codegen(sema.ast, intfile, opts, diag);
 
-    cerr << diag << endl;
+    cerr << diag;
 
     if (diag.has_errored())
       exit(1);

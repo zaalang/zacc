@@ -14,6 +14,7 @@
 #include <tuple>
 #include <utility>
 #include <iterator>
+#include <charconv>
 
 //-------------------------- iterator_pair ----------------------------------
 //---------------------------------------------------------------------------
@@ -143,6 +144,34 @@ inline std::string escape(std::string_view str)
         result += "\\\\";
         continue;
 
+      case 0:
+        result += "\\0";
+        continue;
+
+      case 1: case 2: case 3: case 4: case 5: case 6: case 7: case 8:
+        result += "\\x0";
+        result += char(ch[0] + '0');
+        continue;
+
+      case 11: case 12: case 14: case 15:
+        result += "\\x0";
+        result += char(ch[0] - 10 + 'a');
+        continue;
+
+      case 16: case 17: case 18: case 19: case 20: case 21: case 22: case 23: case 24: case 25:
+        result += "\\x1";
+        result += char(ch[0] - 16 + '0');
+        continue;
+
+      case 26: case 27: case 28: case 29: case 30: case 31:
+        result += "\\x1";
+        result += char(ch[0] - 26 + 'a');
+        continue;
+
+      case 127:
+        result += "\\x7f";
+        continue;
+
       default:
         break;
     }
@@ -162,7 +191,7 @@ inline std::string unescape(std::string_view str)
 
   result.reserve(str.length());
 
-  for(auto ch = str.begin(), end = str.end(); ch != end; ++ch)
+  for(auto ch = str.data(), end = str.data() + str.size(); ch != end; ++ch)
   {
     if (*ch == '\\')
     {
@@ -180,6 +209,10 @@ inline std::string unescape(std::string_view str)
           result += '\t';
           continue;
 
+        case '\'':
+          result += '\'';
+          continue;
+
         case '"':
           result += '"';
           continue;
@@ -187,6 +220,17 @@ inline std::string unescape(std::string_view str)
         case '\\':
           result += '\\';
           continue;
+
+        case '0':
+          result += char(0);
+          continue;
+
+        case 'x': {
+          char cc;
+          ch = std::from_chars(ch+1, std::min(ch+3, end), cc, 16).ptr - 1;
+          result += char(cc);
+          continue;
+        }
 
         default:
           break;

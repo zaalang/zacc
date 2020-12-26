@@ -2018,33 +2018,34 @@ namespace
 
     if (lhscat == TypeCategory::UnsignedInteger && rhscat == TypeCategory::UnsignedInteger)
     {
-      llvm::Value *result, *lo, *hi;
+      llvm::Value *result;
 
+      auto N = 2*llvm::cast<llvm::IntegerType>(lhs->getType())->getBitWidth();
       auto width = llvm::cast<llvm::IntegerType>(lhs->getType())->getBitWidth();
 
       switch(callee.fn->builtin)
       {
         case Builtin::AddCarry:
-          result = ctx.builder.CreateBinaryIntrinsic(llvm::Intrinsic::uadd_with_overflow, lhs, rhs);
-          lo = ctx.builder.CreateExtractValue(result, 0);
-          hi = ctx.builder.CreateIntCast(ctx.builder.CreateExtractValue(result, 1), lhs->getType(), false);
+          result = ctx.builder.CreateAdd(ctx.builder.CreateIntCast(lhs, ctx.builder.getIntNTy(N), false), ctx.builder.CreateIntCast(rhs, ctx.builder.getIntNTy(N), false));
           break;
 
-        case Builtin::SubCarry:
-          result = ctx.builder.CreateBinaryIntrinsic(llvm::Intrinsic::usub_with_overflow, lhs, rhs);
-          lo = ctx.builder.CreateExtractValue(result, 0);
-          hi = ctx.builder.CreateIntCast(ctx.builder.CreateExtractValue(result, 1), lhs->getType(), false);
+        case Builtin::SubBorrow:
+          result = ctx.builder.CreateSub(ctx.builder.CreateIntCast(lhs, ctx.builder.getIntNTy(N), false), ctx.builder.CreateIntCast(rhs, ctx.builder.getIntNTy(N), false));
           break;
 
         case Builtin::MulCarry:
-          result = ctx.builder.CreateMul(ctx.builder.CreateIntCast(lhs, ctx.builder.getInt128Ty(), false), ctx.builder.CreateIntCast(rhs, ctx.builder.getInt128Ty(), false));
-          hi = ctx.builder.CreateIntCast(ctx.builder.CreateLShr(result, ctx.builder.getIntN(128, width)), lhs->getType(), false);
-          lo = ctx.builder.CreateIntCast(ctx.builder.CreateAnd(result, ctx.builder.getIntN(128, 0xFFFFFFFFFFFFFFFF >> (64 - width))), lhs->getType(), false);
+          result = ctx.builder.CreateMul(ctx.builder.CreateIntCast(lhs, ctx.builder.getIntNTy(N), false), ctx.builder.CreateIntCast(rhs, ctx.builder.getIntNTy(N), false));
           break;
 
         default:
           assert(false);
       }
+
+      auto hi = ctx.builder.CreateTrunc(ctx.builder.CreateLShr(result, ctx.builder.getIntN(N, width)), lhs->getType());
+      auto lo = ctx.builder.CreateTrunc(result, lhs->getType());
+
+      if (callee.fn->builtin == Builtin::SubBorrow)
+        hi = ctx.builder.CreateNeg(hi);
 
       auto insert0 = llvm::UndefValue::get(llvm_type(ctx, fx.mir.locals[dst].type));
       auto insert1 = ctx.builder.CreateInsertValue(insert0, lo, 0);
@@ -2054,33 +2055,36 @@ namespace
     }
     else if (lhscat == TypeCategory::SignedInteger && rhscat == TypeCategory::SignedInteger)
     {
-      llvm::Value *result, *lo, *hi;
+      llvm::Value *result;
 
+      auto N = 2*llvm::cast<llvm::IntegerType>(lhs->getType())->getBitWidth();
       auto width = llvm::cast<llvm::IntegerType>(lhs->getType())->getBitWidth();
 
       switch(callee.fn->builtin)
       {
         case Builtin::AddCarry:
-          result = ctx.builder.CreateBinaryIntrinsic(llvm::Intrinsic::sadd_with_overflow, lhs, rhs);
-          lo = ctx.builder.CreateExtractValue(result, 0);
-          hi = ctx.builder.CreateIntCast(ctx.builder.CreateExtractValue(result, 1), lhs->getType(), false);
+          result = ctx.builder.CreateAdd(ctx.builder.CreateIntCast(lhs, ctx.builder.getIntNTy(N), true), ctx.builder.CreateIntCast(rhs, ctx.builder.getIntNTy(N), true));
           break;
 
-        case Builtin::SubCarry:
-          result = ctx.builder.CreateBinaryIntrinsic(llvm::Intrinsic::ssub_with_overflow, lhs, rhs);
-          lo = ctx.builder.CreateExtractValue(result, 0);
-          hi = ctx.builder.CreateIntCast(ctx.builder.CreateExtractValue(result, 1), lhs->getType(), false);
+        case Builtin::SubBorrow:
+          result = ctx.builder.CreateSub(ctx.builder.CreateIntCast(lhs, ctx.builder.getIntNTy(N), true), ctx.builder.CreateIntCast(rhs, ctx.builder.getIntNTy(N), true));
           break;
 
         case Builtin::MulCarry:
-          result = ctx.builder.CreateMul(ctx.builder.CreateIntCast(lhs, ctx.builder.getInt128Ty(), true), ctx.builder.CreateIntCast(rhs, ctx.builder.getInt128Ty(), true));
-          hi = ctx.builder.CreateIntCast(ctx.builder.CreateAShr(result, ctx.builder.getIntN(128, width)), lhs->getType(), false);
-          lo = ctx.builder.CreateIntCast(ctx.builder.CreateAnd(result, ctx.builder.getIntN(128, 0xFFFFFFFFFFFFFFFF >> (64 - width))), lhs->getType(), false);
+          result = ctx.builder.CreateMul(ctx.builder.CreateIntCast(lhs, ctx.builder.getIntNTy(N), true), ctx.builder.CreateIntCast(rhs, ctx.builder.getIntNTy(N), true));
           break;
 
         default:
           assert(false);
       }
+
+      auto hi = ctx.builder.CreateTrunc(ctx.builder.CreateLShr(result, ctx.builder.getIntN(N, width)), lhs->getType());
+      auto lo = ctx.builder.CreateTrunc(result, lhs->getType());
+
+      hi = ctx.builder.CreateSelect(ctx.builder.CreateICmpSLT(lo, llvm_zero(lo->getType())), ctx.builder.CreateAdd(hi, llvm_int(hi->getType(), 1)), hi);
+
+      if (callee.fn->builtin == Builtin::SubBorrow)
+        hi = ctx.builder.CreateNeg(hi);
 
       auto insert0 = llvm::UndefValue::get(llvm_type(ctx, fx.mir.locals[dst].type));
       auto insert1 = ctx.builder.CreateInsertValue(insert0, lo, 0);
@@ -3200,7 +3204,7 @@ namespace
           break;
 
         case Builtin::AddCarry:
-        case Builtin::SubCarry:
+        case Builtin::SubBorrow:
         case Builtin::MulCarry:
           codegen_builtin_binary_arithmetic_carry(ctx, fx, dst, call);
           break;

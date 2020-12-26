@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cassert>
 #include <cstdlib>
+#include <charconv>
 #include <cmath>
 
 using namespace std;
@@ -177,7 +178,7 @@ namespace Numeric
       state = utf8d[256 + state*16 + type];
     }
 
-    if (str.length() == 4 && str.substr(1).front() == '\\')
+    if (str.length() >= 4 && str.substr(1).front() == '\\')
     {
       switch(str.substr(2).front())
       {
@@ -185,8 +186,32 @@ namespace Numeric
           value = '\n';
           break;
 
+        case 'r':
+          value = '\r';
+          break;
+
+        case 't':
+          value = '\t';
+          break;
+
+        case '\'':
+          value = '\'';
+          break;
+
+        case '"':
+          value = '"';
+          break;
+
         case '\\':
           value = '\\';
+          break;
+
+        case '0':
+          value = 0;
+          break;
+
+        case 'x':
+          std::from_chars(str.data()+3, str.data() + str.size() - 1, value, 16);
           break;
 
         default:
@@ -491,100 +516,54 @@ namespace Numeric
   //|///////////////////// add_with_carry ///////////////////////////////////
   void add_with_carry(Int const &lhs, Int const &rhs, size_t width, bool is_signed, Int &lo, Int &hi)
   {
-    if (is_signed)
+    auto sign = (lhs.value < rhs.value) ? rhs.sign : lhs.sign;
+
+    if (lhs.sign == rhs.sign)
     {
-      switch(width)
-      {
-        case 8: {
-          int8_t result_lo;
-          int8_t result_hi = __builtin_add_overflow(lhs.sign*int64_t(lhs.value), rhs.sign*int64_t(rhs.value), &result_lo);
-          lo = int_literal(result_lo);
-          hi = int_literal(+1, (result_hi != 0) ? 1 : 0);
-          break;
-        }
+      uint64_t result_hi = 0;
+      uint64_t result_lo = lhs.value + rhs.value;
 
-        case 16: {
-          int16_t result_lo;
-          int16_t result_hi = __builtin_add_overflow(lhs.sign*int64_t(lhs.value), rhs.sign*int64_t(rhs.value), &result_lo);
-          lo = int_literal(result_lo);
-          hi = int_literal(+1, (result_hi != 0) ? 1 : 0);
-          break;
-        }
+      if (result_lo < rhs.value)
+        result_hi += 1;
 
-        case 32: {
-          int32_t result_lo;
-          int32_t result_hi = __builtin_add_overflow(lhs.sign*int64_t(lhs.value), rhs.sign*int64_t(rhs.value), &result_lo);
-          lo = int_literal(result_lo);
-          hi = int_literal(+1, (result_hi != 0) ? 1 : 0);
-          break;
-        }
+      lo = int_literal(sign, result_lo & (0xFFFFFFFFFFFFFFFF >> (64 - width)));
+      hi = int_literal(sign, result_hi | (((result_lo - lo.value) >> width) + (lo.sign < 0 ? 1 : 0)));
 
-        case 64: {
-          int64_t result_lo;
-          int64_t result_hi = __builtin_add_overflow(lhs.sign*int64_t(lhs.value), rhs.sign*int64_t(rhs.value), &result_lo);
-          lo = int_literal(result_lo);
-          hi = int_literal(+1, (result_hi != 0) ? 1 : 0);
-          break;
-        }
-      }
+      if ((lo.sign < 0 && lo.value <= (size_t(1) << (width - 1))) || (lo.sign > 0 && lo.value >= (size_t(1) << (width - 1))))
+        hi = hi + int_literal(1);
     }
     else
     {
-      uint64_t result_lo;
-      uint64_t result_hi = __builtin_add_overflow(lhs.value, rhs.value, &result_lo);
-
-      lo = int_literal(1, result_lo & (0xFFFFFFFFFFFFFFFF >> (64 - width)));
-      hi = int_literal(+1, (lo.value != result_lo || result_hi != 0) ? 1 : 0);
+      lo = int_literal(sign, max(lhs.value, rhs.value) - min(lhs.value, rhs.value));
+      hi = int_literal(+1, !is_signed && lo.sign < 0 ? 1 : 0);
     }
   }
 
-  //|///////////////////// sub_with_carry ///////////////////////////////////
-  void sub_with_carry(Int const &lhs, Int const &rhs, size_t width, bool is_signed, Int &lo, Int &hi)
+  //|///////////////////// sub_with_borrow //////////////////////////////////
+  void sub_with_borrow(Int const &lhs, Int const &rhs, size_t width, bool is_signed, Int &lo, Int &hi)
   {
-    if (is_signed)
+    auto sign = (lhs.value < rhs.value) ? -rhs.sign : lhs.sign;
+
+    if (lhs.sign != rhs.sign)
     {
-      switch(width)
-      {
-        case 8: {
-          int8_t result_lo;
-          int8_t result_hi = __builtin_sub_overflow(lhs.sign*int64_t(lhs.value), rhs.sign*int64_t(rhs.value), &result_lo);
-          lo = int_literal(result_lo < 0 ? -1 : +1, std::abs(result_lo));
-          hi = int_literal(+1, (result_hi != 0) ? 1 : 0);
-          break;
-        }
+      uint64_t result_hi = 0;
+      uint64_t result_lo = lhs.value + rhs.value;
 
-        case 16: {
-          int16_t result_lo;
-          int16_t result_hi = __builtin_sub_overflow(lhs.sign*int64_t(lhs.value), rhs.sign*int64_t(rhs.value), &result_lo);
-          lo = int_literal(result_lo < 0 ? -1 : +1, std::abs(result_lo));
-          hi = int_literal(+1, (result_hi != 0) ? 1 : 0);
-          break;
-        }
+      if (result_lo < rhs.value)
+        result_hi += 1;
 
-        case 32: {
-          int32_t result_lo;
-          int32_t result_hi = __builtin_sub_overflow(lhs.sign*int64_t(lhs.value), rhs.sign*int64_t(rhs.value), &result_lo);
-          lo = int_literal(result_lo < 0 ? -1 : +1, std::abs(result_lo));
-          hi = int_literal(+1, (result_hi != 0) ? 1 : 0);
-          break;
-        }
+      lo = int_literal(sign, result_lo & (0xFFFFFFFFFFFFFFFF >> (64 - width)));
+      hi = int_literal(sign, result_hi | (((result_lo - lo.value) >> width) + (lo.sign < 0 ? 1 : 0)));
 
-        case 64: {
-          int64_t result_lo;
-          int64_t result_hi = __builtin_sub_overflow(lhs.sign*int64_t(lhs.value), rhs.sign*int64_t(rhs.value), &result_lo);
-          lo = int_literal(result_lo < 0 ? -1 : +1, std::abs(result_lo));
-          hi = int_literal(+1, (result_hi != 0) ? 1 : 0);
-          break;
-        }
-      }
+      if ((lo.sign < 0 && lo.value <= (size_t(1) << (width - 1))) || (lo.sign > 0 && lo.value >= (size_t(1) << (width - 1))))
+        hi = hi + int_literal(1);
+
+      hi.sign *= -1;
     }
     else
     {
-      uint64_t result_lo;
-      uint64_t result_hi = __builtin_sub_overflow(lhs.value, rhs.value, &result_lo);
-
-      lo = int_literal(1, result_lo & (0xFFFFFFFFFFFFFFFF >> (64 - width)));
-      hi = int_literal(+1, (lo.value != result_lo || result_hi != 0) ? 1 : 0);
+      lo = int_literal(sign, max(lhs.value, rhs.value) - min(lhs.value, rhs.value));
+      hi = int_literal(+1, !is_signed && lo.sign < 0 ? 1 : 0);
     }
   }
 
@@ -604,6 +583,9 @@ namespace Numeric
 
     lo = int_literal(lhs.sign * rhs.sign, result_lo & (0xFFFFFFFFFFFFFFFF >> (64 - width)));
     hi = int_literal(lhs.sign * rhs.sign, result_hi | (((result_lo - lo.value) >> width) + (lo.sign < 0 ? 1 : 0)));
+
+    if ((lo.sign < 0 && lo.value <= (size_t(1) << (width - 1))) || (lo.sign > 0 && lo.value >= (size_t(1) << (width - 1))))
+      hi = hi + int_literal(1);
   }
 
   //|///////////////////// lt ///////////////////////////////////////////////

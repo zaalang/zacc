@@ -86,7 +86,7 @@ namespace Numeric
   Int sqrt(Int const &lhs);
 
   void add_with_carry(Int const &lhs, Int const &rhs, size_t width, bool is_signed, Int &lo, Int &hi);
-  void sub_with_carry(Int const &lhs, Int const &rhs, size_t width, bool is_signed, Int &lo, Int &hi);
+  void sub_with_borrow(Int const &lhs, Int const &rhs, size_t width, bool is_signed, Int &lo, Int &hi);
   void mul_with_carry(Int const &lhs, Int const &rhs, size_t width, bool is_signed, Int &lo, Int &hi);
 
   bool operator<(Int const &lhs, Int const &rhs);

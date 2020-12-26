@@ -462,7 +462,7 @@ namespace Builtin
     make_function(OffsetSubAssign, "pub fn -=<T>(T mut &, usize) -> T mut &", __LINE__);
 
     make_function(AddCarry, "pub fn __add_with_carry<T>(T, T) -> (T, T)", __LINE__);
-    make_function(SubCarry, "pub fn __sub_with_carry<T>(T, T) -> (T, T)", __LINE__);
+    make_function(SubBorrow, "pub fn __sub_with_borrow<T>(T, T) -> (T, T)", __LINE__);
     make_function(MulCarry, "pub fn __mul_with_carry<T>(T, T) -> (T, T)", __LINE__);
 
     make_function(ArrayLen, "pub const fn len<T>(T&) -> usize", __LINE__);

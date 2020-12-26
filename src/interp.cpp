@@ -1328,8 +1328,8 @@ namespace
           add_with_carry(lhs, rhs, width, is_signed, result, carry);
           break;
 
-        case Builtin::SubCarry:
-          sub_with_carry(lhs, rhs, width, is_signed, result, carry);
+        case Builtin::SubBorrow:
+          sub_with_borrow(lhs, rhs, width, is_signed, result, carry);
           break;
 
         case Builtin::MulCarry:
@@ -2599,7 +2599,7 @@ namespace
           return eval_builtin_binary_arithmetic_assign(ctx, fx, dst, call);
 
         case Builtin::AddCarry:
-        case Builtin::SubCarry:
+        case Builtin::SubBorrow:
         case Builtin::MulCarry:
           return eval_builtin_binary_arithmetic_carry(ctx, fx, dst, call);
 

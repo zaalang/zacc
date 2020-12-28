@@ -3024,6 +3024,13 @@ namespace
     {
       return ctx.make_expr<IntLiteralExpr>(load_int(ctx, alloc, type), loc);
     }
+    else if (is_pointer_type(type))
+    {
+      if (load_ptr(ctx, alloc, type) != 0)
+        ctx.diag.error("invalid literal pointer", ctx.dx, loc);
+
+      return ctx.make_expr<PointerLiteralExpr>(loc);
+    }
     else if (is_string_type(type))
     {
       return ctx.make_expr<StringLiteralExpr>(load_string(ctx, alloc, type), loc);

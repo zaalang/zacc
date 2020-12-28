@@ -161,9 +161,9 @@ namespace
 
         if (mir.throws && errorarg == 1)
         {
-          returns.insert(returns.end(), throws.begin(), throws.end());
+          returns.insert(returns.end(), throws.begin() + barrier.firstthrow, throws.end());
 
-          throws.clear();
+          throws.resize(barrier.firstthrow);
         }
 
         for(auto i = barrier.retires.rbegin(); i != barrier.retires.rend(); ++i)
@@ -2418,12 +2418,12 @@ namespace
 
       if (is_reference_type(type) && !is_const_type(remove_reference_type(type)) && make_const)
         type = ctx.typetable.find_or_create<ReferenceType>(ctx.typetable.find_or_create<ConstType>(remove_reference_type(type)));
+
+      if (is_reference_type(lhs.type) && is_reference_type(rhs.type) && (lhs.flags & MIR::Local::RValue) != (rhs.flags & MIR::Local::RValue))
+        return false;
     }
 
     if (!deduce_type(ctx, scope, fx, type, rhs.type))
-      return false;
-
-    if ((lhs.flags & MIR::Local::XValue) != (rhs.flags & MIR::Local::XValue))
       return false;
 
     promote_type(ctx, rhs.type, type);
@@ -5894,6 +5894,8 @@ namespace
 
       auto block_lhs = ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1));
 
+      auto ssm = ctx.push_barrier();
+
       if (!lower_expr(ctx, parms[1], binaryop->rhs))
         return;
 
@@ -5905,6 +5907,8 @@ namespace
       }
 
       realise_as_value(ctx, dst, rhs);
+
+      ctx.retire_barrier(ssm);
 
       auto callee = find_callee(ctx, ctx.stack, binaryop->op(), parms, namedparms);
 
@@ -5930,8 +5934,6 @@ namespace
             return;
           }
 
-          callee.fx = Builtin::fn(ctx.translationunit->builtins, Builtin::LAnd);
-
           ctx.mir.blocks[block_lhs].terminator = MIR::Terminator::switcher(dst, ctx.currentblockid, block_lhs + 1);
         }
 
@@ -5952,8 +5954,6 @@ namespace
             result.value = ctx.mir.make_expr<BoolLiteralExpr>(is_true_constant(ctx, lhs) || is_true_constant(ctx, rhs), binaryop->loc());
             return;
           }
-
-          callee.fx = Builtin::fn(ctx.translationunit->builtins, Builtin::LOr);
 
           ctx.mir.blocks[block_lhs].terminator = MIR::Terminator::switcher(dst, block_lhs + 1, ctx.currentblockid);
         }
@@ -6071,14 +6071,18 @@ namespace
       }
     }
 
-    if (lhs.type.type != rhs.type.type || (lhs.type.flags & MIR::Local::Reference) != (rhs.type.flags & MIR::Local::Reference)|| (lhs.type.flags & MIR::Local::XValue) != (rhs.type.flags & MIR::Local::XValue))
+    if (lhs.type.type != rhs.type.type || (lhs.type.flags & MIR::Local::Reference) != (rhs.type.flags & MIR::Local::Reference) ||
+       (is_reference_type(lhs.type.type) && is_reference_type(rhs.type.type) && (lhs.type.flags & MIR::Local::RValue) != (rhs.type.flags & MIR::Local::RValue)) ||
+       (!by_value && (lhs.type.flags & MIR::Local::RValue) != (rhs.type.flags & MIR::Local::RValue)))
     {
       ctx.diag.error("ternary operands differing types", ctx.stack.back(), ternaryop->loc());
       ctx.diag << "  lhs type: '" << *lhs.type.type << "' rhs type: '" << *rhs.type.type << "'\n";
       return;
     }
 
-    commit_type(ctx, dst, lhs.type.type, lhs.type.flags & ~MIR::Local::Const);
+    commit_type(ctx, dst, lhs.type.type, lhs.type.flags | rhs.type.flags);
+
+    ctx.mir.locals[dst].flags &= ~MIR::Local::XValue;
 
     if (!(ctx.mir.locals[dst].flags & MIR::Local::Reference))
       realise_destructor(ctx, dst, ternaryop->loc());
@@ -6481,90 +6485,6 @@ namespace
     return !!result.value;
   }
 
-  //|///////////////////// lower_var ///////////////////////////////////////
-  void lower_decl(LowerContext &ctx, VarDecl *vardecl, MIR::Fragment &value)
-  {
-    if (is_typearg_type(value.type.type) || ((ctx.flags & LowerFlags::Runtime) && is_tag_type(value.type.type) && !is_concrete_type(value.type.type)))
-    {
-      ctx.diag.error("unresolved type for variable", ctx.stack.back(), vardecl->loc());
-      ctx.diag << "  variable type : '" << *value.type.type << "'\n";
-      return;
-    }
-
-    if (vardecl->flags & VarDecl::Literal)
-    {
-      if (!(value.type.flags & MIR::Local::Literal))
-      {
-        ctx.diag.error("non literal value", ctx.stack.back(), vardecl->loc());
-        return;
-      }
-
-      ctx.symbols[vardecl] = value;
-
-      return;
-    }
-
-    auto arg = ctx.add_variable();
-
-    if (vardecl->flags & VarDecl::Static)
-    {
-      if (!(value.type.flags & MIR::Local::Literal))
-      {
-        ctx.diag.error("non literal static value", ctx.stack.back(), vardecl->loc());
-        return;
-      }
-
-      if (is_reference_type(vardecl->type))
-      {
-        ctx.diag.error("invalid reference type", ctx.stack.back(), vardecl->loc());
-        return;
-      }
-
-      ctx.mir.statics.emplace_back(arg, std::move(value.value));
-
-      if (!(vardecl->flags & VarDecl::Const))
-        value.type.flags &= ~MIR::Local::Const;
-
-      value.type.flags &= ~MIR::Local::Literal;
-    }
-    else if (is_reference_type(vardecl->type))
-    {
-      if (!(value.type.flags & MIR::Local::Reference))
-      {
-        ctx.diag.error("non reference type", ctx.stack.back(), vardecl->loc());
-        return;
-      }
-
-      if (value.type.flags & MIR::Local::RValue)
-      {
-        ctx.diag.error("cannot bind to rvalue reference", ctx.stack.back(), vardecl->loc());
-        return;
-      }
-
-      realise_as_reference(ctx, arg, value, vardecl->flags & VarDecl::Const);
-
-      value.type = resolve_as_value(ctx, value.type);
-    }
-    else
-    {
-      realise_as_value(ctx, arg, value, vardecl->flags & VarDecl::Const);
-    }
-
-    commit_type(ctx, arg, value.type.type, value.type.flags);
-
-    ctx.mir.locals[arg].flags |= MIR::Local::LValue;
-    ctx.mir.locals[arg].flags &= ~MIR::Local::XValue;
-    ctx.mir.locals[arg].flags &= ~MIR::Local::RValue;
-
-    if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference) && !(vardecl->flags & VarDecl::Static))
-      realise_destructor(ctx, arg, vardecl->loc());
-
-    ctx.mir.add_varinfo(arg, vardecl->name, vardecl->loc());
-
-    ctx.locals[vardecl] = arg;
-    ctx.symbols[vardecl].type = ctx.mir.locals[arg];
-  }
-
   //|///////////////////// lower_voidvar ////////////////////////////////////
   void lower_decl(LowerContext &ctx, VoidVarDecl *voidvar)
   {
@@ -6587,10 +6507,139 @@ namespace
   {
     MIR::Fragment value;
 
+    if (stmtvar->flags & VarDecl::Literal)
+    {
+      if (!lower_expr(ctx, value, stmtvar->value))
+        return;
+
+      if (!(value.type.flags & MIR::Local::Literal))
+      {
+        ctx.diag.error("non literal value", ctx.stack.back(), stmtvar->loc());
+        return;
+      }
+
+      ctx.symbols[stmtvar] = value;
+
+      return;
+    }
+
+    auto arg = ctx.add_variable();
+
+    auto sm = ctx.push_barrier();
+
     if (!lower_expr(ctx, value, stmtvar->value))
       return;
 
-    lower_decl(ctx, stmtvar, value);
+    if (is_typearg_type(value.type.type) || ((ctx.flags & LowerFlags::Runtime) && is_tag_type(value.type.type) && !is_concrete_type(value.type.type)))
+    {
+      ctx.diag.error("unresolved type for variable", ctx.stack.back(), stmtvar->loc());
+      ctx.diag << "  variable type : '" << *value.type.type << "'\n";
+      return;
+    }
+
+    if (stmtvar->flags & VarDecl::Static)
+    {
+      if (!(value.type.flags & MIR::Local::Literal))
+      {
+        ctx.diag.error("non literal static value", ctx.stack.back(), stmtvar->loc());
+        return;
+      }
+
+      if (is_reference_type(stmtvar->type))
+      {
+        ctx.diag.error("invalid reference type", ctx.stack.back(), stmtvar->loc());
+        return;
+      }
+
+      ctx.mir.statics.emplace_back(arg, std::move(value.value));
+
+      if (!(stmtvar->flags & VarDecl::Const))
+        value.type.flags &= ~MIR::Local::Const;
+
+      value.type.flags &= ~MIR::Local::Literal;
+    }
+    else if (is_reference_type(stmtvar->type))
+    {
+      if (!(value.type.flags & MIR::Local::Reference))
+      {
+        ctx.diag.error("non reference type", ctx.stack.back(), stmtvar->loc());
+        return;
+      }
+
+      if (value.type.flags & MIR::Local::RValue)
+      {
+        ctx.diag.error("cannot bind to rvalue reference", ctx.stack.back(), stmtvar->loc());
+        return;
+      }
+
+      realise_as_reference(ctx, arg, value, stmtvar->flags & VarDecl::Const);
+
+      value.type = resolve_as_value(ctx, value.type);
+    }
+    else
+    {
+      realise_as_value(ctx, arg, value, stmtvar->flags & VarDecl::Const);
+    }
+
+    value.type.flags |= MIR::Local::LValue;
+    value.type.flags &= ~MIR::Local::XValue;
+    value.type.flags &= ~MIR::Local::RValue;
+
+    commit_type(ctx, arg, value.type.type, value.type.flags);
+
+    ctx.retire_barrier(sm);
+
+    if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference) && !(stmtvar->flags & VarDecl::Static))
+      realise_destructor(ctx, arg, stmtvar->loc());
+
+    ctx.mir.add_varinfo(arg, stmtvar->name, stmtvar->loc());
+
+    ctx.locals[stmtvar] = arg;
+    ctx.symbols[stmtvar].type = ctx.mir.locals[arg];
+  }
+
+  //|///////////////////// lower_rangevar ///////////////////////////////////
+  void lower_decl(LowerContext &ctx, RangeVarDecl *rangevar, MIR::Fragment &value)
+  {
+    if (rangevar->flags & VarDecl::Literal)
+    {
+      if (!(value.type.flags & MIR::Local::Literal))
+      {
+        ctx.diag.error("non literal value", ctx.stack.back(), rangevar->loc());
+        return;
+      }
+
+      ctx.symbols[rangevar] = value;
+
+      return;
+    }
+
+    auto arg = ctx.add_variable();
+
+    if (is_reference_type(rangevar->type))
+    {
+      realise_as_reference(ctx, arg, value, rangevar->flags & VarDecl::Const);
+
+      value.type = resolve_as_value(ctx, value.type);
+    }
+    else
+    {
+      realise_as_value(ctx, arg, value, rangevar->flags & VarDecl::Const);
+    }
+
+    value.type.flags |= MIR::Local::LValue;
+    value.type.flags &= ~MIR::Local::XValue;
+    value.type.flags &= ~MIR::Local::RValue;
+
+    commit_type(ctx, arg, value.type.type, value.type.flags);
+
+    if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
+      realise_destructor(ctx, arg, rangevar->loc());
+
+    ctx.mir.add_varinfo(arg, rangevar->name, rangevar->loc());
+
+    ctx.locals[rangevar] = arg;
+    ctx.symbols[rangevar].type = ctx.mir.locals[arg];
   }
 
   //|///////////////////// lower_parmvar ////////////////////////////////////
@@ -6672,13 +6721,13 @@ namespace
       }
       else
       {
-        if (is_struct_type(thistype))
-        {
-          vector<Expr*> parms;
-          map<string, Expr*> namedparms;
+        if (is_union_type(thistype))
+          continue;
 
-          lower_new(ctx, result, address, type, parms, namedparms, decl->loc());
-        }
+        vector<Expr*> parms;
+        map<string, Expr*> namedparms;
+
+        lower_new(ctx, result, address, type, parms, namedparms, decl->loc());
       }
     }
 
@@ -6695,7 +6744,7 @@ namespace
 
     auto res = ctx.add_temporary(ctx.voidtype, MIR::Local::LValue);
 
-    if (is_struct_type(thistype))
+    if (is_struct_type(thistype) || is_tuple_type(thistype) || is_lambda_type(thistype))
     {
       for(size_t index = thistype->fields.size(); index-- != 0; )
       {
@@ -6784,7 +6833,7 @@ namespace
         return;
     }
 
-    if (is_struct_type(thistype) || is_tuple_type(thistype))
+    if (is_struct_type(thistype) || is_tuple_type(thistype) || is_lambda_type(thistype))
     {
       for(size_t index = 0; index < thistype->fields.size(); ++index)
       {
@@ -6842,7 +6891,7 @@ namespace
         return;
     }
 
-    if (is_struct_type(thistype) || is_tuple_type(thistype))
+    if (is_struct_type(thistype) || is_tuple_type(thistype) || is_lambda_type(thistype))
     {
       for(size_t index = 0; index < thistype->fields.size(); ++index)
       {
@@ -6946,7 +6995,7 @@ namespace
     auto thistype = type_cast<CompoundType>(resolve_as_reference(ctx, ctx.mir.locals[1]).type);
     auto thattype = resolve_as_reference(ctx, ctx.mir.locals[2]);
 
-    if (is_struct_type(thistype) || is_tuple_type(thistype))
+    if (is_struct_type(thistype) || is_tuple_type(thistype) || is_lambda_type(thistype))
     {
       for(size_t index = 0; index < thistype->fields.size(); ++index)
       {
@@ -6998,7 +7047,7 @@ namespace
     auto thistype = type_cast<CompoundType>(resolve_as_reference(ctx, ctx.mir.locals[1]).type);
     auto thattype = type_cast<CompoundType>(resolve_as_reference(ctx, ctx.mir.locals[2]).type);
 
-    if (is_struct_type(thistype) || is_tuple_type(thistype))
+    if (is_struct_type(thistype) || is_tuple_type(thistype) || is_lambda_type(thistype))
     {
       for(size_t index = 0; index < thistype->fields.size(); ++index)
       {
@@ -7050,7 +7099,7 @@ namespace
     auto thistype = type_cast<CompoundType>(resolve_as_reference(ctx, ctx.mir.locals[1]).type);
     auto thattype = type_cast<CompoundType>(resolve_as_reference(ctx, ctx.mir.locals[2]).type);
 
-    if (is_struct_type(thistype))
+    if (is_struct_type(thistype) || is_tuple_type(thistype) || is_lambda_type(thistype))
     {
       for(size_t index = 0; index < thistype->fields.size(); ++index)
       {
@@ -7853,17 +7902,17 @@ namespace
 
         MIR::Fragment range;
 
+        auto arg = ctx.add_variable();
+
         if (!lower_expr(ctx, range, rangevar->range))
           return;
 
-        auto arg = ctx.add_variable();
-
         realise(ctx, arg, range);
 
-        if (is_reference_type(rangevar->type))
-          range.type.flags &= ~MIR::Local::RValue;
-
         commit_type(ctx, arg, range.type.type, range.type.flags);
+
+        if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
+          realise_destructor(ctx, arg, rangevar->range->loc());
 
         auto beg = ctx.add_variable();
 
@@ -7943,6 +7992,8 @@ namespace
 
     vector<MIR::block_t> block_conds;
 
+    auto ssm = ctx.push_barrier();
+
     for(auto &range : ranges)
     {
       MIR::Fragment compare;
@@ -7990,6 +8041,8 @@ namespace
 
       commit_type(ctx, flg, compare.type.type, compare.type.flags);
 
+      ctx.retire_barrier(ssm);
+
       block_conds.push_back(ctx.add_block(MIR::Terminator::switcher(flg, ctx.currentblockid + 1)));
     }
 
@@ -8012,10 +8065,10 @@ namespace
 
       commit_type(ctx, cond, condition.type.type, condition.type.flags);
 
+      ctx.retire_barrier(ssm);
+
       block_conds.push_back(ctx.add_block(MIR::Terminator::switcher(cond, ctx.currentblockid + 1)));
     }
-
-    auto ssm = ctx.push_barrier();
 
     for(auto &range : ranges)
     {
@@ -8030,6 +8083,8 @@ namespace
     }
 
     lower_statement(ctx, fors->stmt);
+
+    ctx.retire_barrier(ssm);
 
     ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1));
 
@@ -8070,8 +8125,6 @@ namespace
       lower_statement(ctx, iter);
     }
 
-    ctx.retire_barrier(ssm);
-
     ctx.add_block(MIR::Terminator::gotoer(block_loop));
 
     for(auto &block_cond : block_conds)
@@ -8111,17 +8164,17 @@ namespace
 
         MIR::Fragment range;
 
+        auto arg = ctx.add_variable();
+
         if (!lower_expr(ctx, range, rangevar->range))
           return;
 
-        auto arg = ctx.add_variable();
-
         realise(ctx, arg, range);
 
-        if (is_reference_type(rangevar->type))
-          range.type.flags &= ~MIR::Local::RValue;
-
         commit_type(ctx, arg, range.type.type, range.type.flags);
+
+        if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
+          realise_destructor(ctx, arg, rangevar->range->loc());
 
         auto beg = ctx.add_variable();
 
@@ -8201,6 +8254,8 @@ namespace
 
     vector<MIR::block_t> block_conds;
 
+    auto ssm = ctx.push_barrier();
+
     for(auto &range : ranges)
     {
       MIR::Fragment compare;
@@ -8234,6 +8289,8 @@ namespace
 
       commit_type(ctx, flg, compare.type.type, compare.type.flags);
 
+      ctx.retire_barrier(ssm);
+
       block_conds.push_back(ctx.add_block(MIR::Terminator::switcher(flg, ctx.currentblockid + 1, ctx.currentblockid + 1)));
     }
 
@@ -8256,10 +8313,10 @@ namespace
 
       commit_type(ctx, cond, condition.type.type, condition.type.flags);
 
+      ctx.retire_barrier(ssm);
+
       block_conds.push_back(ctx.add_block(MIR::Terminator::switcher(cond, ctx.currentblockid + 1, ctx.currentblockid + 1)));
     }
-
-    auto ssm = ctx.push_barrier();
 
     for(auto &range : ranges)
     {
@@ -8425,6 +8482,8 @@ namespace
 
       lower_statement(ctx, fors->stmt);
 
+      ctx.retire_barrier(ssm);
+
       ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1));
 
       if (ctx.barriers.back().firstcontinue != ctx.continues.size())
@@ -8466,8 +8525,6 @@ namespace
         lower_statement(ctx, iter);
       }
 
-      ctx.retire_barrier(ssm);
-
       if (ctx.unreachable)
         break;
 
@@ -8508,6 +8565,8 @@ namespace
 
     auto block_loop = ctx.currentblockid;
 
+    auto ssm = ctx.push_barrier();
+
     MIR::Fragment condition;
 
     if (!lower_expr(ctx, condition, wile->cond))
@@ -8524,6 +8583,8 @@ namespace
     realise_as_value(ctx, cond, condition);
 
     commit_type(ctx, cond, condition.type.type, condition.type.flags);
+
+    ctx.retire_barrier(ssm);
 
     auto block_cond = ctx.add_block(MIR::Terminator::switcher(cond, ctx.currentblockid + 1));
 
@@ -8680,7 +8741,7 @@ namespace
       }
 
       // Implicit move from local
-      if (result.value.kind() == MIR::RValue::Variable && !(result.type.flags & MIR::Local::Const))
+      if (!is_reference_type(result.type.type) && result.value.kind() == MIR::RValue::Variable && !(result.type.flags & MIR::Local::Const))
       {
         auto &[op, arg, fields, loc] = result.value.get<MIR::RValue::Variable>();
 
@@ -8696,10 +8757,13 @@ namespace
 
         ctx.mir.locals[0].defn = result.type.defn;
 
-        if (!is_reference_type(ctx.mir.locals[0].type))
-          ctx.mir.locals[0].flags &= ~MIR::Local::LValue;
+        if (!(ctx.mir.locals[0].flags & MIR::Local::RValue))
+          ctx.mir.locals[0].flags |= MIR::Local::LValue;
 
-        ctx.mir.locals[0].flags &= ~MIR::Local::RValue;
+        if (!is_reference_type(ctx.mir.locals[0].type))
+          ctx.mir.locals[0].flags &= ~(MIR::Local::LValue | MIR::Local::RValue);
+
+        ctx.mir.locals[0].flags &= ~MIR::Local::XValue;
       }
     }
     else

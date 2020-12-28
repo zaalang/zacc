@@ -67,6 +67,10 @@ namespace
     vector<Type*> deferred_enums;
     llvm::SmallString<128> current_directory;
 
+    llvm::GlobalVariable *argc;
+    llvm::GlobalVariable *argv;
+    llvm::GlobalVariable *envp;
+
     llvm::Function *assert_div0 = nullptr;
     llvm::Function *assert_carry = nullptr;
     llvm::Function *assert_deref = nullptr;
@@ -319,6 +323,10 @@ namespace
         break;
 
       case Type::Tuple:
+        ss << prefix << '.' << hex << static_cast<void*>(type);
+        break;
+
+      case Type::Array:
         ss << prefix << '.' << hex << static_cast<void*>(type);
         break;
 
@@ -717,9 +725,6 @@ namespace
       else if (type->is_float_type())
         ditype = ctx.di.createBasicType(type->name(), sizeof_type(type) * 8, llvm::dwarf::DW_ATE_float);
 
-      else if (type->kind() == BuiltinType::StringLiteral)
-        ditype = ctx.di.createUnspecifiedType("string");
-
       else if (type->kind() == BuiltinType::PtrLiteral)
         ditype = ctx.di.createNullPtrType();
     }
@@ -744,18 +749,37 @@ namespace
       ditype = llvm_ditype(ctx, remove_const_type(local.type));
     }
 
+    if (is_string_type(local.type))
+    {
+      auto lenty = llvm_ditype(ctx, Builtin::type(Builtin::Type_USize));
+      auto dataty = llvm_ditype(ctx, ctx.typetable.find_or_create<PointerType>(Builtin::type(Builtin::Type_U8)));
+
+      vector<llvm::Metadata*> elements;
+      elements.push_back(ctx.di.createMemberType(ctx.diunit, "len", ctx.difile, 0, sizeof(uint64_t) * 8, alignof(uint64_t) * 8, 0, llvm::DINode::FlagZero, lenty));
+      elements.push_back(ctx.di.createMemberType(ctx.diunit, "data", ctx.difile, 0, sizeof(char*) * 8, alignof(char*) * 8, sizeof(uint64_t) * 8, llvm::DINode::FlagZero, dataty));
+
+      ditype = ctx.di.createStructType(ctx.diunit, "#string", ctx.difile, 0, sizeof_type(local.type) * 8, alignof_type(local.type) * 8, llvm::DINode::FlagZero, nullptr, ctx.di.getOrCreateArray(elements));
+    }
+
     if (is_array_type(local.type))
     {
-      ditype = ctx.di.createUnspecifiedType("array");
+      auto type = type_cast<ArrayType>(local.type);
+      auto name = llvm_identifier("array", type);
+
+      vector<llvm::Metadata*> subscripts;
+      subscripts.push_back(ctx.di.getOrCreateSubrange(0, array_len(type)));
+
+      ditype = ctx.di.createArrayType(sizeof_type(local.type) * 8, alignof_type(local.type) * 8, llvm_ditype(ctx, type->type), ctx.di.getOrCreateArray(subscripts));
     }
 
     if (is_struct_type(local.type) || is_union_type(local.type) || is_lambda_type(local.type))
     {
       auto type = type_cast<TagType>(local.type);
+      auto name = llvm_identifier("struct", type);
       auto decl = decl_cast<TagDecl>(type->decl);
       auto difile = llvm_difile(ctx, decl);
 
-      auto distruct = ctx.di.createStructType(llvm_discope(ctx, decl), decl->name, difile, decl->loc().lineno, sizeof_type(type) * 8, alignof_type(type) * 8, llvm::DINode::FlagZero, nullptr, ctx.di.getOrCreateArray({}));
+      auto distruct = ctx.di.createStructType(llvm_discope(ctx, decl), name, difile, decl->loc().lineno, sizeof_type(type) * 8, alignof_type(type) * 8, llvm::DINode::FlagZero, nullptr, ctx.di.getOrCreateArray({}));
 
       ctx.ditypes.emplace(type, distruct);
 
@@ -777,7 +801,20 @@ namespace
 
     if (is_tuple_type(local.type))
     {
-      ditype = ctx.di.createUnspecifiedType("tuple");
+      auto type = type_cast<TupleType>(local.type);
+      auto name = llvm_identifier("tuple", type);
+
+      vector<llvm::Metadata*> elements;
+
+      for(size_t index = 0; index < type->fields.size(); ++index)
+      {
+        auto name = to_string(index);
+        auto field = ctx.di.createMemberType(ctx.diunit, name, ctx.difile, 0, sizeof_field(type, index) * 8, alignof_field(type, index) * 8, offsetof_field(type, index) * 8, llvm::DINode::FlagZero, llvm_ditype(ctx, type->fields[index]));
+
+        elements.push_back(field);
+      }
+
+      ditype = ctx.di.createStructType(ctx.diunit, name, ctx.difile, 0, sizeof_type(type) * 8, alignof_type(type) * 8, llvm::DINode::FlagZero, nullptr, ctx.di.getOrCreateArray(elements));
     }
 
     if (is_enum_type(local.type))
@@ -3093,7 +3130,7 @@ namespace
 
     if (!(memfind = ctx.module.getFunction("memfind")))
     {
-      auto fntype = llvm::FunctionType::get(ctx.builder.getInt64Ty(), { ctx.builder.getVoidTy()->getPointerTo(), ctx.builder.getInt32Ty(), ctx.builder.getInt64Ty() }, false);
+      auto fntype = llvm::FunctionType::get(ctx.builder.getInt64Ty(), { ctx.builder.getInt8PtrTy(), ctx.builder.getInt32Ty(), ctx.builder.getInt64Ty() }, false);
       auto fnprot = llvm::Function::Create(fntype, llvm::Function::ExternalLinkage, "memfind", ctx.module);
 
       memfind = fnprot;
@@ -3103,6 +3140,24 @@ namespace
     value = ctx.builder.CreateIntCast(value, memfind->getArg(1)->getType(), false);
 
     store(ctx, fx, dst, ctx.builder.CreateCall(memfind, { source, value, size }));
+  }
+
+  //|///////////////////// __argc__ /////////////////////////////////////////
+  void codegen_builtin_argc(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    store(ctx, fx, dst, ctx.builder.CreateLoad(ctx.argc->getType()->getPointerElementType(), ctx.argc));
+  }
+
+  //|///////////////////// __argv__ /////////////////////////////////////////
+  void codegen_builtin_argv(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    store(ctx, fx, dst, ctx.builder.CreateLoad(ctx.argv->getType()->getPointerElementType(), ctx.argv));
+  }
+
+  //|///////////////////// __envp__ /////////////////////////////////////////
+  void codegen_builtin_envp(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    store(ctx, fx, dst, ctx.builder.CreateLoad(ctx.envp->getType()->getPointerElementType(), ctx.envp));
   }
 
   //|///////////////////// codegen_call /////////////////////////////////////
@@ -3292,6 +3347,18 @@ namespace
 
         case Builtin::memfind:
           codegen_builtin_memfind(ctx, fx, dst, call);
+          break;
+
+        case Builtin::__argc__:
+          codegen_builtin_argc(ctx, fx, dst, call);
+          break;
+
+        case Builtin::__argv__:
+          codegen_builtin_argv(ctx, fx, dst, call);
+          break;
+
+        case Builtin::__envp__:
+          codegen_builtin_envp(ctx, fx, dst, call);
           break;
 
         case Builtin::StringSlice:
@@ -4043,11 +4110,11 @@ namespace
 
     if (fx.firstarg_return)
     {
-      fx.locals[0].alloca = fnprot->arg_begin();
+      fx.locals[0].alloca = fnprot->getArg(0);
 
       if (fx.mir.throws)
       {
-        fx.locals[1].alloca = fnprot->arg_begin() + firstarg - 1;
+        fx.locals[1].alloca = fnprot->getArg(firstarg - 1);
 
         fx.errorresult = alloc(ctx, fx, ctx.booltype);
         store(ctx, fx, fx.errorresult, ctx.booltype, ctx.builder.getInt1(0));
@@ -4134,8 +4201,9 @@ namespace
   void codegen_entry_point(GenContext &ctx, FnSig const &main)
   {
     auto resulttype = ctx.builder.getInt32Ty();
+    auto paramtypes = vector<llvm::Type*>{ ctx.builder.getInt32Ty(), ctx.builder.getInt8PtrTy()->getPointerTo(), ctx.builder.getInt8PtrTy()->getPointerTo() };
 
-    auto fntype = llvm::FunctionType::get(resulttype, false);
+    auto fntype = llvm::FunctionType::get(resulttype, paramtypes, false);
     auto fnprot = llvm::Function::Create(fntype, llvm::Function::ExternalLinkage, "main", ctx.module);
 
     fnprot->addFnAttr(llvm::Attribute::NoInline);
@@ -4150,6 +4218,10 @@ namespace
     fnprot->setDSOLocal(true);
 
     ctx.builder.SetInsertPoint(llvm::BasicBlock::Create(ctx.context, "entry", fnprot));
+
+    ctx.builder.CreateStore(fnprot->getArg(0), ctx.argc);
+    ctx.builder.CreateStore(fnprot->getArg(1), ctx.argv);
+    ctx.builder.CreateStore(fnprot->getArg(2), ctx.envp);
 
     if (ctx.functions.find(main) != ctx.functions.end())
     {
@@ -4225,7 +4297,7 @@ namespace
       auto bx = llvm::BasicBlock::Create(ctx.context, "rturn", fnprot);
 
       ctx.builder.SetInsertPoint(sx);
-      ctx.builder.CreateCondBr(fnprot->arg_begin(), ax, bx);
+      ctx.builder.CreateCondBr(fnprot->getArg(0), ax, bx);
 
       ctx.builder.SetInsertPoint(ax);
       ctx.builder.CreateCall(ctx.div0_chk_fail);
@@ -4251,7 +4323,7 @@ namespace
       auto bx = llvm::BasicBlock::Create(ctx.context, "rturn", fnprot);
 
       ctx.builder.SetInsertPoint(sx);
-      ctx.builder.CreateCondBr(fnprot->arg_begin(), ax, bx);
+      ctx.builder.CreateCondBr(fnprot->getArg(0), ax, bx);
 
       ctx.builder.SetInsertPoint(ax);
       ctx.builder.CreateCall(ctx.carry_chk_fail);
@@ -4277,7 +4349,7 @@ namespace
       auto bx = llvm::BasicBlock::Create(ctx.context, "rturn", fnprot);
 
       ctx.builder.SetInsertPoint(sx);
-      ctx.builder.CreateCondBr(fnprot->arg_begin(), ax, bx);
+      ctx.builder.CreateCondBr(fnprot->getArg(0), ax, bx);
 
       ctx.builder.SetInsertPoint(ax);
       ctx.builder.CreateCall(ctx.null_chk_fail);
@@ -4290,6 +4362,10 @@ namespace
 
       ctx.assert_deref = fnprot;
     }
+
+    ctx.argc = new llvm::GlobalVariable(ctx.module, ctx.builder.getInt32Ty(), false, llvm::GlobalVariable::ExternalLinkage, llvm_zero(ctx.builder.getInt32Ty()), "ARGC");
+    ctx.argv = new llvm::GlobalVariable(ctx.module, ctx.builder.getInt8PtrTy()->getPointerTo(), false, llvm::GlobalVariable::ExternalLinkage, llvm_zero(ctx.builder.getInt8PtrTy()->getPointerTo()), "ARGV");
+    ctx.envp = new llvm::GlobalVariable(ctx.module, ctx.builder.getInt8PtrTy()->getPointerTo(), false, llvm::GlobalVariable::ExternalLinkage, llvm_zero(ctx.builder.getInt8PtrTy()->getPointerTo()), "ENVP");
   }
 
   //|///////////////////// codegen_finalise /////////////////////////////////

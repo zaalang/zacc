@@ -189,6 +189,10 @@ namespace Builtin
     memmove,
     memfind,
 
+    __argc__,
+    __argv__,
+    __envp__,
+
     __site__,
 
     Module,

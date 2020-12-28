@@ -182,23 +182,29 @@ namespace Builtin
           consume(cursor);
         }
 
-        if (try_consume(cursor, "mut"))
+        while (true)
         {
-          if (try_consume(cursor, "*"))
-            type = new PointerType(type);
+          if (try_consume(cursor, "mut"))
+          {
+            if (try_consume(cursor, "*"))
+              type = new PointerType(type);
 
-          if (try_consume(cursor, "&"))
-            type = new ReferenceType(type);
+            if (try_consume(cursor, "&"))
+              type = new ReferenceType(type);
+          }
+
+          else if (try_consume(cursor, "*"))
+            type = new PointerType(new ConstType(type));
+
+          else if (try_consume(cursor, "&"))
+            type = new ReferenceType(new ConstType(type));
+
+          else if (try_consume(cursor, "&&"))
+            type = new ReferenceType(new QualArgType(type));
+
+          else
+            break;
         }
-
-        if (try_consume(cursor, "*"))
-          type = new PointerType(new ConstType(type));
-
-        if (try_consume(cursor, "&"))
-          type = new ReferenceType(new ConstType(type));
-
-        if (try_consume(cursor, "&&"))
-          type = new ReferenceType(new QualArgType(type));
 
         return type;
       };
@@ -536,6 +542,10 @@ namespace Builtin
     make_function(memcpy, "pub fn __memcpy(void mut *, void*, usize) -> void mut *", __LINE__);
     make_function(memmove, "pub fn __memmove(void mut *, void*, usize) -> void mut *", __LINE__);
     make_function(memfind, "pub fn __memfind(void*, u8, usize) -> usize", __LINE__);
+
+    make_function(__argc__, "pub fn __argc__() -> int", __LINE__);
+    make_function(__argv__, "pub fn __argv__() -> u8**", __LINE__);
+    make_function(__envp__, "pub fn __envp__() -> u8**", __LINE__);
 
     make_function(__site__, "pub const fn __site__() -> (#string, int, int, #string)", __LINE__);
   }

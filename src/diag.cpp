@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <iostream>
 
-#ifdef __WIN32
+#ifdef _WIN32
 #include <windows.h>
 #endif
 
@@ -88,7 +88,7 @@ Diag::Diag(string_view leader)
   colored = true;
   m_leader = leader;
 
-#ifdef __WIN32
+#ifdef _WIN32
   HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
   DWORD mode = 0;
   GetConsoleMode(handle, &mode);

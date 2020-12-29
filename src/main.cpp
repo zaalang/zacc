@@ -94,7 +94,7 @@ int main(int argc, char *argv[])
         opts.outputtype = GenOpts::OutputType::EmitLL;
 
       if (strcmp(argv[i], "-g") == 0)
-        opts.debuginfo = GenOpts::DebugInfo::Yes;
+        opts.debuginfo = (opts.triple.find("msvc") != std::string::npos) ? GenOpts::DebugInfo::CodeView : GenOpts::DebugInfo::Dwarf;
 
       if (strcmp(argv[i], "-O1") == 0)
         opts.optlevel = GenOpts::OptLevel::Less;

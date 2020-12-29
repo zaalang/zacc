@@ -155,7 +155,6 @@ namespace
     Pointer,
     Array,
     Slice,
-    Null,
     Unresolved,
   };
 
@@ -194,14 +193,12 @@ namespace
           case BuiltinType::F64:
             return TypeCategory::FloatingPoint;
 
-          case BuiltinType::PtrLiteral:
-            return TypeCategory::Null;
-
           case BuiltinType::StringLiteral:
             return TypeCategory::Slice;
 
           case BuiltinType::IntLiteral:
           case BuiltinType::FloatLiteral:
+          case BuiltinType::PtrLiteral:
             return TypeCategory::Unresolved;
         }
         break;
@@ -1108,7 +1105,7 @@ namespace
         ctx.privateglobals[value] = global;
     }
 
-    if (ctx.genopts.debuginfo == GenOpts::DebugInfo::Yes)
+    if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None)
     {
       auto i = dst;
 
@@ -3729,7 +3726,7 @@ namespace
   //|///////////////////// codegen_storage_live /////////////////////////////
   void codegen_storage_live(GenContext &ctx, FunctionContext &fx, MIR::Statement const &statement)
   {
-    if (ctx.genopts.debuginfo == GenOpts::DebugInfo::Yes)
+    if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None)
     {
       auto i = statement.dst;
 
@@ -3780,7 +3777,7 @@ namespace
 
     for(auto &statement : block.statements)
     {
-      if (ctx.genopts.debuginfo == GenOpts::DebugInfo::Yes)
+      if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None)
       {
         while (fx.currentlineinfo < fx.mir.lineinfos.size() && fx.mir.lineinfos[fx.currentlineinfo].block == fx.currentblockid && fx.mir.lineinfos[fx.currentlineinfo].statement == size_t(&statement - &block.statements[0]))
         {
@@ -3796,7 +3793,7 @@ namespace
         return;
     }
 
-    if (ctx.genopts.debuginfo == GenOpts::DebugInfo::Yes)
+    if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None)
     {
       while (fx.currentlineinfo < fx.mir.lineinfos.size() && fx.mir.lineinfos[fx.currentlineinfo].block == fx.currentblockid)
       {
@@ -3922,7 +3919,7 @@ namespace
     if ((fx.fn->flags & FunctionDecl::DeclType) == FunctionDecl::ConstDecl)
       fnprot->addFnAttr(llvm::Attribute::AlwaysInline);
 
-    if (ctx.genopts.debuginfo == GenOpts::DebugInfo::Yes)
+    if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None)
       fnprot->addFnAttr("frame-pointer", "all");
 
     fnprot->addFnAttr(llvm::Attribute::StackProtect);
@@ -4059,7 +4056,7 @@ namespace
 
     // debuginfo
 
-    if (ctx.genopts.debuginfo == GenOpts::DebugInfo::Yes)
+    if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None)
     {
       fx.difile = llvm_difile(ctx, fx.fn);
 
@@ -4151,13 +4148,13 @@ namespace
       if (type_category(fx.mir.locals[i].type) == TypeCategory::Unresolved)
         continue;
 
-      if (!fx.locals[i].addressable && fx.locals[i].writes <= 1 && !(ctx.genopts.debuginfo == GenOpts::DebugInfo::Yes && fx.locals[i].info))
+      if (!fx.locals[i].addressable && fx.locals[i].writes <= 1 && !(ctx.genopts.debuginfo != GenOpts::DebugInfo::None && fx.locals[i].info))
         continue;
 
       fx.locals[i].alloca = alloc(ctx, fx, fx.mir.locals[i].type, fx.mir.locals[i].flags);
     }
 
-    if (ctx.genopts.debuginfo == GenOpts::DebugInfo::Yes)
+    if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None)
     {
       for(size_t i = fx.mir.args_beg, end = fx.mir.args_end; i != end; ++i)
       {
@@ -4465,10 +4462,15 @@ namespace
 
     ctx.module.setDataLayout(machine->createDataLayout());
 
-    if (ctx.genopts.debuginfo == GenOpts::DebugInfo::Yes)
+    if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None)
     {
       ctx.module.addModuleFlag(llvm::Module::Warning, "Debug Info Version", llvm::DEBUG_METADATA_VERSION);
-      ctx.module.addModuleFlag(llvm::Module::Warning, "Dwarf Version", llvm::dwarf::DWARF_VERSION);
+
+      if (ctx.genopts.debuginfo == GenOpts::DebugInfo::Dwarf)
+        ctx.module.addModuleFlag(llvm::Module::Warning, "Dwarf Version", llvm::dwarf::DWARF_VERSION);
+
+      if (ctx.genopts.debuginfo == GenOpts::DebugInfo::CodeView)
+        ctx.module.addModuleFlag(llvm::Module::Warning, "CodeView", 1);
     }
 
     error_code errorcode;

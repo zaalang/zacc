@@ -9,8 +9,15 @@
 
 #include "sema.h"
 #include <iostream>
-#include <unistd.h>
 #include <cassert>
+
+#ifdef _MSC_VER
+#include <io.h>
+#define F_OK 0
+#define access _access
+#else
+#include <unistd.h>
+#endif
 
 using namespace std;
 

@@ -25,6 +25,7 @@ class ToolChain
     {
       MinGW,
       GCC,
+      MSVC,
 
       Unknown,
     };
@@ -41,6 +42,9 @@ class ToolChain
     ToolChain(std::string const &triple);
 
     Type type() const { return m_type; }
+    
+    std::string const & os() const { return m_os; }
+    std::string const & env() const { return m_env; }
 
     explicit operator bool() const { return m_type != Unknown; }
 

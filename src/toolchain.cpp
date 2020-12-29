@@ -9,7 +9,14 @@
 
 #include "toolchain.h"
 #include <iostream>
+
+#ifdef _MSC_VER
+#include <io.h>
+#define F_OK 0
+#define access _access
+#else
 #include <unistd.h>
+#endif
 
 using namespace std;
 
@@ -61,7 +68,7 @@ ToolChain::ToolChain(string const &triple)
       }
     }
   }
-
+  
   if (m_os == "windows" && m_env == "gnu")
   {
     m_type = MinGW;
@@ -102,6 +109,24 @@ ToolChain::ToolChain(string const &triple)
 
         add_library_path(paths.substr(i, j-i));
       }      
+    }
+  }
+
+  if (m_os == "windows" && m_env == "msvc")
+  {
+    m_type = MSVC;
+
+    if (string paths = string(getenv("PATH")) + ';'; !paths.empty())
+    {
+      for (size_t i = 0, j = paths.find_first_of(';'); j != string::npos; i = j + 1, j = paths.find_first_of(';', j + 1))
+      {
+        auto bin = paths.substr(i, j - i) + "\\link.exe";
+
+        if (access(bin.c_str(), F_OK) == 0)
+        {
+          m_base = paths.substr(i, j - i);
+        }
+      }
     }
   }
 }
@@ -152,6 +177,24 @@ int ToolChain::ld(string_view input, string_view output, vector<string> librarie
       cmd += " -l" + library;
   }
 
+  if (m_type == MSVC)
+  {
+    cmd = "link.exe";
+
+    cmd += " /nodefaultlib";
+    cmd += " /stack:8388608";
+    cmd += " /debug";
+
+    cmd += " " + string(input);
+    cmd += " /out:" + string(output);
+
+    for (auto& librarypath : m_library_paths)
+      cmd += " /libpath:" + librarypath;
+
+    for (auto& library : libraries)
+      cmd += " " + library + ".lib";
+  }
+
   return system(cmd.c_str());
 }
 
@@ -163,7 +206,7 @@ string filename(ToolChain const &tc, string_view path, ToolChain::FileType type)
   switch(type)
   {
     case ToolChain::Object:
-      suffix = (tc.type() == ToolChain::MinGW) ? ".obj" : ".o";
+      suffix = (tc.os() == "windows") ? ".obj" : ".o";
       break;
 
     case ToolChain::Assembly:
@@ -175,7 +218,7 @@ string filename(ToolChain const &tc, string_view path, ToolChain::FileType type)
       break;
 
     case ToolChain::Executable:
-      suffix = (tc.type() == ToolChain::MinGW) ? ".exe" : "";
+      suffix = (tc.os() == "windows") ? ".exe" : "";
       break;
   }
 

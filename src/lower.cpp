@@ -4957,6 +4957,9 @@ namespace
           return true;
         }
       }
+
+      if ((callee.fn->flags & FunctionDecl::DeclType) == FunctionDecl::ConstDecl)
+        ctx.diag.error("non literal value", ctx.stack.back(), loc);
     }
 
     // resolve arguments
@@ -9266,30 +9269,21 @@ namespace
   {
     bool changed = false;
 
-    for(auto &block : ctx.mir.blocks)
+    for(size_t arg = 0; arg != mir.locals.size(); ++arg)
     {
-      for(auto &statement : block.statements)
-      {
-        auto dst = mir.locals[statement.dst];
+      auto dst = mir.locals[arg];
 
-        if (statement.kind == MIR::Statement::NoOp)
-          continue;
+      if (dst.type == ctx.intliteraltype)
+        changed |= promote_type(ctx, arg, type(Builtin::Type_I32));
 
-        if (statement.src.kind() == MIR::RValue::Constant)
-        {
-          if (dst.type == ctx.intliteraltype)
-            changed |= promote_type(ctx, statement.dst, type(Builtin::Type_I32));
+      if (dst.type == ctx.floatliteraltype)
+        changed |= promote_type(ctx, arg, type(Builtin::Type_F64));
 
-          if (dst.type == ctx.floatliteraltype)
-            changed |= promote_type(ctx, statement.dst, type(Builtin::Type_F64));
+      if (dst.type->klass() == Type::Array && type_cast<ArrayType>(dst.type)->type == ctx.intliteraltype)
+        changed |= promote_type(ctx, arg, ctx.typetable.find_or_create<ArrayType>(type(Builtin::Type_I32), type_cast<ArrayType>(dst.type)->size));
 
-          if (dst.type->klass() == Type::Array && type_cast<ArrayType>(dst.type)->type == ctx.intliteraltype)
-            changed |= promote_type(ctx, statement.dst, ctx.typetable.find_or_create<ArrayType>(type(Builtin::Type_I32), type_cast<ArrayType>(dst.type)->size));
-
-          if (dst.type->klass() == Type::Array && type_cast<ArrayType>(dst.type)->type == ctx.floatliteraltype)
-            changed |= promote_type(ctx, statement.dst, ctx.typetable.find_or_create<ArrayType>(type(Builtin::Type_F64), type_cast<ArrayType>(dst.type)->size));
-        }
-      }
+      if (dst.type->klass() == Type::Array && type_cast<ArrayType>(dst.type)->type == ctx.floatliteraltype)
+        changed |= promote_type(ctx, arg, ctx.typetable.find_or_create<ArrayType>(type(Builtin::Type_F64), type_cast<ArrayType>(dst.type)->size));
     }
 
     if (changed)

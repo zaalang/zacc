@@ -29,7 +29,7 @@ struct GenOpts
   enum class OptLevel { None, Less, Default, Aggressive } optlevel = OptLevel::None;
   enum class Reloc { None, PIC } reloc = Reloc::None;
 
-  enum class DebugInfo { Yes, No } debuginfo = DebugInfo::No;
+  enum class DebugInfo { None, Dwarf, CodeView } debuginfo = DebugInfo::None;
   enum class CheckedMode { Checked, Unchecked } checkmode = CheckedMode::Checked;
 
   bool linker = true;

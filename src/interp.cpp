@@ -16,6 +16,7 @@
 #include <climits>
 #include <cstdio>
 #include <cmath>
+#include <sys/stat.h>
 
 using namespace std;
 
@@ -2343,6 +2344,47 @@ namespace
     return true;
   }
 
+  //|///////////////////// eval_runtime_fd_stat /////////////////////////////
+  bool eval_runtime_fd_stat(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    struct filestat
+    {
+      uint8_t type;
+      uint64_t size;
+      uint64_t atime;
+      uint64_t mtime;
+      uint64_t ctime;
+    };
+
+    auto fd = load_int(ctx, fx, args[0]);
+    auto fs = load_ptr(ctx, fx, args[1]);
+
+    struct stat buf;
+    auto res = fstat(fileno((FILE*)fd.value), &buf);
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Numeric::int_literal((res == 0) ? 0 : errno));
+
+    filestat result = {};
+
+    if ((buf.st_mode & S_IFDIR) == S_IFDIR)
+      result.type = 3;
+
+    if ((buf.st_mode & S_IFREG) == S_IFREG)
+      result.type = 4;
+
+    result.size = buf.st_size;
+
+    result.atime = (uint64_t)buf.st_atime * (uint64_t)1000000000;
+    result.ctime = (uint64_t)buf.st_ctime * (uint64_t)1000000000;
+    result.mtime = (uint64_t)buf.st_mtime * (uint64_t)1000000000;
+
+    memcpy(fs, &result, sizeof(result));
+
+    return true;
+  }
+
   //|///////////////////// eval_runtime_fd_readv ////////////////////////////
   bool eval_runtime_fd_readv(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -2692,6 +2734,9 @@ namespace
     {
       if (callee.fn->name == "fd_open")
         return eval_runtime_fd_open(ctx, fx, dst, call);
+
+      if (callee.fn->name == "fd_stat")
+        return eval_runtime_fd_stat(ctx, fx, dst, call);
 
       if (callee.fn->name == "fd_readv")
         return eval_runtime_fd_readv(ctx, fx, dst, call);

@@ -2144,8 +2144,16 @@ namespace
             ttx.allow_object_downcast = false;
             ttx.allow_pointer_downcast = false;
 
-            while (type_cast<TagType>(lhs)->args[i].first != type_cast<TagType>(rhs)->args[j].first)
+            while (true)
+            {
+              if (j == type_cast<TagType>(rhs)->args.size())
+                return false;
+
+              if (type_cast<TagType>(lhs)->args[i].first == type_cast<TagType>(rhs)->args[j].first)
+                break;
+
               ++j;
+            }
 
             if (!deduce_type(ctx, ttx, scope, fx, type_cast<TagType>(lhs)->args[i].second, type_cast<TagType>(rhs)->args[j].second))
               return false;
@@ -6113,6 +6121,12 @@ namespace
         return;
     }
 
+    if (!is_concrete_type(type))
+    {
+      ctx.diag.error("invalid type", ctx.stack.back(), call->loc());
+      return;
+    }
+
     result.type = MIR::Local(ctx.intliteraltype, MIR::Local::RValue);
     result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, sizeof_type(type)), call->loc());
   }
@@ -6133,6 +6147,12 @@ namespace
 
       if (!type)
         return;
+    }
+
+    if (!is_concrete_type(type))
+    {
+      ctx.diag.error("invalid type", ctx.stack.back(), call->loc());
+      return;
     }
 
     result.type = MIR::Local(ctx.intliteraltype, MIR::Local::RValue);
@@ -6528,8 +6548,6 @@ namespace
 
     auto arg = ctx.add_variable();
 
-    auto sm = ctx.push_barrier();
-
     if (!lower_expr(ctx, value, stmtvar->value))
       return;
 
@@ -6575,7 +6593,16 @@ namespace
         return;
       }
 
+      if (!is_const_type(remove_reference_type(stmtvar->type)) && (value.type.flags & MIR::Local::Const))
+      {
+        ctx.diag.error("cannot bind to const reference", ctx.stack.back(), stmtvar->loc());
+        return;
+      }
+
       realise_as_reference(ctx, arg, value, stmtvar->flags & VarDecl::Const);
+
+      if (is_const_type(remove_reference_type(stmtvar->type)))
+        value.type.flags |= MIR::Local::Const;
 
       value.type = resolve_as_value(ctx, value.type);
     }
@@ -6589,8 +6616,6 @@ namespace
     value.type.flags &= ~MIR::Local::RValue;
 
     commit_type(ctx, arg, value.type.type, value.type.flags);
-
-    ctx.retire_barrier(sm);
 
     if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference) && !(stmtvar->flags & VarDecl::Static))
       realise_destructor(ctx, arg, stmtvar->loc());
@@ -6621,7 +6646,16 @@ namespace
 
     if (is_reference_type(rangevar->type))
     {
+      if (!is_const_type(remove_reference_type(rangevar->type)) && (value.type.flags & MIR::Local::Const))
+      {
+        ctx.diag.error("cannot bind to const reference", ctx.stack.back(), rangevar->loc());
+        return;
+      }
+
       realise_as_reference(ctx, arg, value, rangevar->flags & VarDecl::Const);
+
+      if (is_const_type(remove_reference_type(rangevar->type)))
+        value.type.flags |= MIR::Local::Const;
 
       value.type = resolve_as_value(ctx, value.type);
     }

@@ -523,16 +523,19 @@ namespace
 
         auto type = sema.make_typearg(sema.make_typearg("var", ctx.tok.loc));
 
-        if (ctx.try_consume_token(Token::kw_const))
-          flags |= VarDecl::Const;
+        auto kw_mut = ctx.try_consume_token(Token::kw_mut);
+        auto kw_const = ctx.try_consume_token(Token::kw_const) || (flags & VarDecl::Const);
 
         if (ctx.try_consume_token(Token::amp))
         {
-          if (flags & VarDecl::Const)
+          if (!kw_mut || kw_const)
             type = sema.make_const(type);
 
           type = sema.make_reference(type);
         }
+
+        if (kw_const)
+          flags |= VarDecl::Const;
 
         auto name = ctx.tok.text;
 
@@ -2097,16 +2100,22 @@ namespace
 
     var->type = sema.make_typearg(sema.make_typearg("var", ctx.tok.loc));
 
-    if (ctx.try_consume_token(Token::kw_const))
-      var->flags |= VarDecl::Const;
+    auto kw_mut = ctx.try_consume_token(Token::kw_mut);
+    auto kw_const = ctx.try_consume_token(Token::kw_const) || (var->flags & VarDecl::Const);
+
+    if (kw_mut && kw_const)
+      ctx.diag.warn("mut has no effect when const", ctx.text, ctx.tok.loc);
 
     if (ctx.try_consume_token(Token::amp))
     {
-      if (var->flags & VarDecl::Const)
+      if (!kw_mut || kw_const)
         var->type = sema.make_const(var->type);
 
       var->type = sema.make_reference(var->type);
     }
+
+    if (kw_const)
+      var->flags |= VarDecl::Const;
 
     var->name = ctx.tok.text;
 

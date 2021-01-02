@@ -701,6 +701,7 @@ namespace
 
         ref->args = parse_typearg_list(ctx, sema);
         ref->namedargs = parse_named_typearg_list(ctx, sema);
+        ref->argless = false;
 
         if (ctx.tok != Token::greater && ctx.tok != Token::greatergreater)
         {

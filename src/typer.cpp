@@ -41,8 +41,19 @@ namespace
   void resolve_expr(TyperContext &ctx, Scope const &scope, Expr *&expr, Sema &sema);
   void resolve_decl(TyperContext &ctx, Scope const &scope, Decl *&decl, Sema &sema);
   Type *resolve_alias(TyperContext &ctx, Scope const &scope, Type *type, Sema &sema);
+  Type *resolve_typearg(TyperContext &ctx, Decl *decl, Sema &sema);
   void typer_decl(TyperContext &ctx, Decl *decl, Sema &sema);
   void typer_statement(TyperContext &ctx, Stmt *stmt, Sema &sema);
+
+  //|///////////////////// make_typearg /////////////////////////////////////
+  Decl *make_typearg(TyperContext &ctx, string_view name, SourceLocation loc, Sema &sema)
+  {
+    auto arg = sema.make_typearg(name, loc);
+
+    arg->owner = ctx.stack.back().owner;
+
+    return arg;
+  }
 
   //|///////////////////// child_scope //////////////////////////////////////
   Scope child_scope(TyperContext &ctx, Scope const &parent, Decl *decl, vector<Decl*> const &declargs, size_t &k, vector<Type*> const &args, map<string, Type*> const &namedargs, Sema &sema)
@@ -81,9 +92,6 @@ namespace
 
       else if (arg->defult)
       {
-        resolve_type(ctx, sx, arg->defult, sema);
-
-        sx.set_type(arg, arg->defult);
       }
 
       else
@@ -445,6 +453,89 @@ namespace
     }
 
     throw logic_error("invalid type for substitute");
+  }
+
+  //|///////////////////// substitute_defaulted_vars ////////////////////////
+  void substitute_defaulted_vars(TyperContext &ctx, Type *&type, Sema &sema)
+  {
+    switch (type->klass())
+    {
+      case Type::Builtin:
+        break;
+
+      case Type::Const:
+        substitute_defaulted_vars(ctx, type_cast<ConstType>(type)->type, sema);
+        break;
+
+      case Type::QualArg:
+        substitute_defaulted_vars(ctx, type_cast<QualArgType>(type)->type, sema);
+        break;
+
+      case Type::Pointer:
+        substitute_defaulted_vars(ctx, type_cast<PointerType>(type)->type, sema);
+        break;
+
+      case Type::Reference:
+        substitute_defaulted_vars(ctx, type_cast<ReferenceType>(type)->type, sema);
+        break;
+
+      case Type::Array:
+        substitute_defaulted_vars(ctx, type_cast<ArrayType>(type)->type, sema);
+        break;
+
+      case Type::Tuple: {
+        for(auto &field : type_cast<TupleType>(type)->fields)
+          substitute_defaulted_vars(ctx, field, sema);
+        break;
+      }
+
+      case Type::Tag: {
+        auto tagtype = type_cast<TagType>(type);
+
+        for(auto sx = Scope(tagtype->decl); sx; sx = parent_scope(std::move(sx)))
+        {
+          vector<Decl*> *declargs = nullptr;
+
+          if (is_fn_scope(sx))
+            declargs = &decl_cast<FunctionDecl>(get<Decl*>(sx.owner))->args;
+
+          if (is_tag_scope(sx))
+            declargs = &decl_cast<TagDecl>(get<Decl*>(sx.owner))->args;
+
+          if (declargs)
+          {
+            for(auto &arg : *declargs)
+            {
+              if (decl_cast<TypeArgDecl>(arg)->defult)
+              {
+                auto j = find_if(tagtype->args.begin(), tagtype->args.end(), [&](auto k) { return k.first == arg; });
+
+                if (j == tagtype->args.end() || (get<Decl*>(sx.owner) != tagtype->decl && j->second->klass() == Type::TypeArg && j->first == type_cast<TypeArgType>(j->second)->decl))
+                {
+                  if (j == tagtype->args.end())
+                    j = tagtype->args.emplace(lower_bound(tagtype->args.begin(), tagtype->args.end(), arg, [](auto &lhs, auto &rhs) { return lhs.first < rhs; }), arg, nullptr);
+
+                  j->second = resolve_typearg(ctx, make_typearg(ctx, "Var", arg->loc(), sema), sema);
+                }
+              }
+            }
+          }
+        }
+        break;
+      }
+
+      case Type::TypeLit:
+      case Type::TypeArg:
+      case Type::TypeRef:
+        break;
+
+      case Type::Pack:
+      case Type::Unpack:
+        break;
+
+      default:
+        assert(false);
+    }
   }
 
   //|///////////////////// resolve_alias ////////////////////////////////////
@@ -833,7 +924,7 @@ namespace
   //|///////////////////// resolve_typealias ////////////////////////////////
   void resolve_type(TyperContext &ctx, Scope const &scope, TypeAliasDecl *alias, TypeRefType *typeref, Type *&dst, Sema &sema)
   {
-    alias->type = resolve_alias(ctx, alias, alias->type, sema);
+    resolve_type(ctx, alias, alias->type, sema);
 
     if (!is_dependant_type(ctx, alias->type))
     {
@@ -877,12 +968,6 @@ namespace
       }
 
       owner = visit([](auto &v) { return v->owner; }, owner);
-    }
-
-    if (typeref->args.empty())
-    {
-      for(auto &arg : tagdecl->args)
-        tx.set_type(arg, resolve_typearg(ctx, arg, sema));
     }
 
     for(auto &[decl, type] : typeref->args)
@@ -940,9 +1025,7 @@ namespace
   //|///////////////////// resolve_concept //////////////////////////////////
   void resolve_type(TyperContext &ctx, Scope const &scope, ConceptDecl *koncept, TypeRefType *typeref, Type *&dst, Sema &sema)
   {
-    auto arg = sema.make_typearg("var", koncept->loc());
-
-    arg->owner = ctx.stack.back().owner;
+    auto arg = make_typearg(ctx, "var", koncept->loc(), sema);
 
     dst = sema.make_typearg(arg, koncept, std::move(typeref->args));
   }
@@ -1487,6 +1570,8 @@ namespace
   void typer_decl(TyperContext &ctx, ParmVarDecl *var, Sema &sema)
   {
     resolve_type(ctx, ctx.stack.back(), var->type, sema);
+
+    substitute_defaulted_vars(ctx, var->type, sema);
 
     if (var->defult)
     {

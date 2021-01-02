@@ -259,7 +259,7 @@ namespace
 
   Type *resolve_defn(LowerContext &ctx, Type *type);
   Type *resolve_type(LowerContext &ctx, Scope const &scope, Type *type);
-  Type *resolve_type(LowerContext &ctx, Scope const &scope, TagDecl *tagdecl);
+  Type *resolve_type(LowerContext &ctx, Scope const &scope, Decl *decl);
   Type *resolve_type(LowerContext &ctx, Scope const &scope, Type *enumm, EnumConstantDecl *constant);
   Type *resolve_type(LowerContext &ctx, Scope const &scope, TypeOfDecl *typedecl);
   Type *resolve_type_as_value(LowerContext &ctx, Scope const &scope, ParmVarDecl *parm);
@@ -1179,16 +1179,34 @@ namespace
 
   Type *resolve_type(LowerContext &ctx, Scope const &scope, TagType *tagtype)
   {
-    auto args = tagtype->args;
+    auto tx = Scope(tagtype->decl, tagtype->args);
 
-    for(auto &[decl, arg] : args)
+    for(auto &[decl, arg] : tx.typeargs)
     {
       arg = resolve_type(ctx, scope, arg);
     }
 
-    auto tagdecl = decl_cast<TagDecl>(tagtype->decl);
+    for(auto sx = Scope(tagtype->decl); sx; sx = parent_scope(std::move(sx)))
+    {
+      vector<Decl*> *declargs = nullptr;
 
-    return resolve_type(ctx, Scope(tagdecl, args), tagdecl);
+      if (is_fn_scope(sx))
+        declargs = &decl_cast<FunctionDecl>(get<Decl*>(sx.owner))->args;
+
+      if (is_tag_scope(sx))
+        declargs = &decl_cast<TagDecl>(get<Decl*>(sx.owner))->args;
+
+      if (declargs)
+      {
+        for(auto &arg : *declargs)
+        {
+          if (decl_cast<TypeArgDecl>(arg)->defult && tx.find_type(arg) == tx.typeargs.end())
+            tx.set_type(arg, resolve_type(ctx, tx, decl_cast<TypeArgDecl>(arg)->defult));
+        }
+      }
+    }
+
+    return resolve_type(ctx, tx, decl_cast<TagDecl>(tagtype->decl));
   }
 
   Type *resolve_type(LowerContext &ctx, Scope const &scope, TypeArgType *argtype)
@@ -1454,25 +1472,9 @@ namespace
           }
         }
 
-        if (auto owner = get_if<Decl*>(&declref.scope.owner); owner && *owner)
+        if (auto owner = get_if<Decl*>(&declref.scope.owner); owner && *owner && *owner != ctx.translationunit && !is_module_decl(*owner))
         {
-          auto type = ctx.voidtype;
-
-          if ((*owner)->kind() == Decl::TypeArg)
-          {
-            if (auto j = scope.find_type(*owner); j != scope.typeargs.end())
-              type = j->second;
-          }
-
-          if ((*owner)->kind() == Decl::TypeAlias)
-          {
-            type = resolve_type(ctx, declref.scope, decl_cast<TypeAliasDecl>(*owner)->type);
-          }
-
-          if (is_tag_decl(*owner))
-          {
-            type = resolve_type(ctx, declref.scope, decl_cast<TagDecl>(*owner));
-          }
+          auto type = resolve_type(ctx, declref.scope, *owner);
 
           if (is_compound_type(type))
           {
@@ -1529,12 +1531,45 @@ namespace
     return ctx.voidtype;
   }
 
-  Type *resolve_type(LowerContext &ctx, Scope const &scope, DeclRefDecl *declref)
+  Type *resolve_type(LowerContext &ctx, Scope const &scope, TypeRefType *typeref, DeclRefDecl *declref)
   {
-    throw logic_error("unresolved type");
+    vector<Type*> types;
+    vector<Decl*> decls;
+
+    auto args = typeargs(ctx, scope, declref->args);
+    auto namedargs = typeargs(ctx, scope, declref->namedargs);
+
+    for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
+    {
+      find_decls(ctx, sx, declref->name, QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Functions | QueryFlags::Usings, decls);
+
+      for(auto &decl : decls)
+      {
+        size_t k = 0;
+
+        auto declscope = decl_scope(ctx, super_scope(sx, decl), decl, k, args, namedargs);
+
+        if (k != args.size() + namedargs.size())
+          continue;
+
+        types.push_back(resolve_type(ctx, declscope, decl));
+      }
+
+      if (decls.empty())
+        continue;
+
+      break;
+    }
+
+    if (types.size() == 1)
+      return types[0];
+
+    ctx.diag.error("no such type", scope, declref->loc());
+
+    return ctx.typetable.var_defn;
   }
 
-  Type *resolve_type(LowerContext &ctx, Scope const &scope, DeclScopedDecl *scoped)
+  Type *resolve_type(LowerContext &ctx, Scope const &scope, TypeRefType *typeref, DeclScopedDecl *scoped)
   {
     vector<Scope> stack;
     seed_stack(stack, scope);
@@ -1549,7 +1584,7 @@ namespace
       auto args = typeargs(ctx, stack.back(), declref.decl->args);
       auto namedargs = typeargs(ctx, stack.back(), declref.decl->namedargs);
 
-      find_decls(ctx, declref.scope, declref.decl->name, QueryFlags::Types | QueryFlags::Functions | QueryFlags::Usings | queryflags, ResolveUsings, decls);
+      find_decls(ctx, declref.scope, declref.decl->name, QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Functions | QueryFlags::Usings | queryflags, ResolveUsings, decls);
 
       for(auto &decl : decls)
       {
@@ -1560,20 +1595,7 @@ namespace
         if (k != args.size() + namedargs.size())
           continue;
 
-        if (is_tag_decl(decl))
-        {
-          types.push_back(resolve_type(ctx, declscope, decl_cast<TagDecl>(decl)));
-        }
-
-        if (decl->kind() == Decl::TypeAlias)
-        {
-          types.push_back(resolve_type(ctx, declscope, decl_cast<TypeAliasDecl>(decl)->type));
-        }
-
-        if (decl->kind() == Decl::Function)
-        {
-          types.push_back(resolve_type(ctx, declscope, decl_cast<FunctionDecl>(decl)));
-        }
+        types.push_back(resolve_type(ctx, declscope, decl));
       }
 
       if (types.size() == 1)
@@ -1607,13 +1629,51 @@ namespace
         return resolve_type(ctx, scope, decl_cast<TypeOfDecl>(typeref->decl));
 
       case Decl::DeclRef:
-        return resolve_type(ctx, scope, decl_cast<DeclRefDecl>(typeref->decl));
+        return resolve_type(ctx, scope, typeref, decl_cast<DeclRefDecl>(typeref->decl));
 
       case Decl::DeclScoped:
-        return resolve_type(ctx, scope, decl_cast<DeclScopedDecl>(typeref->decl));
+        return resolve_type(ctx, scope, typeref, decl_cast<DeclScopedDecl>(typeref->decl));
 
       case Decl::TypeAlias:
         return resolve_type(ctx, scope, typeref, decl_cast<TypeAliasDecl>(typeref->decl));
+
+      default:
+        assert(false);
+    }
+
+    throw logic_error("unresolved type");
+  }
+
+  Type *resolve_type(LowerContext &ctx, Scope const &scope, Decl *decl)
+  {
+    switch (decl->kind())
+    {
+      case Decl::Struct:
+      case Decl::Concept:
+      case Decl::Lambda:
+      case Decl::Enum:
+      case Decl::Union:
+        return resolve_type(ctx, scope, decl_cast<TagDecl>(decl));
+
+      case Decl::TypeAlias:
+        return resolve_type(ctx, scope, decl_cast<TypeAliasDecl>(decl)->type);
+
+      case Decl::Function:
+        return resolve_type(ctx, scope, decl_cast<FunctionDecl>(decl));
+
+      case Decl::VoidVar:
+      case Decl::StmtVar:
+      case Decl::ParmVar:
+      case Decl::FieldVar:
+      case Decl::RangeVar:
+      case Decl::ThisVar:
+      case Decl::ErrorVar:
+        return resolve_type(ctx, scope, decl_cast<VarDecl>(decl));
+
+      case Decl::TypeArg:
+        if (auto j = scope.find_type(decl); j != scope.typeargs.end())
+          return j->second;
+        break;
 
       default:
         assert(false);
@@ -1735,7 +1795,9 @@ namespace
 
       if (lhs->klass() == Type::QualArg)
       {
-        if (auto j = scope.find_type(parm); j != scope.typeargs.end() && j->second->klass() == Type::QualArg)
+        auto j = scope.find_type(parm);
+
+        if (j != scope.typeargs.end() && j->second->klass() == Type::QualArg)
         {
           auto qualifiers = type_cast<QualArgType>(j->second)->qualifiers;
 
@@ -4309,6 +4371,9 @@ namespace
 
     while (is_struct_type(type) && decl_cast<StructDecl>(type_cast<TagType>(type)->decl)->basetype)
       type = type_cast<TagType>(type)->fields[0];
+
+    if (type_cast<TypeLitType>(type_cast<ArrayType>(type)->size)->value->kind() != Expr::IntLiteral)
+      return;
 
     result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::Literal);
     result.value = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(type_cast<ArrayType>(type)->size)->value);

@@ -210,6 +210,7 @@ class DeclRefDecl : public Decl
     std::string name;
     std::vector<Type*> args;
     std::map<std::string, Type*> namedargs;
+    bool argless = true;
 
     void dump(int indent) const override;
 };

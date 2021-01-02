@@ -455,8 +455,8 @@ namespace
     throw logic_error("invalid type for substitute");
   }
 
-  //|///////////////////// substitute_defaulted_vars ////////////////////////
-  void substitute_defaulted_vars(TyperContext &ctx, Type *&type, Sema &sema)
+  //|///////////////////// substitute_defaulted /////////////////////////////
+  Type *substitute_defaulted(TyperContext &ctx, Type *type, Sema &sema)
   {
     switch (type->klass())
     {
@@ -464,63 +464,88 @@ namespace
         break;
 
       case Type::Const:
-        substitute_defaulted_vars(ctx, type_cast<ConstType>(type)->type, sema);
+        if (auto newtype = substitute_defaulted(ctx, type_cast<ConstType>(type)->type, sema); newtype != type)
+          type = sema.make_const(newtype);
         break;
 
       case Type::QualArg:
-        substitute_defaulted_vars(ctx, type_cast<QualArgType>(type)->type, sema);
+        if (auto newtype = substitute_defaulted(ctx, type_cast<QualArgType>(type)->type, sema); newtype != type)
+          type = sema.make_qualarg(newtype);
         break;
 
       case Type::Pointer:
-        substitute_defaulted_vars(ctx, type_cast<PointerType>(type)->type, sema);
+        if (auto newtype = substitute_defaulted(ctx, type_cast<PointerType>(type)->type, sema); newtype != type)
+          type = sema.make_pointer(newtype);
         break;
 
       case Type::Reference:
-        substitute_defaulted_vars(ctx, type_cast<ReferenceType>(type)->type, sema);
+        if (auto newtype = substitute_defaulted(ctx, type_cast<ReferenceType>(type)->type, sema); newtype != type)
+          type = sema.make_reference(newtype);
         break;
 
       case Type::Array:
-        substitute_defaulted_vars(ctx, type_cast<ArrayType>(type)->type, sema);
+        if (auto newtype = substitute_defaulted(ctx, type_cast<ArrayType>(type)->type, sema); newtype != type)
+          type = sema.make_array(newtype, type_cast<ArrayType>(type)->size);
         break;
 
       case Type::Tuple: {
-        for(auto &field : type_cast<TupleType>(type)->fields)
-          substitute_defaulted_vars(ctx, field, sema);
+        auto fields = type_cast<TupleType>(type)->fields;
+
+        for(auto &field : fields)
+          field = substitute_defaulted(ctx, field, sema);
+
+        type = sema.make_tuple(fields);
         break;
       }
 
       case Type::Tag: {
         auto tagtype = type_cast<TagType>(type);
 
-        for(auto sx = Scope(tagtype->decl); sx; sx = parent_scope(std::move(sx)))
+        vector<pair<Decl*, Type*>> newargs;
+
+        for(auto &arg : decl_cast<TagDecl>(tagtype->decl)->args)
         {
-          vector<Decl*> *declargs = nullptr;
-
-          if (is_fn_scope(sx))
-            declargs = &decl_cast<FunctionDecl>(get<Decl*>(sx.owner))->args;
-
-          if (is_tag_scope(sx))
-            declargs = &decl_cast<TagDecl>(get<Decl*>(sx.owner))->args;
-
-          if (declargs)
+          if (decl_cast<TypeArgDecl>(arg)->defult)
           {
-            for(auto &arg : *declargs)
+            auto j = find_if(tagtype->args.begin(), tagtype->args.end(), [&](auto k) { return k.first == arg; });
+
+            if (j == tagtype->args.end())
+              newargs.emplace_back(arg, resolve_typearg(ctx, make_typearg(ctx, "var", arg->loc(), sema), sema));
+          }
+        }
+
+        for(auto &[arg, type] : tagtype->args)
+        {
+          if (is_typearg_type(type) && decl_cast<TypeArgDecl>(type_cast<TypeArgType>(type)->decl)->defult)
+          {
+            auto argdecl = decl_cast<TypeArgDecl>(type_cast<TypeArgType>(type)->decl);
+
+            if (get<Decl*>(argdecl->owner) != tagtype->decl)
             {
-              if (decl_cast<TypeArgDecl>(arg)->defult)
-              {
-                auto j = find_if(tagtype->args.begin(), tagtype->args.end(), [&](auto k) { return k.first == arg; });
+              auto j = find_if(tagtype->args.begin(), tagtype->args.end(), [&](auto k) { return k.first == argdecl; });
 
-                if (j == tagtype->args.end() || (get<Decl*>(sx.owner) != tagtype->decl && j->second->klass() == Type::TypeArg && j->first == type_cast<TypeArgType>(j->second)->decl))
-                {
-                  if (j == tagtype->args.end())
-                    j = tagtype->args.emplace(lower_bound(tagtype->args.begin(), tagtype->args.end(), arg, [](auto &lhs, auto &rhs) { return lhs.first < rhs; }), arg, nullptr);
-
-                  j->second = resolve_typearg(ctx, make_typearg(ctx, "Var", arg->loc(), sema), sema);
-                }
-              }
+              if (j == tagtype->args.end() || (j->second->klass() == Type::TypeArg && j->first == type_cast<TypeArgType>(j->second)->decl))
+                newargs.emplace_back(arg, resolve_typearg(ctx, make_typearg(ctx, "var", arg->loc(), sema), sema));
             }
           }
         }
+
+        for(auto &[arg, type] : tagtype->args)
+        {
+          if (auto newtype = substitute_defaulted(ctx, type, sema); newtype != type)
+            newargs.emplace_back(arg, newtype);
+        }
+
+        if (newargs.size() != 0)
+        {
+          Scope tx(tagtype->decl, tagtype->args);
+
+          for(auto &[arg, type] : newargs)
+            tx.set_type(arg, type);
+
+          type = sema.make_tagtype(tagtype->decl, std::move(tx.typeargs));
+        }
+
         break;
       }
 
@@ -536,6 +561,8 @@ namespace
       default:
         assert(false);
     }
+
+    return type;
   }
 
   //|///////////////////// resolve_alias ////////////////////////////////////
@@ -1571,7 +1598,7 @@ namespace
   {
     resolve_type(ctx, ctx.stack.back(), var->type, sema);
 
-    substitute_defaulted_vars(ctx, var->type, sema);
+    var->type = substitute_defaulted(ctx, var->type, sema);
 
     if (var->defult)
     {

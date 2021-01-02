@@ -407,7 +407,7 @@ namespace
         return child_scope(scope, decl_cast<EnumConstantDecl>(decl));
 
       default:
-        assert(false);
+        assert(ctx.diag.has_errored());
     }
 
     return child_scope(scope, decl);
@@ -1186,24 +1186,10 @@ namespace
       arg = resolve_type(ctx, scope, arg);
     }
 
-    for(auto sx = Scope(tagtype->decl); sx; sx = parent_scope(std::move(sx)))
+    for(auto arg : decl_cast<TagDecl>(tagtype->decl)->args)
     {
-      vector<Decl*> *declargs = nullptr;
-
-      if (is_fn_scope(sx))
-        declargs = &decl_cast<FunctionDecl>(get<Decl*>(sx.owner))->args;
-
-      if (is_tag_scope(sx))
-        declargs = &decl_cast<TagDecl>(get<Decl*>(sx.owner))->args;
-
-      if (declargs)
-      {
-        for(auto &arg : *declargs)
-        {
-          if (decl_cast<TypeArgDecl>(arg)->defult && tx.find_type(arg) == tx.typeargs.end())
-            tx.set_type(arg, resolve_type(ctx, tx, decl_cast<TypeArgDecl>(arg)->defult));
-        }
-      }
+      if (decl_cast<TypeArgDecl>(arg)->defult && tx.find_type(arg) == tx.typeargs.end())
+        tx.set_type(arg, resolve_type(ctx, tx, decl_cast<TypeArgDecl>(arg)->defult));
     }
 
     return resolve_type(ctx, tx, decl_cast<TagDecl>(tagtype->decl));
@@ -1215,6 +1201,9 @@ namespace
     {
       return j->second;
     }
+
+    if (auto argdecl = decl_cast<TypeArgDecl>(argtype->decl); argdecl->defult)
+      return resolve_type(ctx, scope, argdecl->defult);
 
     return argtype;
   }
@@ -1638,10 +1627,10 @@ namespace
         return resolve_type(ctx, scope, typeref, decl_cast<TypeAliasDecl>(typeref->decl));
 
       default:
-        assert(false);
+        assert(ctx.diag.has_errored());
     }
 
-    throw logic_error("unresolved type");
+    return ctx.typetable.var_defn;
   }
 
   Type *resolve_type(LowerContext &ctx, Scope const &scope, Decl *decl)
@@ -1676,10 +1665,10 @@ namespace
         break;
 
       default:
-        assert(false);
+        assert(ctx.diag.has_errored());
     }
 
-    throw logic_error("unresolved type");
+    return ctx.typetable.var_defn;
   }
 
   Type *resolve_type(LowerContext &ctx, Scope const &scope, Type *type)
@@ -1726,10 +1715,10 @@ namespace
         return resolve_type(ctx, scope, type_cast<TypeRefType>(type));
 
       default:
-        assert(false);
+        assert(ctx.diag.has_errored());
     }
 
-    throw logic_error("unresolved type");
+    return ctx.typetable.var_defn;
   }
 
   Type *resolve_type(LowerContext &ctx, Type *type)

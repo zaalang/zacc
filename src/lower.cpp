@@ -1186,12 +1186,6 @@ namespace
       arg = resolve_type(ctx, scope, arg);
     }
 
-    for(auto arg : decl_cast<TagDecl>(tagtype->decl)->args)
-    {
-      if (decl_cast<TypeArgDecl>(arg)->defult && tx.find_type(arg) == tx.typeargs.end())
-        tx.set_type(arg, resolve_type(ctx, tx, decl_cast<TypeArgDecl>(arg)->defult));
-    }
-
     return resolve_type(ctx, tx, decl_cast<TagDecl>(tagtype->decl));
   }
 
@@ -3226,7 +3220,7 @@ namespace
     {
       if (auto j = find_if(typearg->args.begin(), typearg->args.end(), [&](auto &k) { return k.first == arg; }); j != typearg->args.end())
       {
-        if(auto argtype = resolve_type(ctx, scope, j->second); !is_typearg_type(argtype))
+        if (auto argtype = resolve_type(ctx, scope, j->second); !is_typearg_type(argtype))
           tx.args.push_back(argtype);
       }
     }

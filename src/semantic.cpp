@@ -65,17 +65,6 @@ namespace
     return expr_cast<BoolLiteralExpr>(result.value)->value();
   }
 
-  //|///////////////////// make_typeref /////////////////////////////////////
-  Type *make_typeref(SemanticContext &ctx, TagDecl *tagdecl, Sema &sema)
-  {
-    auto typeref = type_cast<TypeRefType>(sema.make_typeref(tagdecl));
-
-    for(auto &arg : tagdecl->args)
-      typeref->args.emplace_back(arg, sema.make_typearg(arg));
-
-    return typeref;
-  }
-
   //|///////////////////// type /////////////////////////////////////////////
   void semantic_type(SemanticContext &ctx, Type *type, Sema &sema)
   {
@@ -470,7 +459,7 @@ namespace
       auto selfalias = sema.alias_declaration(tagdecl->loc());
 
       selfalias->name = tagdecl->name;
-      selfalias->type = make_typeref(ctx, tagdecl, sema);
+      selfalias->type = sema.make_typeref(tagdecl);
       selfalias->flags |= TypeAliasDecl::Implicit;
 
       tagdecl->decls.insert(tagdecl->decls.begin(), selfalias);
@@ -587,7 +576,8 @@ namespace
   void semantic_decl(SemanticContext &ctx, LambdaDecl *lambda, Sema &sema)
   {
     auto fn = decl_cast<FunctionDecl>(lambda->fn);
-    auto thistype = make_typeref(ctx, lambda, sema);
+
+    auto lambdatype = sema.make_typeref(lambda);
 
     {
       auto ctor = sema.function_declaration(fn->loc());
@@ -609,7 +599,7 @@ namespace
       ctor->flags |= FunctionDecl::Defaulted;
 
       auto thatvar = sema.parm_declaration(fn->loc());
-      thatvar->type = sema.make_reference(sema.make_const(thistype));
+      thatvar->type = sema.make_reference(sema.make_const(lambdatype));
 
       ctor->parms.push_back(thatvar);
 
@@ -624,16 +614,16 @@ namespace
       copy->flags |= FunctionDecl::Defaulted;
 
       auto thisvar = sema.parm_declaration(fn->loc());
-      thisvar->type = sema.make_reference(thistype);
+      thisvar->type = sema.make_reference(lambdatype);
 
       copy->parms.push_back(thisvar);
 
       auto thatvar = sema.parm_declaration(fn->loc());
-      thatvar->type = sema.make_reference(sema.make_const(thistype));
+      thatvar->type = sema.make_reference(sema.make_const(lambdatype));
 
       copy->parms.push_back(thatvar);
 
-      copy->returntype = sema.make_reference(thistype);
+      copy->returntype = sema.make_reference(lambdatype);
 
       lambda->decls.push_back(copy);
     }
@@ -656,7 +646,7 @@ namespace
 
       auto thisvar = sema.voidvar_declaration(fn->loc());
       thisvar->name = lambda->name;
-      thisvar->type = thistype;
+      thisvar->type = lambdatype;
 
       stmt->decl = thisvar;
 
@@ -666,7 +656,7 @@ namespace
     {
       auto thisvar = sema.parm_declaration(fn->loc());
       thisvar->name = lambda->name;
-      thisvar->type = sema.make_reference(sema.make_const(thistype));
+      thisvar->type = sema.make_reference(sema.make_const(lambdatype));
 
       fn->parms.insert(fn->parms.begin(), thisvar);
     }
@@ -832,8 +822,6 @@ namespace
 
     if (auto owner = get_if<Decl*>(&fn->owner); owner && is_tag_decl(*owner))
     {
-      auto thistype = make_typeref(ctx, decl_cast<TagDecl>(*owner), sema);
-
       if (fn->parms.size() != 0)
       {
         auto parm = decl_cast<ParmVarDecl>(fn->parms[0]);
@@ -846,7 +834,6 @@ namespace
             {
               parm->name = "this";
               typeref->decl = *owner;
-              typeref->args = type_cast<TypeRefType>(thistype)->args;
             }
           }
         }
@@ -863,14 +850,14 @@ namespace
 
           auto thisvar = sema.thisvar_declaration(fn->loc());
           thisvar->name = "this";
-          thisvar->type = thistype;
+          thisvar->type = sema.make_typeref(*owner);
 
           stmt->decl = thisvar;
 
           body->stmts.insert(body->stmts.begin(), stmt);
         }
 
-        fn->returntype = thistype;
+        fn->returntype = sema.make_typeref(*owner);
 
         if (fn->flags & FunctionDecl::Defaulted)
         {
@@ -899,7 +886,7 @@ namespace
 
         auto thisvar = sema.parm_declaration(fn->loc());
         thisvar->name = "this";
-        thisvar->type = sema.make_reference(thistype);
+        thisvar->type = sema.make_reference(sema.make_typeref(*owner));
 
         fn->parms.push_back(thisvar);
 

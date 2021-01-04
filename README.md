@@ -15,6 +15,7 @@ A fledgling new programming language in the vein of c++
 
 ## Language Overview
 see [overview.md](https://github.com/zaalang/zacc/blob/master/overview.md)
+see [overview.md](overview.md)
 
 ## Getting Started
 The compiler, the runtime and the standard library are all needed to get a basic toolchain up and running...
@@ -30,7 +31,7 @@ Further, requires LLVM 10.x/11.x. This can be installed from the os repositories
 
 #### Building with GCC, MinGW64 or Clang.
 ```
-$ mkdir zaac/build
+$ mkdir zacc/build
 $ pushd zacc/build
 $ cmake -D CMAKE_BUILD_TYPE=RelWithDebInfo ..
 $ cmake --build . --target install

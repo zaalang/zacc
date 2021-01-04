@@ -184,6 +184,7 @@ int ToolChain::ld(string_view input, string_view output, vector<string> librarie
     cmd += " /nodefaultlib";
     cmd += " /stack:8388608";
     cmd += " /debug";
+    cmd += " /nologo";
 
     cmd += " " + string(input);
     cmd += " /out:" + string(output);

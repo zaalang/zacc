@@ -1184,6 +1184,11 @@ namespace
     for(auto &[decl, arg] : tx.typeargs)
     {
       arg = resolve_type(ctx, scope, arg);
+
+      if (is_typearg_type(arg))
+      {
+        ctx.diag.error("unresolved type argument", decl, decl->loc());
+      }
     }
 
     return resolve_type(ctx, tx, decl_cast<TagDecl>(tagtype->decl));
@@ -6169,9 +6174,9 @@ namespace
         return;
     }
 
-    if (!is_concrete_type(type))
+    if (is_typearg_type(type))
     {
-      ctx.diag.error("invalid type", ctx.stack.back(), call->loc());
+      ctx.diag.error("unresolved type for sizeof", ctx.stack.back(), call->loc());
       return;
     }
 
@@ -6197,9 +6202,9 @@ namespace
         return;
     }
 
-    if (!is_concrete_type(type))
+    if (is_typearg_type(type))
     {
-      ctx.diag.error("invalid type", ctx.stack.back(), call->loc());
+      ctx.diag.error("unresolved type for alignof", ctx.stack.back(), call->loc());
       return;
     }
 
@@ -9181,7 +9186,7 @@ namespace
                 if (!deduce_type(ctx, callee.fn, callee, decl_cast<ParmVarDecl>(parm), ctx.mir.locals[arg]))
                 {
                   ctx.diag.error("type mismatch", ctx.mir.fx.fn, loc);
-                  diag_mismatch(ctx, "parameter type", arg, resolve_type_as_reference(ctx, Scope(callee.fn, callee.typeargs), decl_cast<ParmVarDecl>(parm)));
+                  diag_mismatch(ctx, "parameter type", arg, decl_cast<ParmVarDecl>(parm)->type);
                 }
               }
 
@@ -9261,7 +9266,7 @@ namespace
 
               if (fields.size() != 0)
               {
-                if (fields.size() != 1)
+                if (fields.size() != 1 || (!is_array_type(mir.locals[arg].type) && !is_tuple_type(mir.locals[arg].type)))
                   continue;
 
                 if (is_array_type(mir.locals[arg].type))
@@ -9302,7 +9307,7 @@ namespace
           {
             auto &[callee, args, loc] = statement->src.get<MIR::RValue::Call>();
 
-            if (any_of(args.begin(), args.end(), [&](auto arg) { return !is_concrete_type(mir.locals[arg].type); }))
+            if (any_of(args.begin(), args.end(), [&](auto arg) { return !is_concrete_type(mir.locals[arg].type); }) || !is_concrete_type(callee.returntype))
             {
               if (callee.fn->returntype)
               {

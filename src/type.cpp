@@ -372,7 +372,13 @@ std::ostream &operator <<(std::ostream &os, Type const &type)
       break;
 
     case Type::TypeArg:
-      os << *static_cast<TypeArgType const &>(type).decl;
+      if (auto &arg = static_cast<TypeArgType const &>(type); true)
+      {
+        if (arg.koncept)
+          os << *arg.koncept;
+        else
+          os << *arg.decl;
+      }
       break;
 
     case Type::QualArg:

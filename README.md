@@ -14,7 +14,6 @@ A fledgling new programming language in the vein of c++
 ```
 
 ## Language Overview
-see [overview.md](https://github.com/zaalang/zacc/blob/master/overview.md)
 see [overview.md](overview.md)
 
 ## Getting Started

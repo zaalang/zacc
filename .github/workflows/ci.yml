@@ -43,3 +43,46 @@ jobs:
         shell: bash
         working-directory: ${{github.workspace}}/build
         run: cmake --build . --target install
+  build_windows_msvc:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Cache LLVM
+        id: cache-llvm
+        uses: actions/cache@v2
+        with:
+          path: llvm
+          key: llvm-libs-10.0.0
+      - name: Download LLVM
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
+        run: |
+          iwr https://github.com/llvm/llvm-project/releases/download/llvmorg-10.0.0/llvm-10.0.0.src.tar.xz -OutFile llvm.tar.xz
+          7z x llvm.tar.xz
+          7z x llvm.tar
+          mv llvm-* llvm-src
+      - name: Patch LLVM for VS 2019 16.7.0
+        working-directory: ./llvm-src
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
+        run: |
+          sed -i 's/#ifdef HAVE_STD_IS_TRIVIALLY_COPYABLE/#if 0/' include/llvm/Support/type_traits.h
+      - name: Build LLVM
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
+        working-directory: ./llvm-src
+        run: |
+          cmake . -Thost=x64 -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_USE_CRT_RELEASE=MT -DBUILD_SHARED_LIBS=OFF -DCMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH=OFF
+          cmake --build . --config Release
+      - name: Gather LLVM
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
+        run: |
+          mv llvm-src/Release llvm
+          mv llvm-src/include llvm/
+      - name: Create Build Environment
+        run: cmake -E make_directory ${{github.workspace}}/build
+      - name: Configure
+        working-directory: ${{github.workspace}}/build
+        run: cmake -G "Visual Studio 16 2019" -A x64 -DLLVM_DIR=llvm\lib\cmake\llvm $GITHUB_WORKSPACE
+      - name: Build
+        working-directory: ${{github.workspace}}/build
+        run: cmake --build . --target install --config Release
+

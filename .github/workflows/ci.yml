@@ -3,7 +3,7 @@ name: CI
 on: [push, pull_request]
 
 jobs:
-  build_linux:
+  build_linux_gcc:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -16,6 +16,26 @@ jobs:
         env:
           CC: gcc-10
           CXX: g++-10
+        shell: bash
+        working-directory: ${{github.workspace}}/build
+        run: cmake -DCMAKE_BUILD_TYPE=Release $GITHUB_WORKSPACE
+      - name: Build
+        shell: bash
+        working-directory: ${{github.workspace}}/build
+        run: cmake --build . --target install
+  build_linux_clang:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Create Build Environment
+        run: |
+          sudo apt-get install -y clang-10 llvm-10
+          cmake -E make_directory ${{github.workspace}}/build
+      - name: Configure
+        env:
+          CC: clang-10
+          CXX: clang++-10
         shell: bash
         working-directory: ${{github.workspace}}/build
         run: cmake -DCMAKE_BUILD_TYPE=Release $GITHUB_WORKSPACE

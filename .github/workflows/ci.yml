@@ -9,8 +9,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
       - name: Create Build Environment
-        run: cmake -E make_directory ${{github.workspace}}/build
+        run: |
+          apt-get install -y gcc-10 llvm-10
+          cmake -E make_directory ${{github.workspace}}/build
       - name: Configure
+        env:
+          CC: gcc-10
+          CXX: g++-10
         shell: bash
         working-directory: ${{github.workspace}}/build
         run: cmake -DCMAKE_BUILD_TYPE=Release $GITHUB_WORKSPACE

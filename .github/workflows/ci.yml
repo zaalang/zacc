@@ -18,7 +18,7 @@ jobs:
           CXX: g++-10
         shell: bash
         working-directory: ${{github.workspace}}/build
-        run: cmake -DCMAKE_BUILD_TYPE=Release $GITHUB_WORKSPACE
+        run: cmake -DCMAKE_BUILD_TYPE=Release ..
       - name: Build
         shell: bash
         working-directory: ${{github.workspace}}/build
@@ -38,7 +38,7 @@ jobs:
           CXX: clang++-10
         shell: bash
         working-directory: ${{github.workspace}}/build
-        run: cmake -DCMAKE_BUILD_TYPE=Release $GITHUB_WORKSPACE
+        run: cmake -DCMAKE_BUILD_TYPE=Release ..
       - name: Build
         shell: bash
         working-directory: ${{github.workspace}}/build
@@ -75,11 +75,9 @@ jobs:
           cmake --build . --target install --config Release      
       - name: Create Build Environment
         run: cmake -E make_directory ${{github.workspace}}/build
-      - name: List
-        run: cmd /c dir llvm
       - name: Configure
         working-directory: ${{github.workspace}}/build
-        run: cmake -G "Visual Studio 16 2019" -A x64 -DLLVM_DIR=$GITHUB_WORKSPACE/llvm/lib/cmake/llvm $GITHUB_WORKSPACE
+        run: cmake -G "Visual Studio 16 2019" -A x64 -DLLVM_DIR=${{github.workspace}}/llvm/lib/cmake/llvm ..
       - name: Build
         working-directory: ${{github.workspace}}/build
         run: cmake --build . --target install --config Release

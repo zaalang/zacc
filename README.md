@@ -32,14 +32,14 @@ Further, requires LLVM 10.x/11.x. This can be installed from the os repositories
 ```
 $ mkdir zacc/build
 $ pushd zacc/build
-$ cmake -D CMAKE_BUILD_TYPE=RelWithDebInfo ..
+$ cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
 $ cmake --build . --target install
 $ popd
 ```
 ```
 $ mkdir zrt/build
 $ pushd zrt/build
-$ cmake -D CMAKE_BUILD_TYPE=RelWithDebInfo ..
+$ cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
 $ cmake --build . --target install
 $ popd
 ```

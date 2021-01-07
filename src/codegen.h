@@ -34,6 +34,8 @@ struct GenOpts
 
   bool linker = true;
   bool dump_mir = false;
+
+  std::vector<char const *> llvmargs;
 };
 
 void codegen(AST *ast, std::string const &target, GenOpts const &genopts, class Diag &diag);

@@ -242,3 +242,46 @@ inline std::string unescape(std::string_view str)
 
   return result;
 }
+
+//-------------------------- dirname ----------------------------------------
+//---------------------------------------------------------------------------
+
+inline std::string dirname(std::string_view path)
+{
+#ifdef _WIN32
+  auto j = path.find_last_of(":\\/");
+#else
+  auto j = path.find_last_of('/');
+#endif
+
+  if (j != std::string_view::npos)
+    j += 1;
+  else
+    j = 0;
+
+  return std::string(path.substr(0, j));
+}
+
+//-------------------------- basename ---------------------------------------
+//---------------------------------------------------------------------------
+
+inline std::string basename(std::string_view path)
+{
+#ifdef _WIN32
+  auto i = path.find_last_of(":\\/");
+#else
+  auto i = path.find_last_of('/');
+#endif
+
+  if (i != std::string_view::npos)
+    i += 1;
+  else
+    i = 0;
+
+  auto j = path.find_last_of('.');
+
+  if (j == std::string_view::npos)
+    j = path.length();
+
+  return std::string(path.substr(i, j - i));
+}

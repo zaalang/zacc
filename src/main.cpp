@@ -25,7 +25,7 @@ using namespace std;
 //|//////////////////// main ////////////////////////////////////////////////
 int main(int argc, char *argv[])
 {
-  string file = "";
+  string input = "";
 
   for(int i = 0, j = 0; i < argc; ++i)
   {    
@@ -38,14 +38,14 @@ int main(int argc, char *argv[])
     }
 
     if (j == 1)
-      file = argv[i];
+      input = argv[i];
 
     ++j;
   }
 
   Diag diag("zacc");
 
-  if (file == "")
+  if (input == "")
   {
     cerr << "no input files\n";
     exit(1);
@@ -61,7 +61,7 @@ int main(int argc, char *argv[])
         sema.add_include_path(argv[i][2] != 0 ? argv[i] + 2 : argv[++i]);
     }
 
-    parse(file, sema, diag);
+    parse(input, sema, diag);
 
 #if 0
     dump_ast(sema.ast);
@@ -83,7 +83,7 @@ int main(int argc, char *argv[])
 #endif
 
     GenOpts opts;
-    opts.modulename = file;
+    opts.modulename = input;
 
     for(int i = 0; i < argc; ++i)
     {
@@ -110,6 +110,9 @@ int main(int argc, char *argv[])
 
       if (strcmp(argv[i], "-dump-mir") == 0)
         opts.dump_mir = true;
+
+      if (strcmp(argv[i], "-mllvm") == 0)
+        opts.llvmargs.push_back(argv[++i]);
     }
 
     if (opts.outputtype != GenOpts::OutputType::EmitObj)
@@ -123,9 +126,15 @@ int main(int argc, char *argv[])
       exit(1);
     }
 
-    string intfile = filename(toolchain, file, opts.outputtype);
+    string outfile = filename(toolchain, basename(input), opts.outputtype);
 
-    codegen(sema.ast, intfile, opts, diag);
+    for(int i = 0; i < argc; ++i)
+    {
+      if (strncmp(argv[i], "-o", 2) == 0)
+        outfile = filename(toolchain, string_view(argv[i][2] != 0 ? argv[i] + 2 : argv[++i]), opts.outputtype);
+    }
+
+    codegen(sema.ast, outfile, opts, diag);
 
     cerr << diag;
 
@@ -134,7 +143,7 @@ int main(int argc, char *argv[])
 
     if (opts.linker)
     {
-      string outfile = filename(toolchain, file, ToolChain::Executable);
+      string exefile = filename(toolchain, outfile, ToolChain::Executable);
 
       vector<string> libraries;
 
@@ -147,7 +156,7 @@ int main(int argc, char *argv[])
           libraries.push_back(argv[i][2] != 0 ? argv[i] + 2 : argv[++i]);
       }
 
-      toolchain.ld(intfile, outfile, libraries);
+      toolchain.ld(outfile, exefile, libraries);
     }
   }
   catch(exception &e)

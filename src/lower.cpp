@@ -8707,7 +8707,7 @@ namespace
 
     lower_decl(ctx, decl_cast<ErrorVarDecl>(trys->errorvar));
 
-    bool unreachable[2] = { false, false };
+    bool unreachable[2] = { false, true };
 
     lower_statement(ctx, trys->body);
 
@@ -8717,6 +8717,8 @@ namespace
 
     if (ctx.barriers.back().firstthrow != ctx.throws.size())
     {
+      unreachable[1] = false;
+
       for(auto i = ctx.barriers.back().firstthrow; i < ctx.throws.size(); ++i)
         ctx.mir.blocks[ctx.throws[i]].terminator.blockid = ctx.currentblockid;
 

@@ -8,6 +8,7 @@
 //
 
 #include "toolchain.h"
+#include "util.h"
 #include <iostream>
 
 #ifdef _MSC_VER
@@ -19,31 +20,6 @@
 #endif
 
 using namespace std;
-
-namespace
-{
-  //|///////////////////// basename ///////////////////////////////////////////
-  string basename(string_view path)
-  {
-  #ifdef _WIN32
-    auto i = path.find_last_of(":\\/");
-  #else
-    auto i = path.find_last_of('/');
-  #endif
-
-    if (i != string_view::npos)
-      i += 1;
-    else
-      i = 0;
-
-    auto j = path.find_last_of('.');
-
-    if (j == string_view::npos)
-      j = path.length();
-
-    return string(path.substr(i, j - i));
-  }
-}
 
 //|--------------------- ToolChain ------------------------------------------
 //|--------------------------------------------------------------------------
@@ -89,7 +65,7 @@ ToolChain::ToolChain(string const &triple)
     add_library_path(m_base + "\\" + m_arch + "-" + m_vendor + "-mingw32" + "\\lib");
   }
 
-  if (m_os == "linux" && m_env == "gnu")
+  if (m_os == "linux")
   {
     m_type = GCC;
 
@@ -223,7 +199,7 @@ string filename(ToolChain const &tc, string_view path, ToolChain::FileType type)
       break;
   }
 
-  return basename(path) + string(suffix);
+  return dirname(path) + basename(path) + string(suffix);
 }
 
 string filename(ToolChain const &tc, string_view path, GenOpts::OutputType type)

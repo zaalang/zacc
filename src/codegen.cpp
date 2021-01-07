@@ -31,6 +31,7 @@
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/ToolOutputFile.h>
 #include <llvm/Support/FileSystem.h>
+#include <llvm/Support/CommandLine.h>
 #include <sstream>
 #include <climits>
 
@@ -4408,6 +4409,16 @@ namespace
     {
       ctx.diag << error << '\n';
       return false;
+    }
+
+    if (!ctx.genopts.llvmargs.empty())
+    {
+      auto args = ctx.genopts.llvmargs;
+
+      args.insert(args.begin(), "zacc");
+      args.insert(args.end(), nullptr);
+
+      llvm::cl::ParseCommandLineOptions(args.size() - 1, args.data());
     }
 
     auto cpu = ctx.genopts.cpu;

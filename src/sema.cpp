@@ -8,6 +8,7 @@
 //
 
 #include "sema.h"
+#include "util.h"
 #include <iostream>
 #include <cassert>
 
@@ -20,30 +21,6 @@
 #endif
 
 using namespace std;
-
-namespace
-{
-  string basename(string_view path)
-  {
-  #ifdef _WIN32
-    auto i = path.find_last_of(":\\/");
-  #else
-    auto i = path.find_last_of('/');
-  #endif
-
-    if (i != string_view::npos)
-      i += 1;
-    else
-      i = 0;
-
-    auto j = path.find_last_of('.');
-
-    if (j == string_view::npos)
-      j = path.length();
-
-    return string(path.substr(i, j - i));
-  }
-}
 
 //|--------------------- Sema -----------------------------------------------
 //|--------------------------------------------------------------------------

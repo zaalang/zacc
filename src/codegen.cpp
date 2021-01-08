@@ -109,6 +109,7 @@ namespace
     {
       int writes = 0;
 
+      long flags = 0;
       bool addressable = false;
       bool firstarg_return = false;
       bool passarg_pointer = false;
@@ -616,9 +617,9 @@ namespace
   //|///////////////////// load /////////////////////////////////////////////
   llvm::Value *load(GenContext &ctx, FunctionContext &fx, MIR::local_t src)
   {
-    if (fx.locals[src].alloca && (!fx.locals[src].value || !(fx.mir.locals[src].flags & MIR::Local::Const) || (fx.mir.locals[src].flags & MIR::Local::Reference)))
+    if (fx.locals[src].alloca && (!fx.locals[src].value || !(fx.locals[src].flags & MIR::Local::Const) || (fx.locals[src].flags & MIR::Local::Reference)))
     {
-      fx.locals[src].value = load(ctx, fx, fx.locals[src].alloca, fx.mir.locals[src].type, fx.mir.locals[src].flags);
+      fx.locals[src].value = load(ctx, fx, fx.locals[src].alloca, fx.mir.locals[src].type, fx.locals[src].flags);
     }
 
     return fx.locals[src].value;
@@ -647,7 +648,7 @@ namespace
 
     if (fx.locals[dst].alloca)
     {
-      store(ctx, fx, fx.locals[dst].alloca, fx.mir.locals[dst].type, src, fx.mir.locals[dst].flags);
+      store(ctx, fx, fx.locals[dst].alloca, fx.mir.locals[dst].type, src, fx.locals[dst].flags);
     }
   }
 
@@ -1098,7 +1099,7 @@ namespace
 
     if (!global)
     {
-      global = new llvm::GlobalVariable(ctx.module, value->getType(), fx.mir.locals[dst].flags & MIR::Local::Const, linkage, value);
+      global = new llvm::GlobalVariable(ctx.module, value->getType(), fx.locals[dst].flags & MIR::Local::Const, linkage, value);
 
       global->setAlignment(llvm::Align(16));
 
@@ -1353,7 +1354,7 @@ namespace
     {
       auto src = codegen_fields(ctx, fx, arg, fields);
 
-      store(ctx, fx, dst, load(ctx, fx, src, fx.mir.locals[dst].type, fx.mir.locals[dst].flags));
+      store(ctx, fx, dst, load(ctx, fx, src, fx.mir.locals[dst].type, fx.locals[dst].flags));
     }
     else
     {
@@ -1388,11 +1389,11 @@ namespace
       auto ptr = codegen_fields(ctx, fx, arg, fields);
       auto src = load(ctx, fx, ptr, fx.mir.locals[dst].type, MIR::Local::Reference);
 
-      store(ctx, fx, dst, load(ctx, fx, src, fx.mir.locals[dst].type, fx.mir.locals[dst].flags));
+      store(ctx, fx, dst, load(ctx, fx, src, fx.mir.locals[dst].type, fx.locals[dst].flags));
     }
     else
     {
-      store(ctx, fx, dst, load(ctx, fx, load(ctx, fx, arg), fx.mir.locals[dst].type, fx.mir.locals[dst].flags));
+      store(ctx, fx, dst, load(ctx, fx, load(ctx, fx, arg), fx.mir.locals[dst].type, fx.locals[dst].flags));
     }
   }
 
@@ -3011,7 +3012,7 @@ namespace
       if (!fx.locals[dst].alloca)
       {
         ctx.builder.SetInsertPoint(fx.blocks[0].bx, fx.blocks[0].bx->begin());
-        fx.locals[dst].alloca = alloc(ctx, fx, fx.mir.locals[dst].type, fx.mir.locals[dst].flags);
+        fx.locals[dst].alloca = alloc(ctx, fx, fx.mir.locals[dst].type, fx.locals[dst].flags);
         ctx.builder.SetInsertPoint(fx.blocks[fx.currentblockid].bx);
       }
 
@@ -3444,29 +3445,27 @@ namespace
     auto srccat = type_category(fx.mir.locals[arg].type);
     auto dstcat = type_category(fx.mir.locals[dst].type);
 
-    if (fx.mir.locals[dst].flags & MIR::Local::Reference)
-    {
-      store(ctx, fx, dst, ctx.builder.CreateBitCast(src, llvm_type(ctx, fx.mir.locals[dst].type)->getPointerTo()));
-    }
-    else if (fx.mir.locals[arg].flags & MIR::Local::Reference)
-    {
-      store(ctx, fx, dst, ctx.builder.CreatePointerCast(src, llvm_type(ctx, fx.mir.locals[dst].type)));
-    }
-    else if (dstcat == TypeCategory::Bool && srccat == TypeCategory::Pointer)
+    if (fx.locals[arg].flags & MIR::Local::Reference)
+      srccat = TypeCategory::Pointer;
+
+    if (fx.locals[dst].flags & MIR::Local::Reference)
+      dstcat = TypeCategory::Pointer;
+
+    if (dstcat == TypeCategory::Bool && srccat == TypeCategory::Pointer)
     {
       store(ctx, fx, dst, ctx.builder.CreateICmpNE(src, llvm_zero(src->getType())));
     }
     else if (dstcat == TypeCategory::Pointer && srccat == TypeCategory::Array)
     {
-      store(ctx, fx, dst, ctx.builder.CreatePointerCast(src, llvm_type(ctx, fx.mir.locals[dst].type)));
+      store(ctx, fx, dst, ctx.builder.CreatePointerCast(src, llvm_type(ctx, fx.mir.locals[dst].type, fx.locals[dst].flags)));
     }
     else if (dstcat == TypeCategory::Pointer && srccat == TypeCategory::Pointer)
     {
-      store(ctx, fx, dst, ctx.builder.CreatePointerCast(src, llvm_type(ctx, fx.mir.locals[dst].type)));
+      store(ctx, fx, dst, ctx.builder.CreatePointerCast(src, llvm_type(ctx, fx.mir.locals[dst].type, fx.locals[dst].flags)));
     }
     else if (dstcat == TypeCategory::Pointer && fx.mir.locals[arg].type == type(Builtin::Type_USize))
     {
-      store(ctx, fx, dst, ctx.builder.CreateIntToPtr(src, llvm_type(ctx, fx.mir.locals[dst].type)));
+      store(ctx, fx, dst, ctx.builder.CreateIntToPtr(src, llvm_type(ctx, fx.mir.locals[dst].type, fx.locals[dst].flags)));
     }
     else if (fx.mir.locals[dst].type == type(Builtin::Type_USize) && srccat == TypeCategory::Pointer)
     {
@@ -3716,10 +3715,12 @@ namespace
         codegen_assert_deref(ctx, fx, ctx.builder.CreateICmpEQ(addr, llvm_zero(addr->getType())));
     }
 
+    fx.locals[dst].flags &= ~MIR::Local::Reference;
     fx.locals[dst].alloca = ctx.builder.CreatePointerCast(addr, llvm_type(ctx, fx.mir.locals[dst].type, true)->getPointerTo());
 
     codegen_assign_statement(ctx, fx, statement);
 
+    fx.locals[dst].flags |= MIR::Local::Reference;
     fx.locals[dst].value = fx.locals[dst].alloca;
     fx.locals[dst].alloca = nullptr;
   }
@@ -3960,6 +3961,11 @@ namespace
 
     // determine local usage
 
+    for(size_t i = 0, end = fx.mir.locals.size(); i != end; ++i)
+    {
+      fx.locals[i].flags = fx.mir.locals[i].flags;
+    }
+
     for(auto &block : fx.mir.blocks)
     {
       for(auto &statement : block.statements)
@@ -4124,7 +4130,7 @@ namespace
       if (!fx.locals[i].addressable && fx.locals[i].writes <= 1)
         continue;
 
-      fx.locals[i].alloca = alloc(ctx, fx, fx.mir.locals[i].type, fx.mir.locals[i].flags);
+      fx.locals[i].alloca = alloc(ctx, fx, fx.mir.locals[i].type, fx.locals[i].flags);
     }
 
     for(size_t i = fx.mir.args_beg, j = firstarg, end = fx.mir.args_end; i != end; ++i)
@@ -4136,7 +4142,7 @@ namespace
       }
 
       if (fx.locals[i].addressable || fx.locals[i].writes > 1)
-        fx.locals[i].alloca = alloc(ctx, fx, fx.mir.locals[i].type, fx.mir.locals[i].flags);
+        fx.locals[i].alloca = alloc(ctx, fx, fx.mir.locals[i].type, fx.locals[i].flags);
 
       if (fx.mir.locals[i].zerosized())
         continue;
@@ -4152,7 +4158,7 @@ namespace
       if (!fx.locals[i].addressable && fx.locals[i].writes <= 1 && !(ctx.genopts.debuginfo != GenOpts::DebugInfo::None && fx.locals[i].info))
         continue;
 
-      fx.locals[i].alloca = alloc(ctx, fx, fx.mir.locals[i].type, fx.mir.locals[i].flags);
+      fx.locals[i].alloca = alloc(ctx, fx, fx.mir.locals[i].type, fx.locals[i].flags);
     }
 
     if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None)

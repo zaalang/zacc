@@ -413,6 +413,47 @@ namespace
     return child_scope(scope, decl);
   }
 
+  //|///////////////////// fill_defaultargs /////////////////////////////////
+  void fill_defaultargs(LowerContext &ctx, Decl *decl, std::vector<std::pair<Decl*, Type*>> &typeargs)
+  {
+    for(auto sx = Scope(decl); sx; sx = parent_scope(std::move(sx)))
+    {
+      vector<Decl*> *declargs = nullptr;
+
+      if (is_fn_scope(sx))
+        declargs = &decl_cast<FunctionDecl>(get<Decl*>(sx.owner))->args;
+
+      if (is_tag_scope(sx))
+        declargs = &decl_cast<TagDecl>(get<Decl*>(sx.owner))->args;
+
+      if (declargs)
+      {
+        for(auto &arg : *declargs)
+        {
+          if (decl_cast<TypeArgDecl>(arg)->defult)
+          {
+            auto j = lower_bound(typeargs.begin(), typeargs.end(), arg, [](auto &lhs, auto &rhs) { return lhs.first < rhs; });
+
+            if (j == typeargs.end() || j->first != arg)
+            {
+              typeargs.emplace(j, arg, resolve_type(ctx, Scope(decl, typeargs), decl_cast<TypeArgDecl>(arg)->defult));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  //|///////////////////// type_scope ///////////////////////////////////////
+  Scope type_scope(LowerContext &ctx, Scope const &scope, Decl *decl)
+  {
+    Scope typescope(scope);
+
+    fill_defaultargs(ctx, decl, typescope.typeargs);
+
+    return typescope;
+  }
+
   //|///////////////////// base_scope ///////////////////////////////////////
   Scope base_scope(LowerContext &ctx, Scope const &scope)
   {
@@ -1179,7 +1220,7 @@ namespace
 
   Type *resolve_type(LowerContext &ctx, Scope const &scope, TagType *tagtype)
   {
-    auto tx = Scope(tagtype->decl, tagtype->args);
+    Scope tx(tagtype->decl, tagtype->args);
 
     for(auto &[decl, arg] : tx.typeargs)
     {
@@ -1462,7 +1503,7 @@ namespace
 
         if (auto owner = get_if<Decl*>(&declref.scope.owner); owner && *owner && *owner != ctx.translationunit && !is_module_decl(*owner))
         {
-          auto type = resolve_type(ctx, declref.scope, *owner);
+          auto type = resolve_type(ctx, type_scope(ctx, declref.scope, *owner), *owner);
 
           if (is_compound_type(type))
           {
@@ -2753,25 +2794,7 @@ namespace
 #if DEFERRED_DEFAULT_ARGS
         if (viable)
         {
-          for(auto sx = Scope(fn); sx; sx = parent_scope(std::move(sx)))
-          {
-            vector<Decl*> *declargs = nullptr;
-
-            if (is_fn_scope(sx))
-              declargs = &decl_cast<FunctionDecl>(get<Decl*>(sx.owner))->args;
-
-            if (is_tag_scope(sx))
-              declargs = &decl_cast<TagDecl>(get<Decl*>(sx.owner))->args;
-
-            if (declargs)
-            {
-              for(auto &arg : *declargs)
-              {
-                if (decl_cast<TypeArgDecl>(arg)->defult && fx.find_type(arg) == fx.typeargs.end())
-                  fx.set_type(arg, resolve_type(ctx, Scope(fx.fn, fx.typeargs), decl_cast<TypeArgDecl>(arg)->defult));
-              }
-            }
-          }
+          fill_defaultargs(ctx, fn, fx.typeargs);
         }
 #endif
 
@@ -2889,7 +2912,9 @@ namespace
         if (0 != tx.args.size() + tx.namedargs.size())
           continue;
 
-        if (auto enumm = resolve_type(ctx, scope, decl_cast<EnumDecl>(decl)))
+        auto typescope = type_scope(ctx, scope, get<Decl*>(scope.owner));
+
+        if (auto enumm = resolve_type(ctx, typescope, decl_cast<EnumDecl>(decl)))
         {
           FindContext ttx("#enum", QueryFlags::All);
 
@@ -2910,8 +2935,10 @@ namespace
         if (find_if(results.begin(), results.end(), [&](auto &k) { return (k.fn->flags & FunctionDecl::Builtin) && k.fn->builtin == Builtin::Type_Lit; }) != results.end())
           continue;
 
-        auto enumm = resolve_type(ctx, scope, decl_cast<EnumDecl>(get<Decl*>(scope.owner)));
-        auto value = resolve_type(ctx, scope, enumm, decl_cast<EnumConstantDecl>(decl));
+        auto typescope = type_scope(ctx, scope, get<Decl*>(scope.owner));
+
+        auto enumm = resolve_type(ctx, typescope, decl_cast<EnumDecl>(get<Decl*>(scope.owner)));
+        auto value = resolve_type(ctx, typescope, enumm, decl_cast<EnumConstantDecl>(decl));
 
         results.push_back(Builtin::fn(ctx.translationunit->builtins, Builtin::Type_Lit, enumm, type_cast<ConstantType>(value)->expr));
       }
@@ -3490,10 +3517,10 @@ namespace
     {
       FindContext tx(declref.decl->name, QueryFlags::Functions | QueryFlags::Types | QueryFlags::Usings | queryflags);
 
-      if (tx.name.substr(0, 1) == "~")
+      if (tx.name.substr(0, 1) == "~" && tx.name.size() != 1)
       {
         auto j = find_if(stack.back().typeargs.begin(),stack.back().typeargs.end(), [&](auto &k) {
-          return decl_cast<TypeArgDecl>(k.first)->name == tx.name.substr(1);
+          return k.first->kind() == Decl::TypeArg && decl_cast<TypeArgDecl>(k.first)->name == tx.name.substr(1);
         });
 
         if (j != stack.back().typeargs.end())
@@ -3530,24 +3557,27 @@ namespace
 
       if (auto owner = get_if<Decl*>(&declref.scope.owner); owner && *owner && (*owner)->kind() == Decl::Union)
       {
-        auto type = resolve_type(ctx, declref.scope, decl_cast<TagDecl>(*owner));
+        auto type = resolve_type(ctx, type_scope(ctx, declref.scope, *owner), *owner);
 
         if (auto field = find_field(ctx, type_cast<TagType>(type), tx.name))
         {
-          if (auto ctor = find_callee(ctx, field.type, parms, namedparms))
+          if ((field.flags & Decl::Public) || get_module(*owner) == ctx.module)
           {
-            auto fn = ctx.mir.make_decl<FunctionDecl>(scoped->loc());
+            if (auto ctor = find_callee(ctx, field.type, parms, namedparms))
+            {
+              auto fn = ctx.mir.make_decl<FunctionDecl>(scoped->loc());
 
-            fn->name = "#union";
-            fn->returntype = type;
-            fn->parms = ctor.fx.fn->parms;
-            fn->args.push_back(type_cast<TagType>(type)->fieldvars[field.index]);
-            fn->args.push_back(ctor.fx.fn);
-            fn->owner = ctor.fx.fn->owner;
+              fn->name = "#union";
+              fn->returntype = type;
+              fn->parms = ctor.fx.fn->parms;
+              fn->args.push_back(type_cast<TagType>(type)->fieldvars[field.index]);
+              fn->args.push_back(ctor.fx.fn);
+              fn->owner = ctor.fx.fn->owner;
 
-            callee.fx = FnSig(fn, ctor.fx.typeargs);
+              callee.fx = FnSig(fn, ctor.fx.typeargs);
 
-            return callee;
+              return callee;
+            }
           }
         }
       }
@@ -7124,7 +7154,57 @@ namespace
 
     if (is_union_type(thistype))
     {
-      ctx.diag.error("non-trivial union operator cannot be defaulted", ctx.stack.back(), ctx.mir.fx.fn->loc());
+      lower_deinitialisers(ctx);
+
+      auto kinddst = ctx.add_temporary(thistype->fields[0], MIR::Local::LValue | MIR::Local::Reference);
+      auto kindres = ctx.add_temporary(thistype->fields[0], MIR::Local::LValue | MIR::Local::Reference);
+
+      ctx.add_statement(MIR::Statement::assign(kinddst, MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, 0 }, fn->loc())));
+      ctx.add_statement(MIR::Statement::construct(kindres, MIR::RValue::field(MIR::RValue::Val, 2, MIR::RValue::Field{ MIR::RValue::Val, 0 }, fn->loc())));
+
+      auto cond = ctx.add_temporary(ctx.isizetype);
+
+      ctx.add_statement(MIR::Statement::assign(cond, MIR::RValue::field(MIR::RValue::Val, 2, MIR::RValue::Field{ MIR::RValue::Val, 0 }, fn->loc())));
+
+      auto endblock = ctx.currentblockid + thistype->fields.size();
+      auto switcher = ctx.add_block(MIR::Terminator::switcher(cond, endblock));
+
+      for(size_t index = 1; index < thistype->fields.size(); ++index)
+      {
+        auto type = thistype->fields[index];
+
+        MIR::Fragment result;
+
+        vector<MIR::Fragment> parms(1);
+        map<string_view, MIR::Fragment> namedparms;
+
+        parms[0].type = MIR::Local(type, thattype.flags);
+        parms[0].value = MIR::RValue::field(MIR::RValue::Ref, 2, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
+
+        if (parms[0].type.flags & MIR::Local::XValue)
+          parms[0].type.flags = (parms[0].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
+
+        if (!lower_copy(ctx, result, type, parms, namedparms, fn->loc()))
+          return;
+
+        auto dst = ctx.add_temporary();
+        auto res = ctx.add_temporary();
+
+        MIR::Fragment address;
+        address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(type), MIR::Local::LValue);
+        address.value = MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
+
+        realise_as_value(ctx, dst, address);
+
+        commit_type(ctx, dst, address.type.type, address.type.flags);
+
+        realise_as_value(ctx, Place(Place::Fer, res), result);
+
+        commit_type(ctx, res, result.type.type, result.type.flags);
+
+        ctx.mir.blocks[switcher].terminator.targets.emplace_back(index, ctx.currentblockid);
+        ctx.add_block(MIR::Terminator::gotoer(endblock));
+      }
     }
 
     ctx.add_statement(MIR::Statement::assign(0, MIR::RValue::local(MIR::RValue::Val, 1, fn->loc())));

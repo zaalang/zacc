@@ -2909,6 +2909,7 @@ namespace
             break;
 
           case Token::kw_void:
+          case Token::kw_typeof:
           case Token::l_paren:
           case Token::identifier:
             if (tok.text == strct->name)

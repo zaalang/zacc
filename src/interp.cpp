@@ -202,7 +202,7 @@ namespace
     result.type = type;
     result.size = sizeof_type(type);
 
-    ctx.memory.push_back(vector<uint8_t>(result.size));
+    ctx.memory.push_back(vector<uint8_t>(max(result.size, size_t(1))));
 
     result.alloc = ctx.memory.back().data();
 

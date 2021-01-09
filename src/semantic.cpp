@@ -468,6 +468,9 @@ namespace
     for(auto &decl : tagdecl->decls)
     {
       semantic_decl(ctx, decl, sema);
+
+      if (!(tagdecl->flags & Decl::Public))
+        decl->flags |= Decl::Public;
     }
   }
 
@@ -512,8 +515,6 @@ namespace
       {
         auto tag = sema.enum_constant_declaration(decl->loc());
 
-        tag->flags |= Decl::Public;
-
         tag->name = decl_cast<FieldVarDecl>(decl)->name;
 
         kindtype->decls.push_back(tag);
@@ -525,8 +526,8 @@ namespace
     auto kindfield = sema.field_declaration(unnion->loc());
 
     kindfield->name = "kind";
-    kindfield->flags = VarDecl::Public;
-    kindfield->flags = VarDecl::Const;
+    kindfield->flags |= VarDecl::Public;
+    kindfield->flags |= VarDecl::Const;
     kindfield->type = sema.make_typeref(kindtype);
 
     unnion->decls.insert(unnion->decls.begin(), kindfield);
@@ -692,6 +693,8 @@ namespace
   //|///////////////////// enum constant ////////////////////////////////////
   void semantic_decl(SemanticContext &ctx, EnumConstantDecl *constant, Sema &sema)
   {
+    constant->flags |= Decl::Public;
+
     if (constant->value)
     {
       semantic_expr(ctx, constant->value, sema);
@@ -741,7 +744,7 @@ namespace
 
     if (auto j = path.find('.'); j != path.npos)
     {
-#ifdef _WIN32
+#if defined _WIN32
       std::replace(path.begin(), path.end(), '.', '\\');
 #else
       std::replace(path.begin(), path.end(), '.', '/');
@@ -993,6 +996,8 @@ namespace
   //|///////////////////// if ///////////////////////////////////////////////
   void semantic_decl(SemanticContext &ctx, IfDecl *ifd, Sema &sema)
   {
+    ifd->flags |= Decl::Public;
+
     semantic_expr(ctx, ifd->cond, sema);
 
     for(auto &decl : ifd->decls)
@@ -1378,6 +1383,7 @@ namespace
     {
       auto ifd = decl_cast<IfDecl>(decl);
 
+      ifd->flags |= Decl::Public;
       ifd->owner = ctx.stack.back().owner;
 
       semantic_expr(ctx, ifd->cond, sema);

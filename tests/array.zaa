@@ -1,0 +1,18 @@
+import std.stdio;
+import std.array;
+
+using std;
+
+fn test_len()
+{
+  var c = std::array<int>([2, 2, 2, 2, 2]);
+  assert(c.len == 5);
+  assert(std::distance(c.begin, c.end) == 5);
+  assert(c.front == 2);
+  assert(c.back == 2);
+}
+
+fn main()
+{
+  #test_len();
+}

@@ -12,7 +12,7 @@
 #include <iostream>
 #include <cassert>
 
-#ifdef _MSC_VER
+#if defined _MSC_VER
 #include <io.h>
 #define F_OK 0
 #define access _access

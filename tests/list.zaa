@@ -1,0 +1,53 @@
+import std.stdio;
+import std.list;
+
+using std;
+
+fn test_empty()
+{
+  var c = std::list<int>();
+  assert(c.empty());
+  c.push_back(1);
+  assert(!c.empty());
+  c.clear();
+  assert(c.empty());
+}
+
+fn test_len()
+{
+  var c = std::list<int>();
+  assert(c.len == 0);
+  c.push_back(1);
+  assert(c.len == 1);
+  c.push_back(2);
+  assert(c.len == 2);
+  c.push_back(3);
+  assert(c.len == 3);
+  c.erase(c.begin());
+  assert(c.len == 2);
+  c.erase(c.begin());
+  assert(c.len == 1);
+  c.erase(c.begin());
+  assert(c.len == 0);
+}
+
+fn test_size()
+{
+  var c = std::list<int>::from([2, 2, 2, 2, 2]);
+  c.resize(2);
+  assert(c.len == 2);
+  assert(std::distance(c.begin, c.end) == 2);
+  assert(c == [2, 2]);
+  c.resize(10);
+  assert(c.len == 10);
+  assert(std::distance(c.begin, c.end) == 10);
+  assert(c.front == 2);
+  assert(c.back == 0);
+}
+
+fn main()
+{
+  #test_empty();
+  #test_len();
+  #test_size();
+}

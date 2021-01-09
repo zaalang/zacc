@@ -248,7 +248,7 @@ inline std::string unescape(std::string_view str)
 
 inline std::string dirname(std::string_view path)
 {
-#ifdef _WIN32
+#if defined _WIN32
   auto j = path.find_last_of(":\\/");
 #else
   auto j = path.find_last_of('/');
@@ -267,7 +267,7 @@ inline std::string dirname(std::string_view path)
 
 inline std::string basename(std::string_view path)
 {
-#ifdef _WIN32
+#if defined _WIN32
   auto i = path.find_last_of(":\\/");
 #else
   auto i = path.find_last_of('/');

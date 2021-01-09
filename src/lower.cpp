@@ -4878,7 +4878,7 @@ namespace
           {
             if (!deduce_type(ctx, ctx.stack.back(), callee, parm, expr.type))
             {
-              ctx.diag.error("type mismatch", ctx.stack.back(), parm->loc());
+              ctx.diag.error("type mismatch", ctx.stack.back(), parm->defult->loc());
               ctx.diag << "  variable type: '" << *parm->type << "' required type: '" << *expr.type.type << "'\n";
               return false;
             }
@@ -6836,6 +6836,15 @@ namespace
           continue;
 
         ctx.mir.add_lineinfo(ctx.currentblockid, ctx.currentblock.statements.size(), init->loc().lineno);
+
+        if (is_union_type(thistype) && index != 0)
+        {
+          auto kinddst = ctx.add_temporary(thistype->fields[0], MIR::Local::LValue | MIR::Local::Reference);
+          auto kindres = ctx.add_temporary(thistype->fields[0], MIR::Local::LValue | MIR::Local::Reference);
+
+          ctx.add_statement(MIR::Statement::assign(kinddst, MIR::RValue::field(MIR::RValue::Ref, 0, MIR::RValue::Field{ MIR::RValue::Ref, 0 }, fn->loc())));
+          ctx.add_statement(MIR::Statement::construct(kindres, MIR::RValue::literal(ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(index), fn->loc()))));
+        }
 
         lower_new(ctx, result, address, type, init->parms, init->namedparms, decl->loc());
       }

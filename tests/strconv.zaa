@@ -1,0 +1,104 @@
+import std.stdio;
+import std.string;
+import std.strconv;
+
+using std;
+
+fn test_itoa(var x, var y)
+{
+  var buffer = [0; 128];
+  var result = itoa(buffer.begin, buffer.end, x);
+
+  assert(!result.error);
+  assert(string_view(result.ptr, result.len) == y);
+}
+
+fn test_btoa(var x, var y)
+{
+  var buffer = [0; 128];
+  var result = btoa(buffer.begin, buffer.end, x);
+
+  assert(!result.error);
+  assert(string_view(result.ptr, result.len) == y);
+}
+
+fn test_ftoa(var x, var y)
+{
+  var buffer = [0; 128];
+  var result = ftoa(buffer.begin, buffer.end, x);
+
+  assert(!result.error);
+  assert(string_view(result.ptr, result.len) == y);
+}
+
+fn test_atoi(var x, var y)
+{
+  var value = y;
+  var result = atoi(x.data, x.data + x.len, value);
+
+  assert(!result.error);
+  assert(value == y);
+}
+
+fn test_atob(var x, var y)
+{
+  var value = y;
+  var result = atob(x.data, x.data + x.len, value);
+
+  assert(!result.error);
+  assert(value == y);
+}
+
+fn main()
+{
+  #test_itoa(true, "1");
+  #test_itoa(false, "0");
+
+  #test_itoa(u8(123), "123");
+  #test_itoa(u16(123), "123");
+  #test_itoa(u32(123), "123");
+  #test_itoa(u64(123), "123");
+
+  #test_itoa(i8(-123), "-123");
+  #test_itoa(i8(123), "123");
+  #test_itoa(i16(-123), "-123");
+  #test_itoa(i16(123), "123");
+  #test_itoa(i32(-123), "-123");
+  #test_itoa(i32(123), "123");
+  #test_itoa(i64(-123), "-123");
+  #test_itoa(i64(123), "123");
+
+  #test_itoa('A', "65");
+
+  #test_btoa(true, "true");
+  #test_btoa(false, "false");
+
+  #test_ftoa(f32(0.0), "0.0");
+  #test_ftoa(f64(0.0), "0.0");
+  #test_ftoa(f32(1.234), "1.234");
+  #test_ftoa(f64(1.234), "1.234");
+
+  #test_atoi("1", true);
+  #test_atoi("0", false);
+
+  #test_atoi("123", u8(123));
+  #test_atoi("123", u16(123));
+  #test_atoi("123", u32(123));
+  #test_atoi("123", u64(123));
+
+  #test_atoi("-123", i8(-123));
+  #test_atoi("123", i8(123));
+  #test_atoi("-123", i16(-123));
+  #test_atoi("123", i16(123));
+  #test_atoi("-123", i32(-123));
+  #test_atoi("123", i32(123));
+  #test_atoi("-123", i64(-123));
+  #test_atoi("123", i64(123));
+
+  #test_atoi("65", 'A');
+
+  #test_atob("true", true);
+  #test_atob("1", true);
+  #test_atob("false", false);
+  #test_atob("0", false);
+}

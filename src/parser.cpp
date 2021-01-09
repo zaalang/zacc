@@ -1825,8 +1825,6 @@ namespace
       goto resume;
     }
 
-    ifd->flags |= Decl::Public;
-
     return ifd;
 
     resume:
@@ -1868,8 +1866,6 @@ namespace
     {
       elsed->cond = sema.make_bool_literal(true, elsed->loc());
     }
-
-    elsed->flags |= Decl::Public;
 
     ifd->elseif = elsed;
 
@@ -2710,6 +2706,9 @@ namespace
 
     fn->flags |= FunctionDecl::Destructor;
 
+    if (ctx.try_consume_token(Token::kw_pub))
+      fn->flags |= FunctionDecl::Public;
+
     fn->name = string_view(ctx.tok.text.data(), ctx.token(1).text.length() + 1);
 
     ctx.consume_token(Token::tilde);
@@ -3000,8 +2999,6 @@ namespace
         if (!decl)
           break;
 
-        decl->flags |= Decl::Public;
-
         if (conditional)
         {
           decl->flags |= Decl::Conditional;
@@ -3039,7 +3036,8 @@ namespace
   {
     auto field = sema.field_declaration(ctx.tok.loc);
 
-    field->flags |= Decl::Public;
+    if (ctx.try_consume_token(Token::kw_pub))
+      field->flags |= Decl::Public;
 
     field->name = ctx.tok.text;
 
@@ -3233,8 +3231,6 @@ namespace
         if (!decl)
           break;
 
-        decl->flags |= Decl::Public;
-
         if (conditional)
         {
           decl->flags |= Decl::Conditional;
@@ -3272,7 +3268,8 @@ namespace
   {
     auto constant = sema.enum_constant_declaration(ctx.tok.loc);
 
-    constant->flags |= Decl::Public;
+    if (ctx.try_consume_token(Token::kw_pub))
+      constant->flags |= Decl::Public;
 
     constant->name = ctx.tok.text;
 

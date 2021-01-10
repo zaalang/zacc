@@ -2973,6 +2973,20 @@ namespace
 
             block = cond ? terminator.blockid : get<1>(terminator.targets[0]);
           }
+          else if (is_int_type(fx.locals[terminator.value].type) || is_enum_type(fx.locals[terminator.value].type))
+          {
+            auto cond = load_int(ctx, fx.locals[terminator.value].alloc, fx.locals[terminator.value].type);
+
+            block = terminator.blockid;
+
+            for(auto &[k, v] : terminator.targets)
+            {
+              if (cond.sign * int(cond.value) == k)
+                block = v;
+            }
+          }
+          else
+            assert(false);
           break;
 
         case MIR::Terminator::Catch:

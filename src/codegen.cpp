@@ -3601,7 +3601,7 @@ namespace
       else
         ctx.builder.CreateCondBr(cond, fx.blocks[blockid].bx, fx.blocks[get<1>(targets[0])].bx);
     }
-    else if (is_int_type(type))
+    else if (is_int_type(type) || is_enum_type(type))
     {
       auto value = ctx.builder.CreateZExt(cond, ctx.builder.getInt64Ty());
       auto swtch = ctx.builder.CreateSwitch(value, fx.blocks[blockid].bx, targets.size());

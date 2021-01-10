@@ -1,0 +1,19 @@
+import std.stdio;
+import std.optional;
+
+using std;
+
+fn test_empty()
+{
+  var c = std::optional<int>();
+  assert(c.is_none());
+  c.insert(1);
+  assert(c.is_some());
+  c.clear();
+  assert(c.is_none());
+}
+
+fn main()
+{
+  #test_empty();
+}

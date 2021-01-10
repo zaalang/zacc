@@ -6891,7 +6891,7 @@ namespace
 
     if (is_union_type(thistype))
     {
-      auto cond = ctx.add_temporary(ctx.isizetype);
+      auto cond = ctx.add_temporary(thistype->fields[0]);
 
       ctx.add_statement(MIR::Statement::assign(cond, MIR::RValue::field(MIR::RValue::Val, 1, MIR::RValue::Field{ MIR::RValue::Val, 0 }, fn->loc())));
 
@@ -7068,7 +7068,7 @@ namespace
       ctx.add_statement(MIR::Statement::assign(kinddst, MIR::RValue::field(MIR::RValue::Ref, 0, MIR::RValue::Field{ MIR::RValue::Ref, 0 }, fn->loc())));
       ctx.add_statement(MIR::Statement::construct(kindres, MIR::RValue::field(MIR::RValue::Val, 1, MIR::RValue::Field{ MIR::RValue::Val, 0 }, fn->loc())));
 
-      auto cond = ctx.add_temporary(ctx.isizetype);
+      auto cond = ctx.add_temporary(thistype->fields[0]);
 
       ctx.add_statement(MIR::Statement::assign(cond, MIR::RValue::field(MIR::RValue::Val, 1, MIR::RValue::Field{ MIR::RValue::Val, 0 }, fn->loc())));
 
@@ -7171,7 +7171,7 @@ namespace
       ctx.add_statement(MIR::Statement::assign(kinddst, MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, 0 }, fn->loc())));
       ctx.add_statement(MIR::Statement::construct(kindres, MIR::RValue::field(MIR::RValue::Val, 2, MIR::RValue::Field{ MIR::RValue::Val, 0 }, fn->loc())));
 
-      auto cond = ctx.add_temporary(ctx.isizetype);
+      auto cond = ctx.add_temporary(thistype->fields[0]);
 
       ctx.add_statement(MIR::Statement::assign(cond, MIR::RValue::field(MIR::RValue::Val, 2, MIR::RValue::Field{ MIR::RValue::Val, 0 }, fn->loc())));
 

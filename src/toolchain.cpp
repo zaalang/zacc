@@ -42,6 +42,10 @@ ToolChain::ToolChain(string const &triple)
 
         m_env = triple.substr(k + 1, string::npos);
       }
+      else
+      {
+        m_os = triple.substr(j + 1, string::npos);
+      }
     }
   }
   

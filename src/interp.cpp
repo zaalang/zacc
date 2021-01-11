@@ -2541,8 +2541,8 @@ namespace
     return true;
   }
 
-  //|///////////////////// eval_runtime_proc_exit ///////////////////////////
-  bool eval_runtime_proc_exit(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  //|///////////////////// eval_runtime_exit ////////////////////////////////
+  bool eval_runtime_exit(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
     auto &[callee, args, loc] = call;
 
@@ -2759,8 +2759,8 @@ namespace
       if (callee.fn->name == "mem_free")
         return eval_runtime_mem_free(ctx, fx, dst, call);
 
-      if (callee.fn->name == "proc_exit")
-        return eval_runtime_proc_exit(ctx, fx, dst, call);
+      if (callee.fn->name == "exit")
+        return eval_runtime_exit(ctx, fx, dst, call);
 
       ctx.diag.error("invalid compille time call", fx.scope, loc);
 

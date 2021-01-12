@@ -1796,6 +1796,14 @@ namespace
           result = ctx.builder.CreateURem(lhs, rhs);
           break;
 
+        case Builtin::Shl:
+          result = ctx.builder.CreateShl(lhs, ctx.builder.CreateIntCast(rhs, lhs->getType(), false));
+          break;
+
+        case Builtin::Shr:
+          result = ctx.builder.CreateLShr(lhs, ctx.builder.CreateIntCast(rhs, lhs->getType(), false));
+          break;
+
         case Builtin::And:
           result = ctx.builder.CreateAnd(lhs, rhs);
           break;
@@ -1838,6 +1846,26 @@ namespace
 
         case Builtin::Shr:
           result = ctx.builder.CreateLShr(lhs, ctx.builder.CreateIntCast(rhs, lhs->getType(), true));
+          break;
+
+        default:
+          assert(false);
+      }
+
+      store(ctx, fx, dst, result);
+    }
+    else if (lhscat == TypeCategory::SignedInteger && rhscat == TypeCategory::UnsignedInteger)
+    {
+      llvm::Value *result;
+
+      switch(callee.fn->builtin)
+      {
+        case Builtin::Shl:
+          result = ctx.builder.CreateShl(lhs, ctx.builder.CreateIntCast(rhs, lhs->getType(), false));
+          break;
+
+        case Builtin::Shr:
+          result = ctx.builder.CreateLShr(lhs, ctx.builder.CreateIntCast(rhs, lhs->getType(), false));
           break;
 
         default:
@@ -2216,6 +2244,14 @@ namespace
           result = ctx.builder.CreateURem(lhs, rhs);
           break;
 
+        case Builtin::ShlAssign:
+          result = ctx.builder.CreateShl(lhs, ctx.builder.CreateIntCast(rhs, lhs->getType(), false));
+          break;
+
+        case Builtin::ShrAssign:
+          result = ctx.builder.CreateLShr(lhs, ctx.builder.CreateIntCast(rhs, lhs->getType(), false));
+          break;
+
         case Builtin::AndAssign:
           result = ctx.builder.CreateAnd(lhs, rhs);
           break;
@@ -2254,30 +2290,18 @@ namespace
 
       store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result);
     }
-    else if (lhscat == TypeCategory::FloatingPoint && rhscat == TypeCategory::FloatingPoint)
+    else if (lhscat == TypeCategory::SignedInteger && rhscat == TypeCategory::UnsignedInteger)
     {
       llvm::Value *result;
 
       switch(callee.fn->builtin)
       {
-        case Builtin::AddAssign:
-          result = ctx.builder.CreateFAdd(lhs, rhs);
+        case Builtin::ShlAssign:
+          result = ctx.builder.CreateShl(lhs, ctx.builder.CreateIntCast(rhs, lhs->getType(), false));
           break;
 
-        case Builtin::SubAssign:
-          result = ctx.builder.CreateFSub(lhs, rhs);
-          break;
-
-        case Builtin::DivAssign:
-          result = ctx.builder.CreateFDiv(lhs, rhs);
-          break;
-
-        case Builtin::MulAssign:
-          result = ctx.builder.CreateFMul(lhs, rhs);
-          break;
-
-        case Builtin::RemAssign:
-          result = ctx.builder.CreateFRem(lhs, rhs);
+        case Builtin::ShrAssign:
+          result = ctx.builder.CreateLShr(lhs, ctx.builder.CreateIntCast(rhs, lhs->getType(), false));
           break;
 
         default:
@@ -2356,6 +2380,38 @@ namespace
 
         case Builtin::XorAssign:
           result = ctx.builder.CreateXor(lhs, rhs);
+          break;
+
+        default:
+          assert(false);
+      }
+
+      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result);
+    }
+    else if (lhscat == TypeCategory::FloatingPoint && rhscat == TypeCategory::FloatingPoint)
+    {
+      llvm::Value *result;
+
+      switch(callee.fn->builtin)
+      {
+        case Builtin::AddAssign:
+          result = ctx.builder.CreateFAdd(lhs, rhs);
+          break;
+
+        case Builtin::SubAssign:
+          result = ctx.builder.CreateFSub(lhs, rhs);
+          break;
+
+        case Builtin::DivAssign:
+          result = ctx.builder.CreateFDiv(lhs, rhs);
+          break;
+
+        case Builtin::MulAssign:
+          result = ctx.builder.CreateFMul(lhs, rhs);
+          break;
+
+        case Builtin::RemAssign:
+          result = ctx.builder.CreateFRem(lhs, rhs);
           break;
 
         default:

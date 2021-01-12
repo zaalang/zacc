@@ -430,8 +430,8 @@ namespace Builtin
     make_function(Div, "pub const fn /<T>(T, T) -> T", __LINE__);
     make_function(Mul, "pub const fn *<T>(T, T) -> T", __LINE__);
     make_function(Rem, "pub const fn %<T>(T, T) -> T", __LINE__);
-    make_function(Shl, "pub const fn <<<T>(T, int) -> T", __LINE__);
-    make_function(Shr, "pub const fn >><T>(T, int) -> T", __LINE__);
+    make_function(Shl, "pub const fn <<<T, U>(T, U) -> T", __LINE__);
+    make_function(Shr, "pub const fn >><T, U>(T, U) -> T", __LINE__);
     make_function(And, "pub const fn &<T>(T, T) -> T", __LINE__);
     make_function(Or, "pub const fn |<T>(T, T) -> T", __LINE__);
     make_function(Xor, "pub const fn ^<T>(T, T) -> T", __LINE__);
@@ -458,8 +458,8 @@ namespace Builtin
     make_function(DivAssign, "pub fn /=<T>(T mut &, T) -> T mut &", __LINE__);
     make_function(MulAssign, "pub fn *=<T>(T mut &, T) -> T mut &", __LINE__);
     make_function(RemAssign, "pub fn %=<T>(T mut &, T) -> T mut &", __LINE__);
-    make_function(ShlAssign, "pub fn <<=<T>(T mut &, int) -> T mut &", __LINE__);
-    make_function(ShrAssign, "pub fn >>=<T>(T mut &, int) -> T mut &", __LINE__);
+    make_function(ShlAssign, "pub fn <<=<T, U>(T mut &, U) -> T mut &", __LINE__);
+    make_function(ShrAssign, "pub fn >>=<T, U>(T mut &, U) -> T mut &", __LINE__);
     make_function(AndAssign, "pub fn &=<T>(T mut &, T) -> T mut &", __LINE__);
     make_function(OrAssign, "pub fn |=<T>(T mut &, T) -> T mut &", __LINE__);
     make_function(XorAssign, "pub fn ^=<T>(T mut &, T) -> T mut &", __LINE__);
@@ -767,8 +767,8 @@ namespace Builtin
       case Builtin::Shr:
       case Builtin::ShlAssign:
       case Builtin::ShrAssign:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
-          return is_int(T->second) || is_char(T->second);;
+        if (auto T = fx.find_type(fx.fn->args[0]), U = fx.find_type(fx.fn->args[1]); T != fx.typeargs.end() && U != fx.typeargs.end())
+          return (is_int(T->second) || is_char(T->second)) && is_int(U->second);
         break;
 
       case Builtin::clz:

@@ -211,6 +211,8 @@ namespace Numeric
           break;
 
         case 'x':
+        case 'u':
+        case 'U':
           std::from_chars(str.data()+3, str.data() + str.size() - 1, value, 16);
           break;
 

@@ -226,7 +226,7 @@ inline std::string unescape(std::string_view str)
           continue;
 
         case 'x': {
-          char cc;
+          int cc;
           ch = std::from_chars(ch+1, std::min(ch+3, end), cc, 16).ptr - 1;
           result += char(cc);
           continue;

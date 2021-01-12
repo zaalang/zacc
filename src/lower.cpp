@@ -6252,7 +6252,7 @@ namespace
 
     result.type = MIR::Local(resolve_type(ctx, remove_const_type(cast->type)), remove_const_type(cast->type), MIR::Local::LValue);
 
-    if (is_concrete_type(result.type.type) && (source.type.flags & MIR::Local::Literal))
+    if (!is_typearg_type(result.type.type) && (source.type.flags & MIR::Local::Literal))
     {
       if (literal_cast(ctx, result.value, source.value, result.type.type))
       {

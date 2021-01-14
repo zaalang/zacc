@@ -434,8 +434,6 @@ namespace
 
     vector<llvm::Type*> elements;
 
-    auto remainder = sizeof_type(type);
-
     elements.push_back(llvm_type(ctx, type->fields[0], true));
 
     auto max_align = size_t(0);
@@ -454,9 +452,7 @@ namespace
 
     elements.push_back(llvm_type(ctx, max_align_type, true));
 
-    remainder -= ((sizeof_field(type, 0) + max_align - 1) & -max_align) + sizeof_type(max_align_type);
-
-    if (remainder != 0)
+    if (auto remainder = sizeof_type(type) - ((sizeof_field(type, 0) + max_align - 1) & -max_align) - sizeof_type(max_align_type); remainder != 0)
     {
       elements.push_back(llvm::ArrayType::get(ctx.builder.getInt8Ty(), remainder));
     }
@@ -4147,6 +4143,12 @@ namespace
           parameters.back() = ctx.di.createReferenceType(llvm::dwarf::DW_TAG_pointer_type, llvm::cast<llvm::DIType>(parameters.back()));
       }
 
+      for(size_t i = fx.mir.args_beg, end = fx.mir.locals.size(); i != end; ++i)
+      {
+        if (fx.locals[i].info)
+          fx.locals[i].addressable = true;
+      }
+
       auto fnloc = fx.fn->loc().lineno;
       auto scopeloc = fx.fn->body ? fx.fn->body->loc().lineno : fnloc;
 
@@ -4211,7 +4213,7 @@ namespace
       if (type_category(fx.mir.locals[i].type) == TypeCategory::Unresolved)
         continue;
 
-      if (!fx.locals[i].addressable && fx.locals[i].writes <= 1 && !(ctx.genopts.debuginfo != GenOpts::DebugInfo::None && fx.locals[i].info))
+      if (!fx.locals[i].addressable && fx.locals[i].writes <= 1)
         continue;
 
       fx.locals[i].alloca = alloc(ctx, fx, fx.mir.locals[i].type, fx.locals[i].flags);
@@ -4223,10 +4225,7 @@ namespace
       {
         auto parmvar = ctx.di.createParameterVariable(fx.discopes.back(), fx.locals[i].info->name, i, fx.difile, fx.fn->loc().lineno, llvm_ditype(ctx, fx.mir.locals[i]));
 
-        if (fx.locals[i].alloca)
-          ctx.di.insertDeclare(fx.locals[i].alloca, parmvar, ctx.di.createExpression(), llvm_diloc(ctx, fx, fx.fn->loc()), fx.blocks[0].bx);
-        else if (fx.locals[i].value)
-          ctx.di.insertDbgValueIntrinsic(fx.locals[i].value, parmvar, ctx.di.createExpression(), llvm_diloc(ctx, fx, fx.fn->loc()), fx.blocks[0].bx);
+        ctx.di.insertDeclare(fx.locals[i].alloca, parmvar, ctx.di.createExpression(), llvm_diloc(ctx, fx, fx.fn->loc()), fx.blocks[0].bx);
       }
     }
 

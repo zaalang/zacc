@@ -1074,13 +1074,13 @@ namespace
         break;
       }
 
-      if (decls.size() == 1 && decls[0]->kind() == Decl::Function)
+      if (decls.size() == 1 && is_fn_decl(decls[0]))
       {
         dst = sema.make_typelit(sema.make_call_expression(declref, declref->loc()));
         return;
       }
 
-      if (decls.size() == 1 && decls[0]->kind() == Decl::ParmVar)
+      if (decls.size() == 1 && is_var_decl(decls[0]))
       {
         dst = sema.make_typelit(sema.make_declref_expression(declref, declref->loc()));
         return;
@@ -1201,7 +1201,7 @@ namespace
       {
         find_decls(ctx, declscope, declref->name, QueryFlags::Functions | QueryFlags::Usings | queryflags, decls, sema);
 
-        if (decls.size() == 1 && decls[0]->kind() == Decl::Function)
+        if (decls.size() == 1 && is_fn_decl(decls[0]))
         {
           dst = sema.make_typelit(sema.make_call_expression(scoped, scoped->loc()));
           return;

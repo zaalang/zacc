@@ -549,6 +549,9 @@ namespace
   //|///////////////////// is_base_cast /////////////////////////////////////
   bool is_base_cast(LowerContext &ctx, Type *lhs, Type *rhs)
   {
+    if (is_typearg_type(lhs))
+      return false;
+
     if (lhs == ctx.ptrliteraltype || rhs == ctx.ptrliteraltype)
       return false;
 
@@ -1570,7 +1573,7 @@ namespace
 
     for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
     {
-      find_decls(ctx, sx, declref->name, QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Functions | QueryFlags::Usings, decls);
+      find_decls(ctx, sx, declref->name, QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Functions | QueryFlags::Usings, ResolveUsings, decls);
 
       for(auto &decl : decls)
       {
@@ -6204,7 +6207,7 @@ namespace
         return;
     }
 
-    if (is_typearg_type(type))
+    if (!is_builtin_type(type) && !is_concrete_type(type))
     {
       ctx.diag.error("unresolved type for sizeof", ctx.stack.back(), call->loc());
       return;
@@ -6232,7 +6235,7 @@ namespace
         return;
     }
 
-    if (is_typearg_type(type))
+    if (!is_builtin_type(type) && !is_concrete_type(type))
     {
       ctx.diag.error("unresolved type for alignof", ctx.stack.back(), call->loc());
       return;
@@ -6613,11 +6616,11 @@ namespace
   {
     MIR::Fragment value;
 
+    if (!lower_expr(ctx, value, stmtvar->value))
+      return;
+
     if (stmtvar->flags & VarDecl::Literal)
     {
-      if (!lower_expr(ctx, value, stmtvar->value))
-        return;
-
       if (!(value.type.flags & MIR::Local::Literal))
       {
         ctx.diag.error("non literal value", ctx.stack.back(), stmtvar->loc());
@@ -6630,9 +6633,6 @@ namespace
     }
 
     auto arg = ctx.add_variable();
-
-    if (!lower_expr(ctx, value, stmtvar->value))
-      return;
 
     if (is_typearg_type(value.type.type) || ((ctx.flags & LowerFlags::Runtime) && is_tag_type(value.type.type) && !is_concrete_type(value.type.type)))
     {
@@ -8624,8 +8624,9 @@ namespace
           continue;
         }
 
-        ctx.diag.error("unsupported static for initialiser", ctx.stack.back(), init->loc());
-        return;
+        ctx.diag.error("unsupported static for initialiser", ctx.stack.back(), rangevar->range->loc());
+
+        continue;
       }
 
       lower_statement(ctx, init);
@@ -9464,6 +9465,9 @@ namespace
         changed |= promote_type(ctx, arg, ctx.typetable.find_or_create<ArrayType>(type(Builtin::Type_F64), type_cast<ArrayType>(dst.type)->size));
     }
 
+    if (ctx.diag.has_errored())
+      return;
+
     if (changed)
     {
       backfill(ctx, mir);
@@ -9538,7 +9542,7 @@ MIR lower(FnSig const &fx, TypeTable &typetable, Diag &diag, long flags)
     inliner(ctx, ctx.mir);
   }
 
-  return ctx.mir;
+  return std::move(ctx.mir);
 }
 
 //|///////////////////// lower //////////////////////////////////////////////
@@ -9558,5 +9562,5 @@ MIR lower(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fragment> co
   dump_mir(ctx.mir);
 #endif
 
-  return ctx.mir;
+  return std::move(ctx.mir);
 }

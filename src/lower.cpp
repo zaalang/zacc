@@ -4817,6 +4817,12 @@ namespace
 
     auto scope = Scope(callee.fn, callee.typeargs);
 
+    if (callee.fn->flags & FunctionDecl::Deleted)
+    {
+      ctx.diag.error("call of deleted function", ctx.stack.back(), loc);
+      return false;
+    }
+
     // throw type
 
     if (is_throws(ctx, callee.fn))
@@ -5760,6 +5766,11 @@ namespace
 
     if (!callee && binaryop == BinaryOpExpr::Assign)
     {
+      auto base_type = [&](Type *type) { while (is_struct_type(type) && decl_cast<StructDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
+
+      if (is_struct_type(parms[1].type.type))
+        lower_base_cast(ctx, parms[1], base_type(parms[1].type.type), parms[1]);
+
       if (!(parms[0].type.flags & MIR::Local::Const) && is_pointference_type(parms[0].type.type) && is_pointference_type(parms[1].type.type))
       {
         auto lhs = remove_pointference_type(parms[0].type.type);
@@ -5776,38 +5787,6 @@ namespace
 
         if (lhs == rhs)
           callee.fx = Builtin::fn(ctx.translationunit->builtins, Builtin::Assign, parms[0].type.type);
-      }
-    }
-
-    if (!callee && (binaryop == BinaryOpExpr::LT || binaryop == BinaryOpExpr::GT || binaryop == BinaryOpExpr::LE || binaryop == BinaryOpExpr::GE || binaryop == BinaryOpExpr::EQ || binaryop == BinaryOpExpr::NE || binaryop == BinaryOpExpr::Cmp))
-    {
-      if (is_pointference_type(parms[0].type.type) && is_pointference_type(parms[1].type.type))
-      {
-        auto lhs = remove_const_type(remove_pointference_type(parms[0].type.type));
-        auto rhs = remove_const_type(remove_pointference_type(parms[1].type.type));
-
-        if (lhs == rhs)
-          callee.fx = map_builtin(ctx, binaryop, parms[0].type.type);
-
-        if (lhs != rhs)
-        {
-          while (lhs != rhs && is_struct_type(lhs) && decl_cast<StructDecl>(type_cast<TagType>(lhs)->decl)->basetype)
-            lhs = type_cast<TagType>(lhs)->fields[0];
-
-          if (lhs == rhs)
-            callee.fx = map_builtin(ctx, binaryop, parms[0].type.type);
-        }
-
-        if (lhs != rhs)
-        {
-          lhs = remove_const_type(remove_pointference_type(parms[0].type.type));
-
-          while (rhs != lhs && is_struct_type(rhs) && decl_cast<StructDecl>(type_cast<TagType>(rhs)->decl)->basetype)
-            rhs = type_cast<TagType>(rhs)->fields[0];
-
-          if (rhs == lhs)
-            callee.fx = map_builtin(ctx, binaryop, parms[1].type.type);
-        }
       }
     }
 
@@ -5897,6 +5876,32 @@ namespace
           swap(parms[0], parms[1]);
 
         callee.fx = map_builtin(ctx, binaryop, type(Builtin::Type_I32));
+      }
+    }
+
+    if (!callee && (binaryop == BinaryOpExpr::LT || binaryop == BinaryOpExpr::GT || binaryop == BinaryOpExpr::LE || binaryop == BinaryOpExpr::GE || binaryop == BinaryOpExpr::EQ || binaryop == BinaryOpExpr::NE || binaryop == BinaryOpExpr::Cmp))
+    {
+      auto base_type = [&](Type *type) { while (is_struct_type(type) && decl_cast<StructDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
+
+      if (is_struct_type(parms[0].type.type))
+        lower_base_cast(ctx, parms[0], base_type(parms[0].type.type), parms[0]);
+
+      if (is_struct_type(parms[1].type.type))
+        lower_base_cast(ctx, parms[1], base_type(parms[1].type.type), parms[1]);
+
+      if (is_pointference_type(parms[0].type.type) && is_pointference_type(parms[1].type.type))
+      {
+        auto lhs = remove_const_type(remove_pointference_type(parms[0].type.type));
+        auto rhs = remove_const_type(remove_pointference_type(parms[1].type.type));
+
+        if (lhs != rhs)
+        {
+          lhs = base_type(lhs);
+          rhs = base_type(rhs);
+        }
+
+        if (lhs == rhs)
+          callee.fx = map_builtin(ctx, binaryop, ctx.typetable.find_or_create<PointerType>(ctx.typetable.find_or_create<ConstType>(lhs)));
       }
     }
 

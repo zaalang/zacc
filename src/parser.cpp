@@ -1809,6 +1809,23 @@ namespace
     return parse_expression_right(ctx, PrecLevel::Assignment, parse_expression_left(ctx, sema), cursor.position, sema);
   }
 
+  //|///////////////////// parse_funciton_specifier /////////////////////////
+  Decl *parse_funciton_specifier(ParseContext &ctx, Decl *fn, Sema &sema)
+  {
+    if (ctx.tok.text == "default")
+      fn->flags |= FunctionDecl::Defaulted;
+
+    else if (ctx.tok.text == "delete")
+      fn->flags |= FunctionDecl::Deleted;
+
+    else
+      ctx.diag.error("unknown specifier", ctx.text, ctx.tok.loc);
+
+    ctx.consume_token();
+
+    return fn;
+  }
+
   //|///////////////////// parse_if_declaration /////////////////////////////
   IfDecl *parse_if_declaration(ParseContext &ctx, Sema &sema)
   {
@@ -2514,13 +2531,7 @@ namespace
 
     if (ctx.try_consume_token(Token::equal))
     {
-      if (ctx.tok.text == "default")
-        fn->flags |= FunctionDecl::Defaulted;
-
-      if (ctx.tok.text == "delete")
-        fn->flags |= FunctionDecl::Deleted;
-
-      ctx.consume_token();
+      parse_funciton_specifier(ctx, fn, sema);
 
       if (ctx.tok != Token::semi)
       {
@@ -2651,13 +2662,7 @@ namespace
 
     if (ctx.try_consume_token(Token::equal))
     {
-      if (ctx.tok.text == "default")
-        fn->flags |= FunctionDecl::Defaulted;
-
-      if (ctx.tok.text == "delete")
-        fn->flags |= FunctionDecl::Deleted;
-
-      ctx.consume_token();
+      parse_funciton_specifier(ctx, fn, sema);
 
       if (ctx.tok != Token::semi)
       {
@@ -2728,13 +2733,7 @@ namespace
 
     if (ctx.try_consume_token(Token::equal))
     {
-      if (ctx.tok.text == "default")
-        fn->flags |= FunctionDecl::Defaulted;
-
-      if (ctx.tok.text == "delete")
-        fn->flags |= FunctionDecl::Deleted;
-
-      ctx.consume_token();
+      parse_funciton_specifier(ctx, fn, sema);
 
       if (ctx.tok != Token::semi)
       {

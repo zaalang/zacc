@@ -249,6 +249,8 @@ class UnaryOpExpr : public Expr
       PreDec,
       PostInc,
       PostDec,
+      Begin,
+      End,
       Ref,
       Fer,
       Fwd,

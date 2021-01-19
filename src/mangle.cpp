@@ -171,11 +171,8 @@ namespace
         return scope;
       }
 
-      case Stmt::Declaration:
-        return mangle_scope(stmt->owner);
-
       default:
-        throw logic_error("invalid stmt for mangling");
+        return mangle_scope(stmt->owner);
     }
   }
 }

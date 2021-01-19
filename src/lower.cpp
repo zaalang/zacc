@@ -5519,28 +5519,32 @@ namespace
       }
     }
 
-    while (is_tag_type(base.type.type))
+    for(auto type = base.type.type; is_tag_type(type); )
     {
-      auto tagtype = type_cast<TagType>(base.type.type);
+      auto tagtype = type_cast<TagType>(type);
 
       if (auto field = find_field(ctx, tagtype, name))
       {
         if ((field.flags & Decl::Public) || get_module(tagtype->decl) == ctx.module)
         {
+          while (base.type.type != type)
+          {
+            if (auto field = find_field(ctx, type_cast<TagType>(base.type.type), "super"))
+            {
+              lower_field(ctx, base, base, field, declref->base->loc());
+            }
+          }
+
           lower_field(ctx, result, base, field, declref->loc());
 
           return;
         }
       }
 
-      if (auto field = find_field(ctx, tagtype, "super"))
-      {
-        lower_field(ctx, base, base, field, declref->base->loc());
+      if (!is_struct_type(type) || !decl_cast<StructDecl>(tagtype->decl)->basetype)
+        break;
 
-        continue;
-      }
-
-      break;
+      type = tagtype->fields[0];
     }
 
     auto callee = find_callee(ctx, ctx.stack, basescope, declref->decl, parms, namedparms);
@@ -5643,6 +5647,19 @@ namespace
 
       result.type = resolve_as_reference(ctx, result.type);
       result.type.defn = remove_const_type(remove_reference_type(result.type.defn));
+
+      return true;
+    }
+
+    if (unaryop == UnaryOpExpr::Fwd && parms[0].value.kind() == MIR::RValue::Call)
+    {
+      result = std::move(parms[0]);
+
+      if (result.type.flags & MIR::Local::Reference)
+      {
+        result.type = resolve_as_value(ctx, result.type);
+        result.type.defn = ctx.typetable.find_or_create<ReferenceType>(result.type.defn);
+      }
 
       return true;
     }
@@ -6362,14 +6379,22 @@ namespace
 
       if (call->base)
       {
-        while (is_struct_type(base.type.type))
+        for(auto type = base.type.type; is_tag_type(type); )
         {
-          auto tagtype = type_cast<TagType>(base.type.type);
+          auto tagtype = type_cast<TagType>(type);
 
           if (auto field = find_field(ctx, tagtype, name))
           {
             if ((field.flags & Decl::Public) || get_module(tagtype->decl) == ctx.module)
             {
+              while (base.type.type != type)
+              {
+                if (auto field = find_field(ctx, type_cast<TagType>(base.type.type), "super"))
+                {
+                  lower_field(ctx, base, base, field, call->loc());
+                }
+              }
+
               if (!lower_field(ctx, parms[0], base, field, call->loc()))
                 return;
 
@@ -6379,14 +6404,10 @@ namespace
             }
           }
 
-          if (auto field = find_field(ctx, tagtype, "super"))
-          {
-            lower_field(ctx, base, base, field, call->base->loc());
+          if (!is_struct_type(type) || !decl_cast<StructDecl>(tagtype->decl)->basetype)
+            break;
 
-            continue;
-          }
-
-          break;
+          type = tagtype->fields[0];
         }
 
         if (is_lambda_type(base.type.type))
@@ -8109,16 +8130,7 @@ namespace
           parms[0].type = ctx.mir.locals[arg];
           parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, rangevar->loc());
 
-          auto callee = find_callee(ctx, parms[0].type.type, "begin", parms, namedparms);
-
-          if (!callee)
-          {
-            ctx.diag.error("cannot resolve range begin", ctx.stack.back(), rangevar->loc());
-            diag_callee(ctx, callee, parms, namedparms);
-            return;
-          }
-
-          if (!lower_call(ctx, iterator, callee.fx, parms, namedparms, rangevar->loc()))
+          if (!lower_expr(ctx, iterator, UnaryOpExpr::Begin, parms, namedparms, rangevar->loc()))
             return;
 
           realise(ctx, beg, iterator);
@@ -8140,16 +8152,7 @@ namespace
           parms[0].type = ctx.mir.locals[arg];
           parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, rangevar->loc());
 
-          auto callee = find_callee(ctx, parms[0].type.type, "end", parms, namedparms);
-
-          if (!callee)
-          {
-            ctx.diag.error("cannot resolve range end", ctx.stack.back(), rangevar->loc());
-            diag_callee(ctx, callee, parms, namedparms);
-            return;
-          }
-
-          if (!lower_call(ctx, iterator, callee.fx, parms, namedparms, rangevar->loc()))
+          if (!lower_expr(ctx, iterator, UnaryOpExpr::End, parms, namedparms, rangevar->loc()))
             return;
 
           realise(ctx, end, iterator);
@@ -8193,30 +8196,7 @@ namespace
       parms[1].type = ctx.mir.locals[end];
       parms[1].value = MIR::RValue::local(MIR::RValue::Val, end, get<0>(range)->loc());
 
-      auto callee = find_callee(ctx, parms[0].type.type, "!=", parms, namedparms);
-
-      if (!callee)
-      {
-        if (callee = find_callee(ctx, parms[0].type.type, "==", parms, namedparms); callee)
-        {
-          if (!lower_call(ctx, compare, callee.fx, parms, namedparms, fors->loc()))
-            return;
-
-          parms.resize(1);
-          parms[0] = std::move(compare);
-
-          callee.fx = Builtin::fn(ctx.translationunit->builtins, Builtin::LNot);
-        }
-      }
-
-      if (!callee)
-      {
-        ctx.diag.error("cannot resolve iterator inequality", ctx.stack.back(), get<0>(range)->loc());
-        diag_callee(ctx, callee, parms, namedparms);
-        return;
-      }
-
-      if (!lower_call(ctx, compare, callee.fx, parms, namedparms, fors->loc()))
+      if (!lower_expr(ctx, compare, BinaryOpExpr::NE, parms, namedparms, fors->loc()))
         return;
 
       auto flg = ctx.add_temporary();
@@ -8285,16 +8265,7 @@ namespace
       parms[0].type = ctx.mir.locals[beg];
       parms[0].value = MIR::RValue::local(MIR::RValue::Val, beg, get<0>(range)->loc());
 
-      auto callee = find_callee(ctx, parms[0].type.type, "++", parms, namedparms);
-
-      if (!callee)
-      {
-        ctx.diag.error("cannot resolve iterator increment", ctx.stack.back(), get<0>(range)->loc());
-        diag_callee(ctx, callee, parms, namedparms);
-        return;
-      }
-
-      if (!lower_call(ctx, increment, callee.fx, parms, namedparms, fors->loc()))
+      if (!lower_expr(ctx, increment, UnaryOpExpr::PreInc, parms, namedparms, fors->loc()))
         return;
 
       auto res = ctx.add_temporary();
@@ -8371,16 +8342,7 @@ namespace
           parms[0].type = ctx.mir.locals[arg];
           parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, rangevar->loc());
 
-          auto callee = find_callee(ctx, parms[0].type.type, "begin", parms, namedparms);
-
-          if (!callee)
-          {
-            ctx.diag.error("cannot resolve range begin", ctx.stack.back(), rangevar->loc());
-            diag_callee(ctx, callee, parms, namedparms);
-            return;
-          }
-
-          if (!lower_call(ctx, iterator, callee.fx, parms, namedparms, rangevar->loc()))
+          if (!lower_expr(ctx, iterator, UnaryOpExpr::Begin, parms, namedparms, rangevar->loc()))
             return;
 
           realise(ctx, beg, iterator);
@@ -8402,16 +8364,7 @@ namespace
           parms[0].type = ctx.mir.locals[arg];
           parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, rangevar->loc());
 
-          auto callee = find_callee(ctx, parms[0].type.type, "end", parms, namedparms);
-
-          if (!callee)
-          {
-            ctx.diag.error("cannot resolve range end", ctx.stack.back(), rangevar->loc());
-            diag_callee(ctx, callee, parms, namedparms);
-            return;
-          }
-
-          if (!lower_call(ctx, iterator, callee.fx, parms, namedparms, rangevar->loc()))
+          if (!lower_expr(ctx, iterator, UnaryOpExpr::End, parms, namedparms, rangevar->loc()))
             return;
 
           realise(ctx, end, iterator);
@@ -8455,16 +8408,7 @@ namespace
       parms[1].type = ctx.mir.locals[end];
       parms[1].value = MIR::RValue::local(MIR::RValue::Val, end, get<0>(range)->loc());
 
-      auto callee = find_callee(ctx, parms[0].type.type, "==", parms, namedparms);
-
-      if (!callee)
-      {
-        ctx.diag.error("cannot resolve iterator equality", ctx.stack.back(), get<0>(range)->loc());
-        diag_callee(ctx, callee, parms, namedparms);
-        return;
-      }
-
-      if (!lower_call(ctx, compare, callee.fx, parms, namedparms, rofs->loc()))
+      if (!lower_expr(ctx, compare, BinaryOpExpr::EQ, parms, namedparms, rofs->loc()))
         return;
 
       auto flg = ctx.add_temporary();
@@ -8513,16 +8457,7 @@ namespace
       parms[0].type = ctx.mir.locals[end];
       parms[0].value = MIR::RValue::local(MIR::RValue::Val, end, get<0>(range)->loc());
 
-      auto callee = find_callee(ctx, ctx.mir.locals[end].type, "--", parms, namedparms);
-
-      if (!callee)
-      {
-        ctx.diag.error("cannot resolve iterator decrement", ctx.stack.back(), get<0>(range)->loc());
-        diag_callee(ctx, callee, parms, namedparms);
-        return;
-      }
-
-      if (!lower_call(ctx, decrement, callee.fx, parms, namedparms, rofs->loc()))
+      if (!lower_expr(ctx, decrement, UnaryOpExpr::PreDec, parms, namedparms, rofs->loc()))
         return;
 
       auto res = ctx.add_temporary();

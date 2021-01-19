@@ -386,6 +386,8 @@ const char *UnaryOpExpr::name(UnaryOpExpr::OpCode op)
     case PreDec: return "--";
     case PostInc: return "++";
     case PostDec: return "--";
+    case Begin: return "begin";
+    case End: return "end";
     case Ref: return "&";
     case Fer: return "*";
     case Fwd: return "&&";

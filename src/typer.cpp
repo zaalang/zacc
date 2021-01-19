@@ -926,7 +926,7 @@ namespace
       diag_args(ctx, declref, decl, sema);
     }
 
-    resolve_type(ctx, decl, dst, sema);
+    resolve_type(ctx, scope, dst, sema);
   }
 
   //|///////////////////// resolve_typearg //////////////////////////////////

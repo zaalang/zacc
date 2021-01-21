@@ -5615,6 +5615,15 @@ namespace
   //|///////////////////// lower_unaryop ////////////////////////////////////
   bool lower_expr(LowerContext &ctx, MIR::Fragment &result, UnaryOpExpr::OpCode unaryop, vector<MIR::Fragment> &parms, map<string_view, MIR::Fragment> &namedparms, SourceLocation loc)
   {
+    if (unaryop == UnaryOpExpr::PostInc || unaryop == UnaryOpExpr::PostDec)
+    {
+      if (parms[0].type.flags & MIR::Local::RValue)
+      {
+        ctx.diag.error("invalid increment on rvalue expression", ctx.stack.back(), loc);
+        return false;
+      }
+    }
+
     if (unaryop == UnaryOpExpr::Unpack)
     {
       result = std::move(parms[0]);
@@ -5774,7 +5783,7 @@ namespace
     {
       if (parms[0].type.flags & MIR::Local::RValue)
       {
-        ctx.diag.error("invalid assignment epression", ctx.stack.back(), loc);
+        ctx.diag.error("invalid assignment to rvalue expression", ctx.stack.back(), loc);
         return false;
       }
     }

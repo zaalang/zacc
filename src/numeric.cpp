@@ -447,14 +447,16 @@ namespace Numeric
     auto sign = 1;
     auto value = ~(i.sign*i.value);
     auto overflowed = false;
+    auto maybe_unsigned = false;
 
     if (i.sign > 0)
     {
       sign = -1;
       value = ~value + 1;
+      maybe_unsigned = true;
     }
 
-    return { sign, value, overflowed };
+    return { sign, value, overflowed, maybe_unsigned };
   }
 
   //|///////////////////// or ///////////////////////////////////////////////

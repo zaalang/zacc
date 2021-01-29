@@ -337,7 +337,8 @@ class TagType : public CompoundType
     std::vector<Decl*> decls;
     std::vector<Decl*> fieldvars;
 
-    void resolve(std::vector<Decl*> &&resolved_decls, std::vector<Type*> &&resolved_fields);
+    void resolve(std::vector<Decl*> &&resolved_decls);
+    void resolve(std::vector<Type*> &&resolved_fields);
 
     void dump(int indent) const override;
 };

@@ -1208,7 +1208,9 @@ namespace
 
     auto type = ctx.typetable.create<TagType>(tagdecl, scope.typeargs);
 
-    for(auto &decl : decls)
+    type->resolve(std::move(decls));
+
+    for(auto &decl : type->decls)
     {
       if (decl->kind() != Decl::FieldVar)
         continue;
@@ -1216,7 +1218,7 @@ namespace
       fields.push_back(remove_const_type(resolve_type(ctx, scope, decl_cast<FieldVarDecl>(decl)->type)));
     }
 
-    type->resolve(std::move(decls), std::move(fields));
+    type->resolve(std::move(fields));
 
     return type;
   }
@@ -1305,7 +1307,7 @@ namespace
             {
               expr = evaluate(scope, expr, ctx.symbols, ctx.typetable, ctx.diag, constant->loc()).value;
 
-              if (expr->kind() == Expr::CharLiteral)
+              if (expr && expr->kind() == Expr::CharLiteral)
               {
                 expr = ctx.mir.make_expr<IntLiteralExpr>(expr_cast<CharLiteralExpr>(expr)->value(), constant->loc());
               }
@@ -4321,6 +4323,14 @@ namespace
         match = is_builtin_type(type[0]);
         break;
 
+      case Builtin::is_pointer:
+        match = is_pointference_type(type[0]);
+        break;
+
+      case Builtin::is_reference:
+        match = is_reference_type(type[0]);
+        break;
+
       case Builtin::is_trivial_copy:
         match = is_trivial_copy_type(type[0]);
         break;
@@ -4555,6 +4565,7 @@ namespace
           lower_fer(ctx, base, base);
 
         base.type = resolve_as_reference(ctx, base.type);
+        base.type.defn = remove_const_type(remove_reference_type(base.type.defn));
       }
     }
 
@@ -5010,6 +5021,8 @@ namespace
         case Builtin::is_array:
         case Builtin::is_tuple:
         case Builtin::is_builtin:
+        case Builtin::is_pointer:
+        case Builtin::is_reference:
         case Builtin::is_trivial_copy:
         case Builtin::is_trivial_assign:
         case Builtin::is_trivial_destroy:
@@ -5777,9 +5790,7 @@ namespace
   //|///////////////////// lower_binaryop ///////////////////////////////////
   bool lower_expr(LowerContext &ctx, MIR::Fragment &result, BinaryOpExpr::OpCode binaryop, vector<MIR::Fragment> &parms, map<string_view, MIR::Fragment> &namedparms, SourceLocation loc)
   {
-    if (binaryop == BinaryOpExpr::Assign || binaryop == BinaryOpExpr::MulAssign || binaryop == BinaryOpExpr::DivAssign || binaryop == BinaryOpExpr::RemAssign ||
-        binaryop == BinaryOpExpr::AddAssign || binaryop == BinaryOpExpr::SubAssign || binaryop == BinaryOpExpr::ShlAssign || binaryop == BinaryOpExpr::ShrAssign ||
-        binaryop == BinaryOpExpr::AndAssign || binaryop == BinaryOpExpr::XorAssign || binaryop == BinaryOpExpr::OrAssign)
+    if (binaryop == BinaryOpExpr::Assign || (BinaryOpExpr::AddAssign <= binaryop && binaryop <= BinaryOpExpr::XorAssign))
     {
       if (parms[0].type.flags & MIR::Local::RValue)
       {
@@ -5814,6 +5825,18 @@ namespace
         if (lhs == rhs)
           callee.fx = Builtin::fn(ctx.translationunit->builtins, Builtin::Assign, parms[0].type.type);
       }
+    }
+
+    if (!callee && (BinaryOpExpr::AddAssign <= binaryop && binaryop <= BinaryOpExpr::XorAssign))
+    {
+      auto op = static_cast<BinaryOpExpr::OpCode>(binaryop - BinaryOpExpr::AddAssign); // TODO: fragile!
+
+      if (!lower_expr(ctx, result, op, parms, namedparms, loc))
+        return false;
+
+      parms[1] = std::move(result);
+
+      callee = find_callee(ctx, ctx.stack, BinaryOpExpr::Assign, parms, namedparms);
     }
 
     if (!callee && binaryop == BinaryOpExpr::EQ)

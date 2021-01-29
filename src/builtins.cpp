@@ -506,6 +506,8 @@ namespace Builtin
     make_function(is_array, "pub const fn __is_array<T>() -> bool", __LINE__);
     make_function(is_tuple, "pub const fn __is_tuple<T>() -> bool", __LINE__);
     make_function(is_builtin, "pub const fn __is_builtin<T>() -> bool", __LINE__);
+    make_function(is_pointer, "pub const fn __is_pointer<T>() -> bool", __LINE__);
+    make_function(is_reference, "pub const fn __is_reference<T>() -> bool", __LINE__);
     make_function(is_trivial_copy, "pub const fn __is_trivial_copy<T>() -> bool", __LINE__);
     make_function(is_trivial_assign, "pub const fn __is_trivial_assign<T>() -> bool", __LINE__);
     make_function(is_trivial_destroy, "pub const fn __is_trivial_destroy<T>() -> bool", __LINE__);
@@ -741,7 +743,7 @@ namespace Builtin
       case Builtin::NE:
       case Builtin::Cmp:
         if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
-          return is_builtin(T->second) || is_enum(T->second) || is_pointer(T->second);
+          return is_builtin(T->second) || is_enum(T->second) || is_pointer(T->second) || is_reference(T->second);
         break;
 
       case Builtin::OffsetAdd:
@@ -799,6 +801,8 @@ namespace Builtin
       case Builtin::is_array:
       case Builtin::is_tuple:
       case Builtin::is_builtin:
+      case Builtin::is_pointer:
+      case Builtin::is_reference:
       case Builtin::is_trivial_copy:
       case Builtin::is_trivial_assign:
       case Builtin::is_trivial_destroy:

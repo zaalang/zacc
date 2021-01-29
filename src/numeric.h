@@ -23,6 +23,7 @@ namespace Numeric
     int sign;
     uint64_t value;
     bool overflowed;
+    bool maybe_unsigned;
   };
 
   Int parse_int_literal(int sign, std::string_view str);

@@ -509,18 +509,18 @@ bool literal_valid(BuiltinType::Kind kind, Numeric::Int const &value)
       return (value.sign < 0 && value.value <= uint64_t(std::numeric_limits<int64_t>::max())+1) || (value.sign > 0 && value.value <= uint64_t(std::numeric_limits<int64_t>::max()));
 
     case BuiltinType::U8:
-      return (value.sign > 0 && value.value <= uint64_t(std::numeric_limits<uint8_t>::max()));
+      return (value.sign > 0 && value.value <= uint64_t(std::numeric_limits<uint8_t>::max())) || (value.maybe_unsigned && value.value - 1 <= uint64_t(std::numeric_limits<uint8_t>::max()));
 
     case BuiltinType::U16:
-      return (value.sign > 0 && value.value <= uint64_t(std::numeric_limits<uint16_t>::max()));
+      return (value.sign > 0 && value.value <= uint64_t(std::numeric_limits<uint16_t>::max())) || (value.maybe_unsigned && value.value - 1 <= uint64_t(std::numeric_limits<uint16_t>::max()));;
 
     case BuiltinType::U32:
     case BuiltinType::Char:
-      return (value.sign > 0 && value.value <= uint64_t(std::numeric_limits<uint32_t>::max()));
+      return (value.sign > 0 && value.value <= uint64_t(std::numeric_limits<uint32_t>::max())) || (value.maybe_unsigned && value.value - 1 <= uint64_t(std::numeric_limits<uint32_t>::max()));;
 
     case BuiltinType::U64:
     case BuiltinType::USize:
-      return (value.sign > 0 && value.value <= uint64_t(std::numeric_limits<uint64_t>::max()));
+      return (value.sign > 0 && value.value <= uint64_t(std::numeric_limits<uint64_t>::max())) || (value.maybe_unsigned && value.value - 1<= uint64_t(std::numeric_limits<uint64_t>::max()));;
 
     case BuiltinType::IntLiteral:
       return true;
@@ -951,13 +951,18 @@ TagType::TagType(Decl *decl, vector<pair<Decl*, Type*>> const &args)
 }
 
 //|///////////////////// TagType::resolve ///////////////////////////////////
-void TagType::resolve(vector<Decl*> &&resolved_decls, vector<Type*> &&resolved_fields)
+void TagType::resolve(vector<Decl*> &&resolved_decls)
+{
+  decls = std::move(resolved_decls);
+}
+
+//|///////////////////// TagType::resolve ///////////////////////////////////
+void TagType::resolve(vector<Type*> &&resolved_fields)
 {
   // Maybe we should resolve all the subtypes in this pass so that pointers/references/consts can update
   // their concrete (and others?) flags appropriately. The above concrete assumption could be resolved.
   // For now pointers/references don't abide their concrete flags, just pass along the subtype.
 
-  decls = std::move(resolved_decls);
   fields = std::move(resolved_fields);
 
   if (decl->kind() == Decl::Struct || decl->kind() == Decl::Union || decl->kind() == Decl::Lambda)

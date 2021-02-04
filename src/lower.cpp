@@ -5330,6 +5330,12 @@ namespace
 
     auto size = resolve_type(ctx, arrayliteral->size);
 
+    if (size->klass() != Type::TypeLit || type_cast<TypeLitType>(size)->value->kind() != Expr::IntLiteral)
+    {
+      ctx.diag.error("invalid array literal size", ctx.stack.back(), arrayliteral->loc());
+      return;
+    }
+
     result.type = MIR::Local(ctx.typetable.find_or_create<ArrayType>(type, size), MIR::Local::Const | MIR::Local::Literal);
 
     if (all_of(arrayliteral->elements.begin(), arrayliteral->elements.end(), [](auto &k) { return is_literal_expr(k); }))
@@ -5340,9 +5346,9 @@ namespace
 
     vector<MIR::Fragment> values(arrayliteral->elements.size());
 
-    for(size_t i = 0; i < values.size(); ++i)
+    for(size_t index = 0; index < values.size(); ++index)
     {
-      if (!lower_expr(ctx, values[i], arrayliteral->elements[i]))
+      if (!lower_expr(ctx, values[index], arrayliteral->elements[index]))
         return;
     }
 
@@ -5356,33 +5362,73 @@ namespace
       }
 
       result.value = ctx.mir.make_expr<ArrayLiteralExpr>(elements, size, arrayliteral->loc());
+
       return;
     }
 
     auto arg = ctx.add_temporary();
+    auto len = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(size)->value)->value().value;
 
     auto typeref = ctx.typetable.find_or_create<ReferenceType>(type);
 
-    for(auto &value : values)
+    for(size_t index = 0; index < values.size(); ++index)
     {
-      auto index = size_t(&value - &values.front());
-
       auto dst = ctx.add_temporary(typeref, MIR::Local::LValue);
       auto res = ctx.add_temporary();
 
-      ctx.add_statement(MIR::Statement::assign(dst, MIR::RValue::field(MIR::RValue::Ref, arg, MIR::RValue::Field{ MIR::RValue::Ref, index }, value.value.loc())));
+      ctx.add_statement(MIR::Statement::assign(dst, MIR::RValue::field(MIR::RValue::Ref, arg, MIR::RValue::Field{ MIR::RValue::Ref, index }, arrayliteral->loc())));
 
       MIR::Fragment result;
 
-      vector<MIR::Fragment> parms = { value };
+      vector<MIR::Fragment> parms(1);
       map<string_view, MIR::Fragment> namedparms;
 
-      if (!lower_copy(ctx, result, type, parms, namedparms, value.value.loc()))
+      parms[0] = std::move(values[index]);
+
+      if (!lower_copy(ctx, result, type, parms, namedparms, parms[0].value.loc()))
         return;
 
       realise_as_value(ctx, Place(Place::Fer, res), result);
 
       commit_type(ctx, res, result.type.type, result.type.flags);
+    }
+
+    if (values.size() < len)
+    {
+      auto inc = find_builtin(ctx, Builtin::PreInc, typeref);
+      auto cmp = find_builtin(ctx, Builtin::NE, typeref);
+
+      auto dst = ctx.add_temporary(typeref, MIR::Local::LValue);
+      auto res = ctx.add_temporary();
+      auto end = ctx.add_temporary(typeref, MIR::Local::LValue);
+      auto dsr = ctx.add_temporary(typeref, MIR::Local::LValue | MIR::Local::Reference);
+      auto dsi = ctx.add_temporary(typeref, MIR::Local::LValue | MIR::Local::Reference);
+      auto flg = ctx.add_temporary(ctx.booltype, MIR::Local::LValue);
+
+      ctx.add_statement(MIR::Statement::assign(dst, MIR::RValue::field(MIR::RValue::Ref, arg, MIR::RValue::Field{ MIR::RValue::Ref, 1 }, arrayliteral->loc())));
+      ctx.add_statement(MIR::Statement::assign(end, MIR::RValue::field(MIR::RValue::Ref, arg, MIR::RValue::Field{ MIR::RValue::Ref, len }, arrayliteral->loc())));
+      ctx.add_statement(MIR::Statement::assign(dsr, MIR::RValue::local(MIR::RValue::Ref, dst, arrayliteral->loc())));
+
+      auto block_head = ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1));
+
+      MIR::Fragment result;
+
+      vector<MIR::Fragment> parms(1);
+      map<string_view, MIR::Fragment> namedparms;
+
+      parms[0].type = type;
+      parms[0].value = MIR::RValue::field(MIR::RValue::Val, arg, MIR::RValue::Field{ MIR::RValue::Ref, 0 }, arrayliteral->loc());
+
+      if (!lower_copy(ctx, result, type, parms, namedparms, arrayliteral->loc()))
+        return;
+
+      realise_as_value(ctx, Place(Place::Fer, res), result);
+
+      commit_type(ctx, res, result.type.type, result.type.flags);
+
+      ctx.add_statement(MIR::Statement::assign(dsi, MIR::RValue::call(inc, { dsr }, arrayliteral->loc())));
+      ctx.add_statement(MIR::Statement::assign(flg, MIR::RValue::call(cmp, { dst, end }, arrayliteral->loc())));
+      ctx.add_block(MIR::Terminator::switcher(flg, ctx.currentblockid + 1, block_head + 1));
     }
 
     commit_type(ctx, arg, result.type.type, MIR::Local::RValue);
@@ -5797,6 +5843,12 @@ namespace
         ctx.diag.error("invalid assignment to rvalue expression", ctx.stack.back(), loc);
         return false;
       }
+
+      if (binaryop == BinaryOpExpr::Assign && is_reference_type(parms[0].type.type) && !is_reference_type(parms[1].type.type))
+      {
+        ctx.diag.error("invalid assignment to reference type", ctx.stack.back(), loc);
+        return false;
+      }
     }
 
     auto callee = find_callee(ctx, ctx.stack, binaryop, parms, namedparms);
@@ -5831,12 +5883,17 @@ namespace
     {
       auto op = static_cast<BinaryOpExpr::OpCode>(binaryop - BinaryOpExpr::AddAssign); // TODO: fragile!
 
+      auto origtype = parms[0].type.type;
+
       if (!lower_expr(ctx, result, op, parms, namedparms, loc))
         return false;
 
-      parms[1] = std::move(result);
+      if (result.type.type == origtype)
+      {
+        parms[1] = std::move(result);
 
-      callee = find_callee(ctx, ctx.stack, BinaryOpExpr::Assign, parms, namedparms);
+        callee = find_callee(ctx, ctx.stack, BinaryOpExpr::Assign, parms, namedparms);
+      }
     }
 
     if (!callee && binaryop == BinaryOpExpr::EQ)
@@ -5951,6 +6008,22 @@ namespace
 
         if (lhs == rhs)
           callee.fx = map_builtin(ctx, binaryop, ctx.typetable.find_or_create<PointerType>(ctx.typetable.find_or_create<ConstType>(lhs)));
+      }
+    }
+
+    if (!callee && (binaryop == BinaryOpExpr::Add || binaryop == BinaryOpExpr::Sub))
+    {
+      auto base_type = [&](Type *type) { while (is_struct_type(type) && decl_cast<StructDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
+
+      if (is_struct_type(parms[0].type.type))
+        lower_base_cast(ctx, parms[0], base_type(parms[0].type.type), parms[0]);
+
+      if (is_reference_type(parms[0].type.type))
+        parms[0].type.type = ctx.typetable.find_or_create<PointerType>(remove_reference_type(parms[0].type.type));
+
+      if (is_pointer_type(parms[0].type.type) && (parms[1].type.type == ctx.intliteraltype || parms[1].type.type == ctx.usizetype))
+      {
+        callee = find_callee(ctx, ctx.stack, binaryop, parms, namedparms);
       }
     }
 
@@ -6750,6 +6823,9 @@ namespace
     else
     {
       realise_as_value(ctx, arg, value, stmtvar->flags & VarDecl::Const);
+
+      if (is_reference_type(value.type.type) && !(value.type.flags & MIR::Local::Const))
+        value.type.type = ctx.typetable.find_or_create<PointerType>(remove_reference_type(value.type.type));
     }
 
     value.type.flags |= MIR::Local::LValue;
@@ -9375,7 +9451,7 @@ namespace
             {
               if (callee.fn->returntype)
               {
-                if (is_reference_type(callee.fn->returntype) && is_pointer_type(dst.type))
+                if (is_reference_type(callee.fn->returntype) && !(dst.flags & MIR::Local::Reference) && is_pointer_type(dst.type))
                   dst.type = ctx.typetable.find_or_create<ReferenceType>(remove_pointer_type(dst.type));
 
                 deduce_type(ctx, callee.fn, callee, callee.fn->returntype, dst);

@@ -762,7 +762,7 @@ namespace Builtin
       case Builtin::OrAssign:
       case Builtin::XorAssign:
         if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
-          return is_int(T->second) || is_bool(T->second) || is_char(T->second);
+          return is_int(T->second) || is_char(T->second) || is_bool(T->second);
         break;
 
       case Builtin::Shl:
@@ -770,14 +770,14 @@ namespace Builtin
       case Builtin::ShlAssign:
       case Builtin::ShrAssign:
         if (auto T = fx.find_type(fx.fn->args[0]), U = fx.find_type(fx.fn->args[1]); T != fx.typeargs.end() && U != fx.typeargs.end())
-          return (is_int(T->second) || is_char(T->second)) && is_int(U->second);
+          return (is_int(T->second) || is_char(T->second)) && (is_int(U->second) || is_char(U->second));
         break;
 
       case Builtin::clz:
       case Builtin::ctz:
       case Builtin::popcnt:
         if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
-          return is_int(T->second) || is_bool(T->second) || is_char(T->second);
+          return is_int(T->second) || is_char(T->second) || is_bool(T->second);
         break;
 
       case Builtin::signbit:

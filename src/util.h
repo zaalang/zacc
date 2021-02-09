@@ -124,6 +124,14 @@ inline std::string escape(std::string_view str)
   {
     switch(*ch)
     {
+      case '\a':
+        result += "\\a";
+        continue;
+
+      case '\f':
+        result += "\\f";
+        continue;
+
       case '\n':
         result += "\\n";
         continue;
@@ -134,6 +142,10 @@ inline std::string escape(std::string_view str)
 
       case '\t':
         result += "\\t";
+        continue;
+
+      case '\v':
+        result += "\\v";
         continue;
 
       case '"':
@@ -148,12 +160,12 @@ inline std::string escape(std::string_view str)
         result += "\\0";
         continue;
 
-      case 1: case 2: case 3: case 4: case 5: case 6: case 7: case 8:
+      case 1: case 2: case 3: case 4: case 5: case 6: case 8:
         result += "\\x0";
         result += char(ch[0] + '0');
         continue;
 
-      case 11: case 12: case 14: case 15:
+      case 14: case 15:
         result += "\\x0";
         result += char(ch[0] - 10 + 'a');
         continue;
@@ -197,6 +209,14 @@ inline std::string unescape(std::string_view str)
     {
       switch(*++ch)
       {
+        case 'a':
+          result += '\a';
+          continue;
+
+        case 'f':
+          result += '\f';
+          continue;
+
         case 'n':
           result += '\n';
           continue;
@@ -207,6 +227,10 @@ inline std::string unescape(std::string_view str)
 
         case 't':
           result += '\t';
+          continue;
+
+        case 'v':
+          result += '\v';
           continue;
 
         case '\'':

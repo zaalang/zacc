@@ -82,6 +82,15 @@ bool is_stmt_scope(Scope const &scope)
   return false;
 }
 
+//|///////////////////// is_module_scope ////////////////////////////////////
+bool is_module_scope(Scope const &scope)
+{
+  if (auto owner = get_if<Decl*>(&scope.owner); owner && *owner)
+    return is_module_decl(*owner);
+
+  return false;
+}
+
 //|///////////////////// parent_scope /////////////////////////////////////
 Scope parent_scope(Scope scope)
 {

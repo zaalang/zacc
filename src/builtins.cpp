@@ -649,7 +649,7 @@ namespace Builtin
   }
 
   //|///////////////////// where ////////////////////////////////////////////
-  auto where(FnSig const &fx) -> bool
+  auto where(Decl *decl, vector<pair<Decl*, Type*>> const &typeargs) -> bool
   {
     auto is_builtin = [](Type *type) { return type->klass() == Type::Builtin; };
     auto is_int_literal = [](Type *type) { return type == &BuiltinModule::intliteraltype; };
@@ -666,16 +666,20 @@ namespace Builtin
     auto is_reference = [&](Type *type) { return is_reference_type(type); };
     auto base_type = [&](Type *type) { while (is_struct_type(type) && decl_cast<StructDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
 
-    switch (fx.fn->builtin)
+    auto find_type = [&](Decl *decl) { return std::find_if(typeargs.begin(), typeargs.end(), [&](auto &k) { return k.first == decl; }); };
+
+    auto fn = decl_cast<FunctionDecl>(decl);
+
+    switch (fn->builtin)
     {
       case Builtin::Type_Ptr:
       case Builtin::Type_PtrLiteral:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_pointer_type(T->second) || is_ptr_literal(T->second);
         break;
 
       case Builtin::Type_Ref:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_reference_type(T->second);
         break;
 
@@ -683,12 +687,12 @@ namespace Builtin
       case Builtin::Array_Copytructor:
       case Builtin::Array_Assignment:
       case Builtin::Array_Destructor:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_array_type(T->second);
         break;
 
       case Builtin::ArrayLen:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_array_type(T->second) || is_array_type(base_type(T->second));
         break;
 
@@ -698,24 +702,24 @@ namespace Builtin
       case Builtin::Tuple_Destructor:
       case Builtin::TupleEq:
       case Builtin::TupleCmp:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_tuple_type(T->second);
         break;
 
       case Builtin::Tuple_AssignmentEx:
       case Builtin::TupleEqEx:
       case Builtin::TupleCmpEx:
-        if (auto T = fx.find_type(fx.fn->args[0]), U = fx.find_type(fx.fn->args[1]); T != fx.typeargs.end() && U != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]), U = find_type(fn->args[1]); T != typeargs.end() && U != typeargs.end())
           return is_tuple_type(T->second) && is_tuple_type(U->second) && T->second != U->second && type_cast<TupleType>(T->second)->fields.size() == type_cast<TupleType>(U->second)->fields.size();
         break;
 
       case Builtin::TupleLen:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_tuple_type(T->second) || is_tuple_type(base_type(T->second));
         break;
 
       case Builtin::Bool:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_bool(T->second) || is_pointer(T->second) || is_reference(T->second) || is_ptr_literal(T->second) || is_int_literal(T->second);
         break;
 
@@ -731,7 +735,7 @@ namespace Builtin
       case Builtin::DivAssign:
       case Builtin::MulAssign:
       case Builtin::RemAssign:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_numeric(T->second) || is_char(T->second);
         break;
 
@@ -742,7 +746,7 @@ namespace Builtin
       case Builtin::EQ:
       case Builtin::NE:
       case Builtin::Cmp:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_builtin(T->second) || is_enum(T->second) || is_pointer(T->second) || is_reference(T->second);
         break;
 
@@ -750,7 +754,7 @@ namespace Builtin
       case Builtin::OffsetSub:
       case Builtin::OffsetAddAssign:
       case Builtin::OffsetSubAssign:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_pointer(T->second);
         break;
 
@@ -761,7 +765,7 @@ namespace Builtin
       case Builtin::AndAssign:
       case Builtin::OrAssign:
       case Builtin::XorAssign:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_int(T->second) || is_char(T->second) || is_bool(T->second);
         break;
 
@@ -769,30 +773,30 @@ namespace Builtin
       case Builtin::Shr:
       case Builtin::ShlAssign:
       case Builtin::ShrAssign:
-        if (auto T = fx.find_type(fx.fn->args[0]), U = fx.find_type(fx.fn->args[1]); T != fx.typeargs.end() && U != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]), U = find_type(fn->args[1]); T != typeargs.end() && U != typeargs.end())
           return (is_int(T->second) || is_char(T->second)) && (is_int(U->second) || is_char(U->second));
         break;
 
       case Builtin::clz:
       case Builtin::ctz:
       case Builtin::popcnt:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_int(T->second) || is_char(T->second) || is_bool(T->second);
         break;
 
       case Builtin::signbit:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_int(T->second) || is_float(T->second);
         break;
 
       case Builtin::PreInc:
       case Builtin::PreDec:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_numeric(T->second) || is_pointer(T->second) || is_char(T->second);
         break;
 
       case Builtin::Assign:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_builtin(T->second) || is_enum(T->second) || is_pointer(T->second) || is_reference(T->second);
         break;
 
@@ -809,19 +813,19 @@ namespace Builtin
       case Builtin::is_integral:
       case Builtin::is_floating_point:
       case Builtin::is_arithmetic:
-        return fx.typeargs.size() == 1;
+        return typeargs.size() == 1;
 
       case Builtin::is_same:
       case Builtin::is_match:
-        return fx.typeargs.size() == 2;
+        return typeargs.size() == 2;
 
       case Builtin::array_len:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_array_type(T->second);
         break;
 
       case Builtin::tuple_len:
-        if (auto T = fx.find_type(fx.fn->args[0]); T != fx.typeargs.end())
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_tuple_type(T->second);
         break;
 

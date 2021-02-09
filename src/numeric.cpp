@@ -182,6 +182,14 @@ namespace Numeric
     {
       switch(str.substr(2).front())
       {
+        case 'a':
+          value = '\a';
+          break;
+
+        case 'f':
+          value = '\f';
+          break;
+
         case 'n':
           value = '\n';
           break;
@@ -192,6 +200,10 @@ namespace Numeric
 
         case 't':
           value = '\t';
+          break;
+
+        case 'v':
+          value = '\v';
           break;
 
         case '\'':

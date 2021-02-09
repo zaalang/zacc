@@ -45,10 +45,12 @@ class Type
     enum Flags
     {
       Concrete = 0x1,
-      ZeroSized = 0x2,
-      TrivialCopy = 0x04,
-      TrivialAssign = 0x08,
-      TrivialDestroy = 0x10,
+      Resolved = 0x2,
+      Unresolved = 0x4,
+      ZeroSized = 0x8,
+      TrivialCopy = 0x010,
+      TrivialAssign = 0x20,
+      TrivialDestroy = 0x40,
     };
 
     long flags = 0;
@@ -122,11 +124,6 @@ class BuiltinType : public Type
     bool is_signed_type() const
     {
       return m_kind == I8 || m_kind == I16 || m_kind == I32 || m_kind == I64 || m_kind == ISize || m_kind == F32 || m_kind == F64 || m_kind == IntLiteral || m_kind == FloatLiteral;
-    }
-
-    bool is_concrete_type() const
-    {
-      return !(m_kind == IntLiteral || m_kind == FloatLiteral || m_kind == PtrLiteral);
     }
 
     void dump(int indent) const override;
@@ -206,7 +203,7 @@ class CompoundType : public Type
 {
   public:
     CompoundType(Klass klass);
-    CompoundType(Klass klass, std::vector<Type*> const &fields);
+    CompoundType(Klass klass, std::vector<Type*> &&resolved_fields);
 
     std::vector<Type*> fields;
 };
@@ -219,7 +216,7 @@ class TupleType : public CompoundType
 {
   public:
     TupleType(std::vector<Type*> const &fields);
-    TupleType(std::vector<Type*> const &defns, std::vector<Type*> const &fields);
+    TupleType(std::vector<Type*> &&resolved_defns, std::vector<Type*> &&resolved_fields);
 
     std::vector<Type*> defns;
 
@@ -330,6 +327,7 @@ class TagType : public CompoundType
 {
   public:
     TagType(Decl *decl, std::vector<std::pair<Decl*, Type*>> const &args);
+    TagType(Decl *decl, std::vector<std::pair<Decl*, Type*>> const &args, std::vector<Decl*> &&resolved_decls);
 
     Decl *decl;
     std::vector<std::pair<Decl*, Type*>> args;
@@ -337,7 +335,6 @@ class TagType : public CompoundType
     std::vector<Decl*> decls;
     std::vector<Decl*> fieldvars;
 
-    void resolve(std::vector<Decl*> &&resolved_decls);
     void resolve(std::vector<Type*> &&resolved_fields);
 
     void dump(int indent) const override;
@@ -397,6 +394,7 @@ bool is_float_type(Type const *type);
 bool is_char_type(Type const *type);
 bool is_string_type(Type const *type);
 bool is_bool_type(Type const *type);
+bool is_null_type(Type const *type);
 bool is_signed_type(Type const *type);
 
 bool is_const_type(Type const *type);
@@ -422,6 +420,9 @@ bool is_enum_type(Type const *type);
 bool is_compound_type(Type const *type);
 
 bool is_concrete_type(Type const *type);
+bool is_resolved_type(Type const *type);
+bool is_unresolved_type(Type const *type);
+bool is_zerosized_type(Type const *type);
 bool is_trivial_copy_type(Type const *type);
 bool is_trivial_assign_type(Type const *type);
 bool is_trivial_destroy_type(Type const *type);

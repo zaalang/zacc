@@ -198,16 +198,23 @@ std::ostream &operator <<(std::ostream &os, MIR::RValue::CallData const &call)
 
   os << callee.fn->name;
 
+#if 1
   if (callee.typeargs.size() != 0)
   {
     os << '<';
 
     int i = 0;
     for(auto &[decl, type] : callee.typeargs)
+    {
+      if (decl->kind() == Decl::ParmVar)
+        continue;
+
       os << (!i++ ? "" : ", ") << *decl << ": " << *type;
+    }
 
     os << '>';
   }
+#endif
 
   os << '(';
 
@@ -333,20 +340,20 @@ std::ostream &operator <<(std::ostream &os, MIR::Terminator const &terminator)
 //|--------------------------------------------------------------------------
 
 //|///////////////////// Constructor ////////////////////////////////////////
-FnSig::FnSig(FunctionDecl *fn, Type *returntype, Type *throwtype)
+FnSig::FnSig(FunctionDecl *fn, Type *throwtype, Type *returntype)
   : fn(fn),
-    returntype(returntype),
-    throwtype(throwtype)
+    throwtype(throwtype),
+    returntype(returntype)
 {
   hash = std::hash<Decl*>()(fn);
 }
 
 //|///////////////////// Constructor ////////////////////////////////////////
-FnSig::FnSig(FunctionDecl *fn, vector<pair<Decl*, Type*>> const &typeargs, Type *returntype, Type *throwtype)
+FnSig::FnSig(FunctionDecl *fn, vector<pair<Decl*, Type*>> typeargs, Type *throwtype, Type *returntype)
   : fn(fn),
-    returntype(returntype),
     throwtype(throwtype),
-    typeargs(typeargs)
+    returntype(returntype),
+    typeargs(std::move(typeargs))
 {
   hash = std::hash<Decl*>()(fn);
 
@@ -542,7 +549,12 @@ void MIR::dump() const
 
     int i = 0;
     for(auto &[decl, type] : fx.typeargs)
+    {
+      if (decl->kind() == Decl::ParmVar)
+        continue;
+
       cout << (!i++ ? "" : ", ") << *decl << ": " << *type;
+    }
 
     cout << '>';
   }

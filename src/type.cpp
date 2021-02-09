@@ -71,6 +71,12 @@ bool is_bool_type(Type const *type)
   return type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->is_bool_type();
 }
 
+//|///////////////////// is_null_type ///////////////////////////////////////
+bool is_null_type(Type const *type)
+{
+  return type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->kind() == BuiltinType::PtrLiteral;
+}
+
 //|///////////////////// is_signed_type /////////////////////////////////////
 bool is_signed_type(Type const *type)
 {
@@ -188,23 +194,25 @@ bool is_compound_type(Type const *type)
 //|///////////////////// is_concrete_type ///////////////////////////////////
 bool is_concrete_type(Type const *type)
 {
-  switch (type->klass())
-  {
-    case Type::Const:
-      return is_concrete_type(type_cast<ConstType>(type)->type);
+  return type->flags & Type::Concrete;
+}
 
-    case Type::Pointer:
-      return is_concrete_type(type_cast<PointerType>(type)->type);
+//|///////////////////// is_resolved_type ///////////////////////////////////
+bool is_resolved_type(Type const *type)
+{
+  return type->flags & Type::Resolved;
+}
 
-    case Type::Reference:
-      return is_concrete_type(type_cast<ReferenceType>(type)->type);
+//|///////////////////// is_unresolved_type /////////////////////////////////
+bool is_unresolved_type(Type const *type)
+{
+  return type->flags & Type::Unresolved;
+}
 
-    case Type::QualArg:
-      return is_concrete_type(type_cast<QualArgType>(type)->type);
-
-    default:
-      return type->flags & Type::Concrete;
-  }
+//|///////////////////// is_zerosized_type //////////////////////////////////
+bool is_zerosized_type(Type const *type)
+{
+  return type->flags & Type::ZeroSized;
 }
 
 //|///////////////////// is_trivial_type ////////////////////////////////////
@@ -447,8 +455,11 @@ BuiltinType::BuiltinType(Kind kind)
   flags |= Type::TrivialAssign;
   flags |= Type::TrivialDestroy;
 
-  if (is_concrete_type())
+  if (!(m_kind == IntLiteral || m_kind == FloatLiteral))
     flags |= Type::Concrete;
+
+  if (!(m_kind == IntLiteral || m_kind == FloatLiteral || m_kind == PtrLiteral))
+    flags |= Type::Resolved;
 
   if (sizeof_type(this) == 0)
     flags |= Type::ZeroSized;
@@ -571,6 +582,9 @@ ConstType::ConstType(Type *type)
   : Type(Const),
     type(type)
 {
+  flags |= type->flags & Type::Concrete;
+  flags |= type->flags & Type::Resolved;
+  flags |= type->flags & Type::Unresolved;
   flags |= type->flags & Type::ZeroSized;
   flags |= type->flags & Type::TrivialCopy;
   flags |= type->flags & Type::TrivialAssign;
@@ -597,7 +611,9 @@ PointerType::PointerType(Type *type)
   : Type(Pointer),
     type(type)
 {
-  flags |= Type::Concrete;
+  flags |= type->flags & Type::Concrete;
+  flags |= type->flags & Type::Resolved;
+  flags |= type->flags & Type::Unresolved;
   flags |= Type::TrivialCopy;
   flags |= Type::TrivialAssign;
   flags |= Type::TrivialDestroy;
@@ -623,8 +639,11 @@ ReferenceType::ReferenceType(Type *type)
   : Type(Reference),
     type(type)
 {
-  flags |= Type::Concrete;
+  flags |= type->flags & Type::Concrete;
+  flags |= type->flags & Type::Resolved;
+  flags |= type->flags & Type::Unresolved;
   flags |= Type::TrivialCopy;
+//  flags |= Type::TrivialAssign;
   flags |= Type::TrivialDestroy;
 }
 
@@ -656,8 +675,9 @@ ArrayType::ArrayType(Type *type, Type *size)
 
   if (size->klass() == Type::TypeLit && type_cast<TypeLitType>(size)->value->kind() == Expr::IntLiteral)
   {
-    if (is_concrete_type(type))
-      flags |= Type::Concrete;
+    flags |= type->flags & Type::Concrete;
+    flags |= type->flags & Type::Resolved;
+    flags |= type->flags & Type::Unresolved;
 
     if (expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(size)->value)->value().value == 0)
     {
@@ -667,6 +687,9 @@ ArrayType::ArrayType(Type *type, Type *size)
       flags |= Type::TrivialDestroy;
     }
   }
+
+  if (size->klass() != Type::TypeLit || type_cast<TypeLitType>(size)->value->kind() != Expr::IntLiteral)
+    flags |= Type::Unresolved;
 }
 
 //|///////////////////// ArrayType::dump ////////////////////////////////////
@@ -702,9 +725,9 @@ CompoundType::CompoundType(Klass klass)
 }
 
 //|///////////////////// CompoundType::Constructor //////////////////////////
-CompoundType::CompoundType(Klass klass, vector<Type*> const &fields)
+CompoundType::CompoundType(Klass klass, vector<Type*> &&resolved_fields)
   : Type(klass),
-    fields(fields)
+    fields(std::move(resolved_fields))
 {
 }
 
@@ -713,12 +736,23 @@ CompoundType::CompoundType(Klass klass, vector<Type*> const &fields)
 //|--------------------------------------------------------------------------
 
 //|///////////////////// TupleType::Constructor /////////////////////////////
-TupleType::TupleType(vector<Type*> const &defns, vector<Type*> const &fields)
-  : CompoundType(Tuple, fields),
-    defns(defns)
+TupleType::TupleType(vector<Type*> const &fields)
+  : CompoundType(Tuple, vector<Type*>(fields))
+{
+}
+
+TupleType::TupleType(vector<Type*> &&resolved_defns, vector<Type*> &&resolved_fields)
+  : CompoundType(Tuple, std::move(resolved_fields)),
+    defns(std::move(resolved_defns))
 {
   if (all_of(fields.begin(), fields.end(), [](auto k) { return is_concrete_type(k); }))
     flags |= Type::Concrete;
+
+  if (all_of(fields.begin(), fields.end(), [](auto k) { return is_resolved_type(k); }))
+    flags |= Type::Resolved;
+
+  if (any_of(fields.begin(), fields.end(), [](auto k) { return is_unresolved_type(k); }))
+    flags |= Type::Unresolved;
 
   if (all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::ZeroSized); }))
     flags |= Type::ZeroSized;
@@ -731,11 +765,6 @@ TupleType::TupleType(vector<Type*> const &defns, vector<Type*> const &fields)
 
   if (all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::TrivialDestroy); }))
     flags |= Type::TrivialDestroy;
-}
-
-TupleType::TupleType(vector<Type*> const &fields)
-  : CompoundType(Tuple, fields)
-{
 }
 
 //|///////////////////// TupleType::dump ////////////////////////////////////
@@ -759,6 +788,7 @@ TypeArgType::TypeArgType(Decl *decl)
   : Type(TypeArg),
     decl(decl)
 {
+  flags |= Type::Unresolved;
 }
 
 TypeArgType::TypeArgType(Decl *decl, Decl *koncept, vector<pair<Decl*, Type*>> const &args)
@@ -767,6 +797,7 @@ TypeArgType::TypeArgType(Decl *decl, Decl *koncept, vector<pair<Decl*, Type*>> c
     koncept(koncept),
     args(args)
 {
+  flags |= Type::Unresolved;
 }
 
 //|///////////////////// TypeArgType::dump //////////////////////////////////
@@ -790,6 +821,9 @@ QualArgType::QualArgType(Type *type, long qualifiers)
     qualifiers(qualifiers),
     type(type)
 {
+  flags |= type->flags & Type::Concrete;
+  flags |= type->flags & Type::Resolved;
+  flags |= type->flags & Type::Unresolved;
   flags |= type->flags & Type::ZeroSized;
   flags |= type->flags & Type::TrivialCopy;
   flags |= type->flags & Type::TrivialAssign;
@@ -817,6 +851,7 @@ TypeLitType::TypeLitType(Expr *value)
     value(value)
 {
   flags |= Type::ZeroSized;
+  flags |= Type::Unresolved;
 }
 
 //|///////////////////// TypeLitType::dump //////////////////////////////////
@@ -947,13 +982,17 @@ TagType::TagType(Decl *decl, vector<pair<Decl*, Type*>> const &args)
     decl(decl),
     args(args)
 {
-  flags |= Type::Concrete; // assume concrete until resolvle (for self ref)
 }
 
-//|///////////////////// TagType::resolve ///////////////////////////////////
-void TagType::resolve(vector<Decl*> &&resolved_decls)
+//|///////////////////// TagType::Constructor ///////////////////////////////
+TagType::TagType(Decl *decl, vector<pair<Decl*, Type*>> const &args, vector<Decl*> &&resolved_decls)
+  : CompoundType(Tag),
+    decl(decl),
+    args(args),
+    decls(std::move(resolved_decls))
 {
-  decls = std::move(resolved_decls);
+  flags |= Type::Concrete; // assume concrete until resolve (for self ref)
+  flags |= Type::Resolved; // assume resolved until resolve (for self ref)
 }
 
 //|///////////////////// TagType::resolve ///////////////////////////////////
@@ -967,11 +1006,14 @@ void TagType::resolve(vector<Type*> &&resolved_fields)
 
   if (decl->kind() == Decl::Struct || decl->kind() == Decl::Union || decl->kind() == Decl::Lambda)
   {
-    if (any_of(args.begin(), args.end(), [](auto k) { return !is_concrete_type(k.second) && !is_typelit_type(k.second); }))
-      flags &= ~Type::Concrete;
-
     if (any_of(fields.begin(), fields.end(), [](auto k) { return !is_concrete_type(k); }))
       flags &= ~Type::Concrete;
+
+    if (any_of(fields.begin(), fields.end(), [](auto k) { return !is_resolved_type(k); }))
+      flags &= ~Type::Resolved;
+
+    if (any_of(fields.begin(), fields.end(), [](auto k) { return is_unresolved_type(k); }))
+      flags |= Type::Unresolved;
 
     if (all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::ZeroSized); }))
       flags |= Type::ZeroSized;
@@ -980,6 +1022,7 @@ void TagType::resolve(vector<Type*> &&resolved_fields)
   if (decl->kind() == Decl::Enum)
   {
     flags |= Type::Concrete;
+    flags |= Type::Resolved;
     flags |= Type::TrivialCopy;
     flags |= Type::TrivialAssign;
     flags |= Type::TrivialDestroy;
@@ -1034,7 +1077,10 @@ FunctionType::FunctionType(Type *returntype, Type *paramtuple)
     paramtuple(paramtuple)
 {
   if (is_concrete_type(returntype) && is_concrete_type(paramtuple))
+  {
     flags |= Type::Concrete;
+    flags |= Type::Resolved;
+  }
 }
 
 
@@ -1192,7 +1238,7 @@ size_t sizeof_type(Type const *type)
           return 8;
 
         case BuiltinType::PtrLiteral:
-          return 0;
+          return sizeof(void*);
 
         case BuiltinType::StringLiteral:
           return 8 + sizeof(void*);
@@ -1300,7 +1346,7 @@ size_t alignof_type(Type const *type)
           return 1;
 
         case BuiltinType::PtrLiteral:
-          return 0;
+          return 8;
 
         case BuiltinType::StringLiteral:
           return 8;

@@ -248,14 +248,12 @@ namespace
   {
     find_decls(scope, name, queryflags, results);
 
-    for(size_t i = 0; i < results.size(); )
+    for(size_t i = 0; i < results.size(); ++i)
     {
       auto decl = results[i];
 
       if (decl->kind() == Decl::If)
       {
-        results.erase(results.begin() + i);
-
         auto ifd = decl_cast<IfDecl>(decl);
 
         if ((ifd->flags & IfDecl::ResolvedTrue) || !(ifd->flags & IfDecl::ResolvedFalse))
@@ -264,21 +262,17 @@ namespace
         if (auto elseif = ifd->elseif)
           if ((ifd->flags & IfDecl::ResolvedFalse) || !(ifd->flags & IfDecl::ResolvedTrue))
             results.push_back(elseif);
-
-        continue;
       }
 
       if (decl->kind() == Decl::Using)
       {
-        results.erase(results.begin() + i);
+        auto n = results.size();
 
         if (decl_cast<UsingDecl>(decl)->flags & UsingDecl::Resolving)
           continue;
 
         if (!(decl_cast<UsingDecl>(decl)->flags & UsingDecl::Resolved))
           resolve_decl(ctx, parent_scope(decl), decl, sema);
-
-        auto n = results.size();
 
         switch(auto usein = decl_cast<UsingDecl>(decl); usein->decl->kind())
         {
@@ -320,8 +314,6 @@ namespace
         results.erase(remove_if(results.begin() + n, results.end(), [&](auto &decl) {
           return count(results.begin(), results.begin() + n, decl) != 0;
         }), results.end());
-
-        continue;
       }
 
       if (decl->kind() == Decl::Import)
@@ -330,9 +322,11 @@ namespace
           return decl->kind() == Decl::Import;
         }), results.end());
       }
-
-      ++i;
     }
+
+    results.erase(remove_if(results.begin(), results.end(), [&](auto &decl) {
+      return decl->kind() == Decl::If || decl->kind() == Decl::Using;
+    }), results.end());
   }
 
   //|///////////////////// is_dependant_type ////////////////////////////////
@@ -2183,6 +2177,87 @@ namespace
     }
   }
 
+  //|///////////////////// index_decl ///////////////////////////////////////
+  void index_decl(TyperContext &ctx, ModuleDecl *module, Decl *decl, Sema &sema)
+  {
+#if 0
+    if (!(decl->flags & Decl::Public))
+      return;
+
+    switch(decl->kind())
+    {
+      case Decl::TypeAlias:
+        module->index.emplace(decl_cast<TypeAliasDecl>(decl)->name, decl);
+        break;
+
+      case Decl::Struct:
+      case Decl::Union:
+      case Decl::Concept:
+      case Decl::Enum:
+        module->index.emplace(decl_cast<TagDecl>(decl)->name, decl);
+        break;
+
+      case Decl::Import:
+        module->index.emplace(decl_cast<ImportDecl>(decl)->alias, decl);
+        for(auto &usein : decl_cast<ImportDecl>(decl)->usings)
+          index_decl(ctx, module, usein, sema);
+        break;
+
+      case Decl::Using:
+        switch(auto usein = decl_cast<UsingDecl>(decl); usein->decl->kind())
+        {
+          case Decl::Module:
+            for(auto &decl : decl_cast<ModuleDecl>(usein->decl)->decls)
+              index_decl(ctx, module, decl, sema);
+            break;
+
+          case Decl::Struct:
+          case Decl::Union:
+          case Decl::Concept:
+          case Decl::Enum:
+            module->index.emplace(decl_cast<TagDecl>(usein->decl)->name, decl);
+            break;
+
+          case Decl::TypeAlias:
+            module->index.emplace(decl_cast<TypeAliasDecl>(usein->decl)->name, decl);
+            break;
+
+          case Decl::DeclRef:
+            module->index.emplace(decl_cast<DeclRefDecl>(usein->decl)->name, decl);
+            break;
+
+          case Decl::DeclScoped:
+            module->index.emplace(decl_cast<DeclRefDecl>(decl_cast<DeclScopedDecl>(usein->decl)->decls.back())->name, decl);
+            break;
+
+          default:
+            assert(false);
+        }
+        break;
+
+      case Decl::Function:
+        module->index.emplace(decl_cast<FunctionDecl>(decl)->name, decl);
+        break;
+
+      case Decl::If:
+        if (auto ifd = decl_cast<IfDecl>(decl))
+        {
+          if (ifd->flags & IfDecl::ResolvedTrue)
+            for(auto &decl : ifd->decls)
+              index_decl(ctx, module, decl, sema);
+
+          if (auto elseif = ifd->elseif)
+            if (ifd->flags & IfDecl::ResolvedFalse)
+              index_decl(ctx, module, elseif, sema);
+        }
+        break;
+
+      default:
+        assert(false);
+    }
+#endif
+  }
+
   //|///////////////////// typer_module /////////////////////////////////////
   void typer_module(TyperContext &ctx, ModuleDecl *module, Sema &sema)
   {
@@ -2193,6 +2268,11 @@ namespace
     for(auto &decl : module->decls)
     {
       typer_decl(ctx, decl, sema);
+    }
+
+    for(auto &decl : module->decls)
+    {
+      index_decl(ctx, module, decl, sema);
     }
 
     ctx.stack.pop_back();
@@ -2222,6 +2302,13 @@ void typer(AST *ast, Sema &sema, Diag &diag)
       default:
         break;
     }
+  }
+
+  auto builtins = decl_cast<ModuleDecl>(root->builtins);
+
+  for(auto &decl : builtins->decls)
+  {
+    index_decl(ctx, builtins, decl, sema);
   }
 
   ctx.stack.pop_back();

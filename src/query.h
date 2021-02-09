@@ -68,13 +68,14 @@ struct Scope
   Scope() = default;
   Scope(Decl *owner) : owner(owner) { }
   Scope(Stmt *owner) : owner(owner) { }
-  Scope(Decl *owner, std::vector<std::pair<Decl*, Type*>> const &typeargs) : owner(owner), typeargs(typeargs) { }
-  Scope(Stmt *owner, std::vector<std::pair<Decl*, Type*>> const &typeargs) : owner(owner), typeargs(typeargs) { }
+  Scope(Decl *owner, std::vector<std::pair<Decl*, Type*>> typeargs) : owner(owner), typeargs(std::move(typeargs)) { }
+  Scope(Stmt *owner, std::vector<std::pair<Decl*, Type*>> typeargs) : owner(owner), typeargs(std::move(typeargs)) { }
 };
 
 bool is_fn_scope(Scope const &scope);
 bool is_tag_scope(Scope const &scope);
 bool is_stmt_scope(Scope const &scope);
+bool is_module_scope(Scope const &scope);
 
 void seed_stack(std::vector<Scope> &stack, Scope scope);
 

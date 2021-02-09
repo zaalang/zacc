@@ -200,8 +200,10 @@ namespace
 
           case BuiltinType::IntLiteral:
           case BuiltinType::FloatLiteral:
-          case BuiltinType::PtrLiteral:
             return TypeCategory::Unresolved;
+
+          case BuiltinType::PtrLiteral:
+            return TypeCategory::Pointer;
         }
         break;
 
@@ -515,8 +517,10 @@ namespace
             return ctx.builder.getDoubleTy();
 
           case BuiltinType::Void:
-          case BuiltinType::PtrLiteral:
             return addressable ? llvm_void(ctx, type) : ctx.builder.getVoidTy();
+
+          case BuiltinType::PtrLiteral:
+            return ctx.builder.getInt8Ty()->getPointerTo();
 
           case BuiltinType::StringLiteral:
             return llvm_slice(ctx, Builtin::type(Builtin::Type_U8));
@@ -936,7 +940,7 @@ namespace
   //|///////////////////// llvm_constant ////////////////////////////////////
   llvm::Constant *llvm_constant(GenContext &ctx, FunctionContext &fx, Type *type, PointerLiteralExpr *literal)
   {
-    if (is_pointer_type(type))
+    if (is_pointer_type(type) || is_null_type(type))
     {
       return llvm_zero(llvm_type(ctx, type));
     }
@@ -991,16 +995,19 @@ namespace
       auto elemtype = type_cast<ArrayType>(type)->type;
       auto arraylen = array_len(type_cast<ArrayType>(type));
 
-      for(auto &element : literal->elements)
+      if (arraylen != 0)
       {
-        elements.push_back(llvm_constant(ctx, fx, elemtype, element));
+        for(auto &element : literal->elements)
+        {
+          elements.push_back(llvm_constant(ctx, fx, elemtype, element));
+        }
+
+        if (any_of(elements.begin(), elements.end(), [](auto &k) { return !k; }))
+          return nullptr;
+
+        for(size_t i = elements.size(); i < arraylen; ++i)
+          elements.push_back(elements.back());
       }
-
-      if (any_of(elements.begin(), elements.end(), [](auto &k) { return !k; }))
-        return nullptr;
-
-      for(size_t i = elements.size(); i < arraylen; ++i)
-        elements.push_back(elements.back());
 
       return llvm::ConstantArray::get(llvm::cast<llvm::ArrayType>(llvm_type(ctx, type)), elements);
     }
@@ -2010,7 +2017,7 @@ namespace
     {
       llvm::Value *result;
 
-      if (remove_pointer_type(fx.mir.locals[args[0]].type)->flags & Type::ZeroSized)
+      if (is_zerosized_type(remove_pointer_type(fx.mir.locals[args[0]].type)))
       {
         ctx.diag.error("zero sized type", fx.fn, loc);
         return;
@@ -2420,7 +2427,7 @@ namespace
     {
       llvm::Value *result;
 
-      if (remove_pointer_type(fx.mir.locals[args[0]].type)->flags & Type::ZeroSized)
+      if (is_zerosized_type(remove_pointer_type(fx.mir.locals[args[0]].type)))
       {
         ctx.diag.error("zero sized type", fx.fn, loc);
         return;
@@ -2493,7 +2500,11 @@ namespace
     auto rhs = load(ctx, fx, args[1]);
     auto rhscat = type_category(fx.mir.locals[args[1]].type);
 
-    if (lhscat == TypeCategory::Bool && rhscat == TypeCategory::Bool)
+    if (lhscat == TypeCategory::Void && rhscat == TypeCategory::Void)
+    {
+      store(ctx, fx, dst, ctx.builder.getInt1(callee.fn->builtin == Builtin::EQ));
+    }
+    else if (lhscat == TypeCategory::Bool && rhscat == TypeCategory::Bool)
     {
       switch(callee.fn->builtin)
       {

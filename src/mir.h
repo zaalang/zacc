@@ -24,8 +24,8 @@
 class FnSig
 {
   public:
-    FnSig(FunctionDecl *fn = nullptr, Type *returntype = nullptr, Type *throwtype = nullptr);
-    FnSig(FunctionDecl *fn, std::vector<std::pair<Decl*, Type*>> const &typeargs, Type *returntype = nullptr, Type *throwtype = nullptr);
+    FnSig(FunctionDecl *fn = nullptr, Type *throwtype = nullptr, Type *returntype = nullptr);
+    FnSig(FunctionDecl *fn, std::vector<std::pair<Decl*, Type*>> typeargs, Type *throwtype = nullptr, Type *returntype = nullptr);
 
     FunctionDecl *fn;
 
@@ -65,8 +65,8 @@ class FnSig
       return iterator_pair(skip_iterator(fn->parms.begin(), fn->parms.end(), skip), fn->parms.end());
     }
 
-    Type *returntype;
     Type *throwtype;
+    Type *returntype;
 
     std::vector<std::pair<Decl*, Type*>> typeargs;
 

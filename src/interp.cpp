@@ -108,65 +108,6 @@ namespace
 
   bool eval_function(EvalContext &ctx, Scope const &scope, MIR const &mir, FunctionContext::Local &returnvalue, vector<FunctionContext::Local> const &args = {});
 
-  //|///////////////////// type_resolved ////////////////////////////////////
-  bool type_resolved(Type const *type)
-  {
-    switch(type->klass())
-    {
-      case Type::Builtin:
-        return true;
-
-      case Type::Const:
-        return type_resolved(type_cast<ConstType>(type)->type);
-
-      case Type::Pointer:
-        return type_resolved(type_cast<PointerType>(type)->type);
-
-      case Type::Reference:
-        return type_resolved(type_cast<ReferenceType>(type)->type);
-
-      case Type::Array:
-
-        if (type_cast<ArrayType>(type)->size->klass() != Type::TypeLit || type_cast<TypeLitType>(type_cast<ArrayType>(type)->size)->value->kind() != Expr::IntLiteral)
-          return false;
-
-        return type_resolved(type_cast<ArrayType>(type)->type);
-
-      case Type::Tuple:
-
-        for(auto &field : type_cast<TupleType>(type)->fields)
-          if (!type_resolved(field))
-            return false;
-
-        return true;
-
-      case Type::Tag:
-
-        for(auto &field : type_cast<TagType>(type)->fields)
-        {
-          if (is_pointference_type(field))
-            continue;
-
-          if (!type_resolved(field))
-            return false;
-        }
-
-        return true;
-
-      case Type::QualArg:
-        return type_resolved(type_cast<QualArgType>(type)->type);
-
-      case Type::TypeArg:
-      case Type::TypeRef:
-        return false;
-
-      default:
-        assert(false);
-    }
-
-    return false;
-  }
-
   //|///////////////////// type_similar /////////////////////////////////////
   bool types_similar(Type const *lhs, Type const *rhs)
   {
@@ -1675,6 +1616,14 @@ namespace
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
     }
+    else if (fx.locals[args[0]].type == ctx.voidtype && fx.locals[args[1]].type == ctx.voidtype)
+    {
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, callee.fn->builtin == Builtin::EQ);
+    }
+    else if (fx.locals[args[0]].type == ctx.ptrliteraltype && fx.locals[args[1]].type == ctx.ptrliteraltype)
+    {
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, callee.fn->builtin == Builtin::EQ);
+    }
     else if (is_pointference_type(fx.locals[args[0]].type) && is_pointference_type(fx.locals[args[1]].type))
     {
       bool result;
@@ -2556,7 +2505,7 @@ namespace
   {
     auto &[callee, args, loc] = call;
 
-    if (!type_resolved(callee.returntype))
+    if (is_unresolved_type(callee.returntype))
     {
       ctx.diag.error("unresolved return type", fx.scope, loc);
       return false;
@@ -2814,6 +2763,10 @@ namespace
     {
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Numeric::float_cast<double>(load_int(ctx, fx.locals[arg].alloc, fx.locals[arg].type)));
     }
+    else if (is_pointference_type(fx.locals[dst].type) && is_null_type(fx.locals[arg].type))
+    {
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, (void*)nullptr);
+    }
     else if (is_pointference_type(fx.locals[dst].type) && is_pointference_type(fx.locals[arg].type))
     {
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, load_ptr(ctx, fx.locals[arg].alloc, fx.locals[arg].type));
@@ -2919,7 +2872,7 @@ namespace
 
     for(size_t i = mir.args_end, end = mir.locals.size(); i != end; ++i)
     {
-      if (!type_resolved(mir.locals[i].type))
+      if (is_unresolved_type(mir.locals[i].type))
         continue;
 
       fx.locals.push_back(alloc(ctx, mir.locals[i]));
@@ -3159,7 +3112,7 @@ EvalResult evaluate(Scope const &scope, MIR const &mir, TypeTable &typetable, Di
 
   EvalContext ctx(scope, typetable, diag);
 
-  if (!type_resolved(mir.locals[0].type))
+  if (is_unresolved_type(mir.locals[0].type))
   {
     diag.error("unresolved expression type", scope, loc);
     return result;
@@ -3184,7 +3137,7 @@ EvalResult evaluate(Scope const &scope, FnSig const &callee, vector<EvalResult> 
 
   EvalContext ctx(scope, typetable, diag);
 
-  if (!type_resolved(callee.returntype))
+  if (is_unresolved_type(callee.returntype))
   {
     diag.error("unresolved return type", scope, loc);
     return result;
@@ -3224,7 +3177,7 @@ EvalResult evaluate(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fr
     return result;
   }
 
-  if (!type_resolved(mir.locals[0].type))
+  if (is_unresolved_type(mir.locals[0].type))
   {
     diag.error("unresolved expression type", scope, loc);
     return result;

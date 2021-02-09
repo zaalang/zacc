@@ -204,7 +204,7 @@ namespace Builtin
 
   auto fn(Decl *module, Builtin::Kind kind, Type *T1 = nullptr, Type *T2 = nullptr) -> FnSig;
 
-  auto where(FnSig const &fx) -> bool;
+  auto where(Decl *decl, std::vector<std::pair<Decl*, Type*>> const &typeargs) -> bool;
 };
 
 Decl *make_builtin_module(AST *ast);

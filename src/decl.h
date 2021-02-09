@@ -125,8 +125,9 @@ class ModuleDecl : public Decl
     std::string const &file() const { return m_file; }
 
     std::string name;
-
     std::vector<Decl*> decls;
+
+    std::multimap<std::string_view, Decl*> index;
 
     void dump(int indent) const override;
 
@@ -434,7 +435,7 @@ class LambdaDecl : public TagDecl
   public:
     LambdaDecl(SourceLocation loc);
 
-    FunctionDecl *fn = nullptr;
+    Decl *fn = nullptr;
     std::vector<Decl*> captures;
 
     void dump(int indent) const override;
@@ -543,7 +544,7 @@ class RequiresDecl : public Decl
   public:
     RequiresDecl(SourceLocation loc);
 
-    FunctionDecl *fn = nullptr;
+    Decl *fn = nullptr;
     Type *requirestype = nullptr;
 
     void dump(int indent) const override;

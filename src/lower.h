@@ -44,13 +44,13 @@ struct TypeTable
   T *find(Decl *decl, std::vector<std::pair<Decl*, Type*>> const &args);
 
   template<typename T>
-  T *create(Decl *decl, std::vector<std::pair<Decl*, Type*>> const &args);
+  T *create(Decl *decl, std::vector<std::pair<Decl*, Type*>> const &args, std::vector<Decl*> &&decls);
 
   template<typename T>
   T *find_or_create(Type *elemtype, Type *sizetype);
 
   template<typename T>
-  T *find_or_create(std::vector<Type*> const &defns, std::vector<Type*> const &fields);
+  T *find_or_create(std::vector<Type*> &&defns, std::vector<Type*> &&fields);
 
   template<typename T>
   T *find_or_create(long qualifiers, Type *subtype);
@@ -126,18 +126,19 @@ inline ArrayType *TypeTable::find_or_create<ArrayType>(Type *elemtype, Type *siz
 }
 
 template<>
-inline TupleType *TypeTable::find_or_create<TupleType>(std::vector<Type*> const &defns, std::vector<Type*> const &fields)
+inline TupleType *TypeTable::find_or_create<TupleType>(std::vector<Type*> &&defns, std::vector<Type*> &&fields)
 {
   if (fields.empty())
     return empty_tuple;
 
-  auto range = tuple_types.equal_range(fields[0]);
+  auto key = fields[0];
+  auto range = tuple_types.equal_range(key);
 
   auto j = find_if(range.first, range.second, [&](auto &k) { return k.second->defns == defns && k.second->fields == fields; });
 
   if (j == range.second)
   {
-    j = tuple_types.emplace(fields[0], make_type<TupleType>(defns, fields));
+    j = tuple_types.emplace(key, make_type<TupleType>(std::move(defns), std::move(fields)));
   }
 
   return j->second;
@@ -157,9 +158,9 @@ inline TagType *TypeTable::find<TagType>(Decl *decl, std::vector<std::pair<Decl*
 }
 
 template<>
-inline TagType *TypeTable::create<TagType>(Decl *decl, std::vector<std::pair<Decl*, Type*>> const &args)
+inline TagType *TypeTable::create<TagType>(Decl *decl, std::vector<std::pair<Decl*, Type*>> const &args, std::vector<Decl*> &&decls)
 {
-  return tag_types.emplace(decl, make_type<TagType>(decl, args))->second;
+  return tag_types.emplace(decl, make_type<TagType>(decl, args, std::move(decls)))->second;
 }
 
 template<>

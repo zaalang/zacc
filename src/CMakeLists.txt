@@ -50,12 +50,14 @@ set(SRCS ${SRCS} toolchain.h toolchain.cpp)
 
 add_executable(zacc ${SRCS})
 
-llvm_map_components_to_libnames(llvm_libs support core analysis target mc ipo native vectorize passes)
-
-target_link_libraries(zacc ${llvm_libs})
+if(LLVM_LINK_LLVM_DYLIB)
+  llvm_config(zacc USE_SHARED support core analysis target mc ipo native vectorize passes)
+else(LLVM_LINK_LLVM_DYLIB) 
+  llvm_config(zacc support core analysis target mc ipo native vectorize passes)
+endif(LLVM_LINK_LLVM_DYLIB)
 
 if(MINGW)
-  target_link_libraries(zacc mingw32)
+  target_link_libraries(zacc PRIVATE mingw32)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static -static-libgcc -static-libstdc++")
 endif(MINGW)
 

@@ -56,9 +56,16 @@ ModuleDecl *Sema::module_declaration(string_view name, string_view file)
 
   if (access(path.c_str(), F_OK) != 0)
   {
+    string base = basename(file);
+
     for(auto &includepath : m_include_paths)
     {
-      path = includepath + "/" + string(file);
+      path = includepath + '/' + string(file);
+
+      if (access(path.c_str(), F_OK) == 0)
+        break;
+
+      path = includepath + '/' + base + '/' + string(file);
 
       if (access(path.c_str(), F_OK) == 0)
         break;

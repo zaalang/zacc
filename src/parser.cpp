@@ -1938,6 +1938,12 @@ namespace
       ctx.consume_token(Token::identifier);
     }
 
+    if (auto j = name.find('.'); j != name.npos)
+    {
+      if (name.substr(0, j) == imprt->alias && name.substr(j+1) == imprt->alias)
+        name = imprt->alias;
+    }
+
     if (ctx.tok == Token::identifier && ctx.tok.text == "as")
     {
       ctx.consume_token(Token::identifier);

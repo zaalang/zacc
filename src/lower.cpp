@@ -28,8 +28,6 @@ namespace
   {
     Diag &diag;
 
-    long flags;
-
     MIR mir;
 
     MIR::Block currentblock;
@@ -228,9 +226,8 @@ namespace
 
     TypeTable &typetable;
 
-    LowerContext(TypeTable &typetable, Diag &diag, long flags)
+    LowerContext(TypeTable &typetable, Diag &diag)
       : diag(diag),
-        flags(flags),
         typetable(typetable)
     {
       errorarg = 0;
@@ -1217,10 +1214,10 @@ namespace
           {
             if (is_reference_type(type_cast<UnpackType>(field)->type))
             {
-              element = ctx.typetable.find_or_create<ReferenceType>(element);
-
               if (is_const_type(remove_reference_type(type_cast<UnpackType>(field)->type)))
                 element = ctx.typetable.find_or_create<ConstType>(element);
+
+              element = ctx.typetable.find_or_create<ReferenceType>(element);
             }
 
             defns.push_back(resolve_defn(ctx, type_cast<UnpackType>(field)->type));
@@ -1571,7 +1568,7 @@ namespace
 
     if (is_fn_scope(stack.back()))
     {
-      LowerContext cttx(ctx.typetable, ctx.diag, ctx.flags);
+      LowerContext cttx(ctx.typetable, ctx.diag);
 
       cttx.mir.fx = decl_cast<FunctionDecl>(get<Decl*>(stack.back().owner));
       cttx.stack = stack;
@@ -2068,7 +2065,7 @@ namespace
   {
     tx.depth += 1;
 
-    if (rhs->klass() == Type::QualArg)
+    if (rhs->klass() == Type::QualArg && !(type_cast<QualArgType>(rhs)->qualifiers & QualArgType::Const))
       rhs = remove_const_type(rhs);
 
     if (rhs->klass() == Type::TypeArg)
@@ -2915,7 +2912,7 @@ namespace
                 {
                   // This roundabout approach is to get __site__ to evaluate to the callsite
 
-                  LowerContext cttx(ctx.typetable, ctx.diag, ctx.flags);
+                  LowerContext cttx(ctx.typetable, ctx.diag);
 
                   seed_stack(cttx.stack, fnscope);
 
@@ -2933,6 +2930,11 @@ namespace
                   {
                     value = expr.value;
                   }
+                }
+
+                if (value->kind() == Expr::Cast && is_literal_expr(expr_cast<CastExpr>(value)->expr))
+                {
+                  value = expr_cast<CastExpr>(value)->expr;
                 }
 
                 if (!is_literal_expr(value))
@@ -4119,6 +4121,10 @@ namespace
 
           break;
 
+        case Type::TypeArg:
+          result = literal;
+          return true;
+
         default:
         boolinvalid:
           ctx.diag.error("invalid literal cast", ctx.stack.back(), literal->loc());
@@ -4166,6 +4172,10 @@ namespace
           }
 
           break;
+
+        case Type::TypeArg:
+          result = literal;
+          return true;
 
         default:
         charinvalid:
@@ -4219,7 +4229,7 @@ namespace
 
           break;
 
-        case BuiltinType::Tag:
+        case Type::Tag:
 
           switch (type_cast<TagType>(type)->decl->kind())
           {
@@ -4233,8 +4243,12 @@ namespace
 
           break;
 
-        case BuiltinType::Pointer:
+        case Type::Pointer:
           break;
+
+        case Type::TypeArg:
+          result = literal;
+          return true;
 
         default:
         intinvalid:
@@ -4288,6 +4302,10 @@ namespace
 
           break;
 
+        case Type::TypeArg:
+          result = literal;
+          return true;
+
         default:
         fltinvalid:
           ctx.diag.error("invalid literal cast", ctx.stack.back(), literal->loc());
@@ -4317,6 +4335,7 @@ namespace
           break;
 
         case Type::Pointer:
+        case Type::TypeArg:
           result = literal;
           return true;
 
@@ -5826,12 +5845,6 @@ namespace
       dummy.type = ctx.voidtype;
 
       parms.push_back(std::move(dummy));
-
-      if ((parms[0].type.flags & MIR::Local::RValue) && (is_builtin_type(parms[0].type.type) || is_pointer_type(parms[0].type.type)))
-      {
-        ctx.diag.error("invalid increment on rvalue expression", ctx.stack.back(), loc);
-        return false;
-      }
     }
 
     auto callee = find_callee(ctx, ctx.stack, unaryop, parms, namedparms);
@@ -5839,6 +5852,12 @@ namespace
     if (!callee && (unaryop == UnaryOpExpr::PostInc || unaryop == UnaryOpExpr::PostDec))
     {
       parms.resize(1);
+
+      if ((parms[0].type.flags & MIR::Local::RValue) && (is_builtin_type(parms[0].type.type) || is_pointer_type(parms[0].type.type)))
+      {
+        ctx.diag.error("invalid increment on rvalue expression", ctx.stack.back(), loc);
+        return false;
+      }
 
       if (callee = find_callee(ctx, ctx.stack, unaryop, parms, namedparms); callee)
       {
@@ -5920,21 +5939,6 @@ namespace
   //|///////////////////// lower_binaryop ///////////////////////////////////
   bool lower_expr(LowerContext &ctx, MIR::Fragment &result, BinaryOpExpr::OpCode binaryop, vector<MIR::Fragment> &parms, map<string_view, MIR::Fragment> &namedparms, SourceLocation loc)
   {
-    if (binaryop == BinaryOpExpr::Assign || (BinaryOpExpr::AddAssign <= binaryop && binaryop <= BinaryOpExpr::XorAssign))
-    {
-      if ((parms[0].type.flags & MIR::Local::RValue) && (is_builtin_type(parms[0].type.type) || is_pointer_type(parms[0].type.type) || is_reference_type(parms[0].type.type)))
-      {
-        ctx.diag.error("invalid assignment to rvalue expression", ctx.stack.back(), loc);
-        return false;
-      }
-
-      if (binaryop == BinaryOpExpr::Assign && is_reference_type(parms[0].type.type) && (is_pointer_type(parms[1].type.type) || is_null_type(parms[1].type.type)))
-      {
-        ctx.diag.error("invalid assignment to reference type", ctx.stack.back(), loc);
-        return false;
-      }
-    }
-
     auto callee = find_callee(ctx, ctx.stack, binaryop, parms, namedparms);
 
     if (!callee && binaryop == BinaryOpExpr::Assign)
@@ -5969,16 +5973,31 @@ namespace
     {
       auto op = static_cast<BinaryOpExpr::OpCode>(binaryop - BinaryOpExpr::AddAssign); // TODO: fragile!
 
-      auto origtype = parms[0].type.type;
+      auto origtype = parms[0].type;
 
       if (!lower_expr(ctx, result, op, parms, namedparms, loc))
         return false;
 
-      if (result.type.type == origtype)
+      if (result.type.type == origtype.type && !(origtype.flags & MIR::Local::Const))
       {
         parms[1] = std::move(result);
 
         callee = find_callee(ctx, ctx.stack, BinaryOpExpr::Assign, parms, namedparms);
+      }
+    }
+
+    if (binaryop == BinaryOpExpr::Assign || (BinaryOpExpr::AddAssign <= binaryop && binaryop <= BinaryOpExpr::XorAssign))
+    {
+      if ((parms[0].type.flags & MIR::Local::RValue) && (is_builtin_type(parms[0].type.type) || is_pointer_type(parms[0].type.type) || is_reference_type(parms[0].type.type)))
+      {
+        ctx.diag.error("invalid assignment to rvalue expression", ctx.stack.back(), loc);
+        return false;
+      }
+
+      if (binaryop == BinaryOpExpr::Assign && is_reference_type(parms[0].type.type) && (is_pointer_type(parms[1].type.type) || is_null_type(parms[1].type.type)))
+      {
+        ctx.diag.error("invalid assignment to reference type", ctx.stack.back(), loc);
+        return false;
       }
     }
 
@@ -6179,23 +6198,20 @@ namespace
         lower_cast(ctx, lhs, lhs, ctx.booltype, binaryop->lhs->loc());
       }
 
-      if (ctx.flags & LowerFlags::Clause)
+      if (binaryop->op() == BinaryOpExpr::LAnd && is_false_constant(ctx, lhs))
       {
-        if (binaryop->op() == BinaryOpExpr::LAnd && is_false_constant(ctx, lhs))
-        {
-          ctx.rollback_barrier(rm);
-          result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
-          result.value = std::move(lhs.value);
-          return;
-        }
+        ctx.rollback_barrier(rm);
+        result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
+        result.value = std::move(lhs.value);
+        return;
+      }
 
-        if (binaryop->op() == BinaryOpExpr::LOr && is_true_constant(ctx, lhs))
-        {
-          ctx.rollback_barrier(rm);
-          result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
-          result.value = std::move(lhs.value);
-          return;
-        }
+      if (binaryop->op() == BinaryOpExpr::LOr && is_true_constant(ctx, lhs))
+      {
+        ctx.rollback_barrier(rm);
+        result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
+        result.value = std::move(lhs.value);
+        return;
       }
 
       auto dst = ctx.add_temporary();
@@ -6468,7 +6484,7 @@ namespace
 
     result.type = MIR::Local(resolve_type(ctx, remove_const_type(cast->type)), remove_const_type(cast->type), MIR::Local::LValue);
 
-    if (!is_typearg_type(result.type.type) && (source.type.flags & MIR::Local::Literal))
+    if (source.type.flags & MIR::Local::Literal)
     {
       if (literal_cast(ctx, result.value, source.value, result.type.type))
       {
@@ -6483,9 +6499,26 @@ namespace
       return;
     }
 
+    if (!is_reference_type(cast->type))
+    {
+      for(auto type = source.type.type;; )
+      {
+        if (type == result.type.type)
+        {
+          lower_base_cast(ctx, result, type, source);
+          return;
+        }
+
+        if (!is_struct_type(type) || !decl_cast<StructDecl>(type_cast<TagType>(type)->decl)->basetype)
+          break;
+
+        type = type_cast<TagType>(type)->fields[0];
+      }
+    }
+
     auto arg = ctx.add_temporary();
 
-    if (is_reference_type(result.type.type) && (source.type.flags & MIR::Local::Reference))
+    if (is_reference_type(cast->type) && (source.type.flags & MIR::Local::Reference))
     {
       result.type = resolve_as_reference(ctx, result.type);
       result.type.defn = remove_const_type(remove_reference_type(result.type.defn));
@@ -6863,13 +6896,6 @@ namespace
       // infer_pointer_type(ctx, value.type, stmtvar);
 
       ctx.diag.error("unable to infer pointer type", ctx.stack.back(), stmtvar->loc());
-      return;
-    }
-
-    if ((ctx.flags & LowerFlags::Runtime) && is_tag_type(value.type.type) && !is_concrete_type(value.type.type))
-    {
-      ctx.diag.error("unresolved type for runtime variable", ctx.stack.back(), stmtvar->loc());
-      ctx.diag << "  variable type : '" << *value.type.type << "'\n";
       return;
     }
 
@@ -9629,40 +9655,6 @@ namespace
       backfill(ctx, mir);
     }
   }
-
-  //|///////////////////// inliner //////////////////////////////////////////
-  void inliner(LowerContext &ctx, MIR &mir)
-  {
-    for(auto &block : ctx.mir.blocks)
-    {
-      for(auto &statement : block.statements)
-      {
-        auto dst = mir.locals[statement.dst];
-
-        if (statement.src.kind() == MIR::RValue::Cast)
-        {
-          auto &[arg, loc] = statement.src.get<MIR::RValue::Cast>();
-
-          if (ctx.mir.locals[arg].flags & MIR::Local::Literal)
-          {
-            if (auto assignment = find_assignment(ctx.mir, arg, block, statement))
-            {
-              if (literal_cast(ctx, statement.src, assignment->src, dst.type))
-              {
-                assignment->kind = MIR::Statement::NoOp;
-              }
-            }
-
-            if (is_typearg_type(dst.type))
-            {
-              ctx.diag.error("unresolved cast", ctx.mir.fx.fn, loc);
-              diag_mismatch(ctx, "cast type", statement.dst, ctx.mir.locals[arg].type);
-            }
-          }
-        }
-      }
-    }
-  }
 }
 
 
@@ -9670,9 +9662,9 @@ namespace
 //|--------------------------------------------------------------------------
 
 //|///////////////////// lower //////////////////////////////////////////////
-MIR lower(FnSig const &fx, TypeTable &typetable, Diag &diag, long flags)
+MIR /*const &*/lower(FnSig const &fx, TypeTable &typetable, Diag &diag)
 {
-  LowerContext ctx(typetable, diag, flags);
+  LowerContext ctx(typetable, diag);
 
   seed_stack(ctx.stack, Scope(fx.fn, fx.typeargs));
 
@@ -9691,20 +9683,13 @@ MIR lower(FnSig const &fx, TypeTable &typetable, Diag &diag, long flags)
 
   backfill(ctx, ctx.mir);
 
-  if (flags & LowerFlags::Runtime)
-  {
-    deducer(ctx, ctx.mir);
-
-    inliner(ctx, ctx.mir);
-  }
-
   return std::move(ctx.mir);
 }
 
 //|///////////////////// lower //////////////////////////////////////////////
-MIR lower(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fragment> const &symbols, TypeTable &typetable, Diag &diag, long flags)
+MIR /*const &*/lower(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fragment> const &symbols, TypeTable &typetable, Diag &diag)
 {
-  LowerContext ctx(typetable, diag, flags);
+  LowerContext ctx(typetable, diag);
 
   seed_stack(ctx.stack, scope);
 
@@ -9717,6 +9702,21 @@ MIR lower(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fragment> co
 #if 0
   dump_mir(ctx.mir);
 #endif
+
+  return std::move(ctx.mir);
+}
+
+//|///////////////////// lower //////////////////////////////////////////////
+MIR lower(FnSig const &fx, TypeTable &typetable, Diag &diag, long flags)
+{
+  LowerContext ctx(typetable, diag);
+
+  ctx.mir = lower(fx, typetable, diag);
+
+  if (diag.has_errored())
+    return ctx.mir;
+
+  deducer(ctx, ctx.mir);
 
   return std::move(ctx.mir);
 }

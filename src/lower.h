@@ -221,6 +221,7 @@ inline TypeLitType *TypeTable::find_or_create<TypeLitType>(Expr *expr)
     case Expr::BoolLiteral:
     case Expr::CharLiteral:
     case Expr::FloatLiteral:
+    case Expr::PtrLiteral:
     case Expr::ArrayLiteral:
     case Expr::CompoundLiteral:
 
@@ -242,6 +243,10 @@ inline TypeLitType *TypeTable::find_or_create<TypeLitType>(Expr *expr)
 
         case Expr::FloatLiteral:
           other_literal_types.push_back(make_type<TypeLitType>(make_expr<FloatLiteralExpr>(expr_cast<FloatLiteralExpr>(expr)->value(), expr->loc())));
+          break;
+
+        case Expr::PtrLiteral:
+          other_literal_types.push_back(make_type<TypeLitType>(make_expr<PointerLiteralExpr>(expr->loc())));
           break;
 
         case Expr::ArrayLiteral: {
@@ -319,10 +324,9 @@ namespace LowerFlags
 {
   enum LowerFlags
   {
-    Clause = 0x01, // short circuit logical expressions
-    Runtime = 0x02, // literal constants deduce to concrete types
   };
 }
 
-MIR lower(FnSig const &fx, TypeTable &typetable, class Diag &diag, long flags = 0);
-MIR lower(Scope const &scope, Expr *expr, std::unordered_map<Decl*, MIR::Fragment> const &symbols, TypeTable &typetable, class Diag &diag, long flags = 0);
+MIR /*const &*/lower(FnSig const &fx, TypeTable &typetable, class Diag &diag);
+MIR /*const &*/lower(Scope const &scope, Expr *expr, std::unordered_map<Decl*, MIR::Fragment> const &symbols, TypeTable &typetable, class Diag &diag);
+MIR lower(FnSig const &fx, TypeTable &typetable, class Diag &diag, long flags);

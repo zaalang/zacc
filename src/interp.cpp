@@ -106,6 +106,15 @@ namespace
     return is_float_type(type);
   }
 
+  bool is_slice_type(Type const *type)
+  {
+    return is_array_type(type) && is_tuple_type(type_cast<ArrayType>(type)->type) &&
+           (type_cast<TupleType>(type_cast<ArrayType>(type)->type)->fields.size() == 2 ||
+           (type_cast<TupleType>(type_cast<ArrayType>(type)->type)->fields.size() == 3 && is_void_type(type_cast<TupleType>(type_cast<ArrayType>(type)->type)->fields[2]))) &&
+           is_pointference_type(type_cast<TupleType>(type_cast<ArrayType>(type)->type)->fields[0]) &&
+           is_pointference_type(type_cast<TupleType>(type_cast<ArrayType>(type)->type)->fields[1]);
+  }
+
   bool eval_function(EvalContext &ctx, Scope const &scope, MIR const &mir, FunctionContext::Local &returnvalue, vector<FunctionContext::Local> const &args = {});
 
   //|///////////////////// type_similar /////////////////////////////////////
@@ -583,14 +592,16 @@ namespace
   {
     auto type = fx.locals[dst].type;
 
-    if (!is_bool_type(type))
+    if (is_bool_type(type))
+    {
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal->value());
+    }
+    else
     {
       ctx.diag.error("literal type incompatible with required type", fx.scope, literal->loc());
       ctx.diag << "  literal type: 'bool' required type: '" << *type << "'\n";
       return false;
     }
-
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal->value());
 
     return true;
   }
@@ -600,14 +611,23 @@ namespace
   {
     auto type = fx.locals[dst].type;
 
-    if (!literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
+    if (is_char_type(type) || is_int_type(type))
     {
-      ctx.diag.error("literal value out of range for required type", fx.scope, literal->loc());
-      ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
+      if (!literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
+      {
+        ctx.diag.error("literal value out of range for required type", fx.scope, literal->loc());
+        ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
+        return false;
+      }
+
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal->value());
+    }
+    else
+    {
+      ctx.diag.error("literal type incompatible with required type", fx.scope, literal->loc());
+      ctx.diag << "  literal type: '#char' required type: '" << *type << "'\n";
       return false;
     }
-
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal->value());
 
     return true;
   }
@@ -618,16 +638,38 @@ namespace
     auto type = fx.locals[dst].type;
 
     if (is_enum_type(type))
-      type = type_cast<TagType>(type)->fields[0];
-
-    if (!literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
     {
-      ctx.diag.error("literal value out of range for required type", fx.scope, literal->loc());
-      ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
-      return false;
+      type = type_cast<TagType>(type)->fields[0];
     }
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal->value());
+    if (is_bool_type(type) || is_int_type(type) || is_char_type(type))
+    {
+      if (!literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
+      {
+        ctx.diag.error("literal value out of range for required type", fx.scope, literal->loc());
+        ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
+        return false;
+      }
+
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal->value());
+    }
+    else if (is_float_type(type))
+    {
+      if (!literal_valid(type_cast<BuiltinType>(type)->kind(), Numeric::float_cast<double>(literal->value())))
+      {
+        ctx.diag.error("literal value out of range for required type", fx.scope, literal->loc());
+        ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
+        return false;
+      }
+
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Numeric::float_cast<double>(literal->value()));
+    }
+    else
+    {
+      ctx.diag.error("literal type incompatible with required type", fx.scope, literal->loc());
+      ctx.diag << "  literal type: '#int' required type: '" << *type << "'\n";
+      return false;
+    }
 
     return true;
   }
@@ -637,14 +679,35 @@ namespace
   {
     auto type = fx.locals[dst].type;
 
-    if (!literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
+    if (is_bool_type(type) || is_int_type(type) || is_char_type(type))
     {
-      ctx.diag.error("literal value out of range for required type", fx.scope, literal->loc());
-      ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
-      return false;
+      if (!literal_valid(type_cast<BuiltinType>(type)->kind(), Numeric::int_cast<double>(literal->value())))
+      {
+        ctx.diag.error("literal value out of range for required type", fx.scope, literal->loc());
+        ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
+        return false;
+      }
+
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Numeric::int_cast<double>(literal->value()));
     }
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal->value());
+    else if (is_float_type(type))
+    {
+      if (!literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
+      {
+        ctx.diag.error("literal value out of range for required type", fx.scope, literal->loc());
+        ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
+        return false;
+      }
+
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal->value());
+    }
+    else
+    {
+      ctx.diag.error("literal type incompatible with required type", fx.scope, literal->loc());
+      ctx.diag << "  literal type: '#float' required type: '" << *type << "'\n";
+      return false;
+    }
 
     return true;
   }
@@ -3047,13 +3110,43 @@ namespace
     {
       return ctx.make_expr<StringLiteralExpr>(load_string(ctx, alloc, type), loc);
     }
-    else if (is_array_type(type) && is_trivial_copy_type(type))
+    else if (is_slice_type(type))
     {
+      auto slicetype = type_cast<TupleType>(type_cast<ArrayType>(type)->type);
+
+      auto elemtype = remove_const_type(remove_pointference_type(slicetype->fields[0]));
+      auto elemsize = sizeof_type(elemtype);
+
+      auto beg = load_ptr(ctx, alloc, slicetype->fields[0]);
+      auto end = load_ptr(ctx, (void*)((size_t)alloc + 8), slicetype->fields[1]);
+
+      if (slicetype->fields.size() == 3)
+        end = (void*)((size_t)end + elemsize);
+
+      auto arraylen = ((size_t)end - (size_t)beg) / elemsize;
+      auto sizetype = ctx.typetable.find_or_create<TypeLitType>(ctx.make_expr<IntLiteralExpr>(Numeric::int_literal(arraylen), loc));
+
       vector<Expr*> elements;
 
+      for(size_t i = 0; i < arraylen; ++i)
+      {
+        elements.push_back(make_expr(ctx, beg, elemtype, loc));
+
+        beg = (void*)((size_t)beg + elemsize);
+      }
+
+      if (any_of(elements.begin(), elements.end(), [](auto &k) { return !k; }))
+        return nullptr;
+
+      return ctx.make_expr<ArrayLiteralExpr>(elements, sizetype, loc);
+    }
+    else if (is_array_type(type) && is_trivial_copy_type(type))
+    {
       auto elemtype = type_cast<ArrayType>(type)->type;
       auto elemsize = sizeof_type(elemtype);
       auto arraylen = array_len(type_cast<ArrayType>(type));
+
+      vector<Expr*> elements;
 
       for(size_t i = 0; i < arraylen; ++i)
       {
@@ -3097,9 +3190,24 @@ namespace
     return nullptr;
   }
 
-  Expr *make_expr(EvalContext &ctx, FunctionContext::Local &value, SourceLocation loc)
+  EvalResult make_result(EvalContext &ctx, FunctionContext::Local &value, SourceLocation loc)
   {
-    return make_expr(ctx, value.alloc, value.type, loc);
+    EvalResult result;
+
+    result.type = value.type;
+    result.value = make_expr(ctx, value.alloc, value.type, loc);
+
+    if (is_slice_type(result.type))
+    {
+      auto slicetype = type_cast<TupleType>(type_cast<ArrayType>(result.type)->type);
+
+      auto elemtype = remove_pointference_type(slicetype->fields[0]);
+      auto sizetype = expr_cast<ArrayLiteralExpr>(result.value)->size;
+
+      result.type = ctx.typetable.find_or_create<ArrayType>(elemtype, sizetype);
+    }
+
+    return result;
   }
 }
 
@@ -3122,8 +3230,7 @@ EvalResult evaluate(Scope const &scope, MIR const &mir, TypeTable &typetable, Di
 
   if (eval_function(ctx, scope, mir, returnvalue))
   {
-    result.type = returnvalue.type;
-    result.value = make_expr(ctx, returnvalue, loc);
+    result = make_result(ctx, returnvalue, loc);
   }
 
   diag << ctx.diag;
@@ -3154,8 +3261,7 @@ EvalResult evaluate(Scope const &scope, FnSig const &callee, vector<EvalResult> 
       return result;
     }
 
-    result.type = returnvalue.type;
-    result.value = make_expr(ctx, returnvalue, loc);
+    result = make_result(ctx, returnvalue, loc);
   }
 
   diag << ctx.diag;
@@ -3169,7 +3275,7 @@ EvalResult evaluate(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fr
 
   EvalContext ctx(scope, typetable, diag);
 
-  auto mir = lower(scope, expr, symbols, typetable, ctx.diag, LowerFlags::Clause);
+  auto mir = lower(scope, expr, symbols, typetable, ctx.diag);
 
   if (ctx.diag.has_errored())
   {
@@ -3187,8 +3293,7 @@ EvalResult evaluate(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fr
 
   if (eval_function(ctx, scope, mir, returnvalue))
   {
-    result.type = returnvalue.type;
-    result.value = make_expr(ctx, returnvalue, loc);
+    result = make_result(ctx, returnvalue, loc);
   }
 
   diag << ctx.diag;

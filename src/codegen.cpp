@@ -863,7 +863,7 @@ namespace
   //|///////////////////// llvm_constant ////////////////////////////////////
   llvm::Constant *llvm_constant(GenContext &ctx, FunctionContext &fx, Type *type, CharLiteralExpr *literal)
   {
-    if (is_char_type(type))
+    if (is_char_type(type) || is_int_type(type))
     {
       if (!literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
       {
@@ -890,7 +890,7 @@ namespace
       type = type_cast<TagType>(type)->fields[0];
     }
 
-    if (is_int_type(type) || is_char_type(type))
+    if (is_bool_type(type) || is_int_type(type) || is_char_type(type))
     {
       if (!literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
       {
@@ -901,11 +901,16 @@ namespace
 
       return llvm_int(llvm_type(ctx, type), literal->value().sign * literal->value().value);
     }
-    else if (is_pointer_type(type))
+    else if (is_float_type(type))
     {
-      auto value = llvm_int(ctx.builder.getInt64Ty(), literal->value().sign * literal->value().value);
+      if (!literal_valid(type_cast<BuiltinType>(type)->kind(), Numeric::float_cast<double>(literal->value())))
+      {
+        ctx.diag.error("literal value out of range for required type", fx.fn, literal->loc());
+        ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
+        return nullptr;
+      }
 
-      return llvm::ConstantExpr::getIntToPtr(value, llvm_type(ctx, type));
+      return llvm_float(llvm_type(ctx, type), literal->value().sign * literal->value().value);
     }
     else
     {
@@ -918,7 +923,18 @@ namespace
   //|///////////////////// llvm_constant ////////////////////////////////////
   llvm::Constant *llvm_constant(GenContext &ctx, FunctionContext &fx, Type *type, FloatLiteralExpr *literal)
   {
-    if (is_float_type(type))
+    if (is_bool_type(type) || is_int_type(type) || is_char_type(type))
+    {
+      if (!literal_valid(type_cast<BuiltinType>(type)->kind(), Numeric::int_cast<double>(literal->value())))
+      {
+        ctx.diag.error("literal value out of range for required type", fx.fn, literal->loc());
+        ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
+        return nullptr;
+      }
+
+      return llvm_int(llvm_type(ctx, type), (uint64_t)(literal->value().value));
+    }
+    else if (is_float_type(type))
     {
       if (!literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
       {
@@ -3598,12 +3614,27 @@ namespace
     else if (dstcat == TypeCategory::UnsignedInteger && srccat == TypeCategory::FloatingPoint)
     {
       if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
-        codegen_assert_carry(ctx, fx, ctx.builder.CreateFCmpOLT(src, llvm_zero(src->getType())));
+      {
+        auto dsttype = llvm_type(ctx, fx.mir.locals[dst].type);
+        auto dstwidth = llvm::cast<llvm::IntegerType>(dsttype)->getBitWidth();
+
+        codegen_assert_carry(ctx, fx, ctx.builder.CreateFCmpOLE(src, llvm_float(src->getType(), -1.0)));
+        codegen_assert_carry(ctx, fx, ctx.builder.CreateFCmpOGE(src, llvm_float(src->getType(), uint64_t(~0ull >> (64 - dstwidth)) + 1.0)));
+      }
 
       store(ctx, fx, dst, ctx.builder.CreateFPToUI(src, llvm_type(ctx, fx.mir.locals[dst].type)));
     }
     else if (dstcat == TypeCategory::SignedInteger && srccat == TypeCategory::FloatingPoint)
     {
+      if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
+      {
+        auto dsttype = llvm_type(ctx, fx.mir.locals[dst].type);
+        auto dstwidth = llvm::cast<llvm::IntegerType>(dsttype)->getBitWidth();
+
+        codegen_assert_carry(ctx, fx, ctx.builder.CreateFCmpOLE(src, llvm_float(src->getType(), int64_t(~0ull << (dstwidth - 1)) - 1.0)));
+        codegen_assert_carry(ctx, fx, ctx.builder.CreateFCmpOGE(src, llvm_float(src->getType(), int64_t(~0ull >> (64 - dstwidth + 1)) + 1.0)));
+      }
+
       store(ctx, fx, dst, ctx.builder.CreateFPToSI(src, llvm_type(ctx, fx.mir.locals[dst].type)));
     }
     else if (dstcat == TypeCategory::FloatingPoint && (srccat == TypeCategory::Bool || srccat == TypeCategory::UnsignedInteger))
@@ -3901,7 +3932,7 @@ namespace
     }
 #endif
 
-    fx.mir = lower(sig, ctx.typetable, ctx.diag, LowerFlags::Runtime);
+    fx.mir = lower(sig, ctx.typetable, ctx.diag, 0);
 
     if (ctx.genopts.dump_mir)
       dump_mir(fx.mir);
@@ -4196,7 +4227,7 @@ namespace
 
     for(size_t i = firstarg; i < 1; ++i)
     {
-      if (!fx.locals[i].addressable && fx.locals[i].writes <= 1)
+      if (!fx.locals[i].addressable && fx.locals[i].writes == 1)
         continue;
 
       fx.locals[i].alloca = alloc(ctx, fx, fx.mir.locals[i].type, fx.locals[i].flags);

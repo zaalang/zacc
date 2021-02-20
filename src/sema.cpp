@@ -257,6 +257,12 @@ ThisVarDecl *Sema::thisvar_declaration(SourceLocation loc)
   return ast->make_decl<ThisVarDecl>(loc);
 }
 
+//|///////////////////// capture_declaration ////////////////////////////////
+LambdaVarDecl *Sema::capture_declaration(SourceLocation loc)
+{
+  return ast->make_decl<LambdaVarDecl>(loc);
+}
+
 //|///////////////////// concept_declaration ////////////////////////////////
 ConceptDecl *Sema::concept_declaration(SourceLocation loc)
 {

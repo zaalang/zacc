@@ -101,6 +101,7 @@ Scope parent_scope(Scope scope)
         return arg.first->owner == scope.owner;
       }), scope.typeargs.end());
 
+      scope.goalpost = nullptr;
       scope.owner = get<Decl*>(scope.owner)->owner;
       break;
 

@@ -316,6 +316,27 @@ Type *remove_pointference_type(Type *type)
   return type;
 }
 
+//|///////////////////// remove_qualifiers_type /////////////////////////////
+Type const *remove_qualifiers_type(Type const *type)
+{
+  type = remove_const_type(type);
+
+  while (is_pointer_type(type) || is_reference_type(type))
+    type = remove_const_type(remove_pointference_type(type));
+
+  return type;
+}
+
+Type *remove_qualifiers_type(Type *type)
+{
+  type = remove_const_type(type);
+
+  while (is_pointer_type(type) || is_reference_type(type))
+    type = remove_const_type(remove_pointference_type(type));
+
+  return type;
+}
+
 //|///////////////////// print //////////////////////////////////////////////
 std::ostream &operator <<(std::ostream &os, Type const &type)
 {
@@ -362,7 +383,7 @@ std::ostream &operator <<(std::ostream &os, Type const &type)
       {
         os << *tag.decl;
 
-        if (tag.args.size() != 0)
+        if (any_of(tag.args.begin(), tag.args.end(), [](auto arg) { return !is_typearg_type(arg.second) || type_cast<TypeArgType>(arg.second)->decl != arg.first; }))
         {
           os << '<';
 

@@ -59,6 +59,7 @@ class Sema
     VoidVarDecl *voidvar_declaration(SourceLocation loc);
     ErrorVarDecl *errorvar_declaration(SourceLocation loc);
     ThisVarDecl *thisvar_declaration(SourceLocation loc);
+    LambdaVarDecl *capture_declaration(SourceLocation loc);
     ConceptDecl *concept_declaration(SourceLocation loc);
     RequiresDecl *requires_declaration(SourceLocation loc);
     EnumDecl *enum_declaration(SourceLocation loc);

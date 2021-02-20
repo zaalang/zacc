@@ -441,6 +441,9 @@ bool is_pointference_type(Type const *type);
 Type *remove_pointference_type(Type *type);
 Type const *remove_pointference_type(Type const *type);
 
+Type const *remove_qualifiers_type(Type const *type);
+Type *remove_qualifiers_type(Type *type);
+
 size_t sizeof_type(Type const *type);
 size_t alignof_type(Type const *type);
 size_t sizeof_field(CompoundType const *type, size_t index);

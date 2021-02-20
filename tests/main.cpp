@@ -20,13 +20,13 @@
 using namespace std;
 
 #if defined _MSC_VER
-#define COMPILE_CMD "zacc.exe -c -I..\\..\\..\\.."
+#define COMPILE_CMD "zacc.exe -c -I..\\..\\..\\..\\std"
 #define COMPILE_TESTS_PATH "..\\..\\..\\tests"
 #elif defined __MINGW64__
-#define COMPILE_CMD "zacc.exe -c -I..\\..\\.."
+#define COMPILE_CMD "zacc.exe -c -I..\\..\\..\\std"
 #define COMPILE_TESTS_PATH "..\\..\\tests"
 #else
-#define COMPILE_CMD "./zacc -c -I../../.."
+#define COMPILE_CMD "./zacc -c -I../../../std"
 #define COMPILE_TESTS_PATH "../../tests"
 #endif
 

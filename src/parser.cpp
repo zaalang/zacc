@@ -616,6 +616,91 @@ namespace
     return stmts;
   }
 
+  //|///////////////////// parse_captures_list //////////////////////////////
+  vector<Decl*> parse_captures_list(ParseContext &ctx, Sema &sema)
+  {
+    vector<Decl*> captures;
+
+    while (ctx.tok != Token::r_square && ctx.tok != Token::semi && ctx.tok != Token::eof)
+    {
+      auto var = sema.capture_declaration(ctx.tok.loc);
+
+      var->arg = sema.make_typearg("_" + to_string(captures.size() + 1), ctx.tok.loc);
+
+      if (ctx.tok == Token::kw_var)
+      {
+        ctx.consume_token(Token::kw_var);
+
+        var->type = sema.make_typearg(var->arg);
+
+        auto kw_mut = ctx.try_consume_token(Token::kw_mut);
+        auto kw_const = ctx.try_consume_token(Token::kw_const);
+
+        if (ctx.try_consume_token(Token::amp))
+        {
+          if (!kw_mut || kw_const)
+            var->type = sema.make_const(var->type);
+
+          var->type = sema.make_reference(var->type);
+        }
+
+        if (kw_const)
+          var->flags |= VarDecl::Const;
+
+        var->name = ctx.tok.text;
+
+        if (!ctx.try_consume_token(Token::identifier))
+        {
+          ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
+          ctx.comsume_til_resumable();
+          break;
+        }
+
+        if (!ctx.try_consume_token(Token::equal))
+        {
+          ctx.diag.error("expected assignment", ctx.text, ctx.tok.loc);
+          ctx.comsume_til_resumable();
+          break;
+        }
+
+        var->value = parse_expression(ctx, sema);
+
+        if (!var->value)
+        {
+          ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+          ctx.comsume_til_resumable();
+          break;
+        }
+      }
+      else
+      {
+        auto loc = ctx.tok.loc;
+
+        var->name = ctx.tok.text;
+
+        if (ctx.tok != Token::identifier && ctx.tok != Token::kw_this)
+        {
+          ctx.diag.error("expected variable", ctx.text, loc);
+          ctx.comsume_til_resumable();
+          break;
+        }
+
+        ctx.consume_token();
+
+        var->type = sema.make_reference(sema.make_typearg(var->arg));
+
+        var->value = sema.make_declref_expression(sema.make_declref(var->name, loc), loc);
+      }
+
+      captures.push_back(var);
+
+      if (!ctx.try_consume_token(Token::comma))
+        break;
+    }
+
+    return captures;
+  }
+
   //|///////////////////// parse_name ///////////////////////////////////////
   string_view parse_name(ParseContext &ctx, Sema &sema)
   {
@@ -1547,6 +1632,8 @@ namespace
     if (ctx.try_consume_token(Token::l_square))
     {
       lambda->flags |= LambdaDecl::Captures;
+
+      lambda->captures = parse_captures_list(ctx, sema);
 
       if (!ctx.try_consume_token(Token::r_square))
       {

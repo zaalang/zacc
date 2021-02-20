@@ -44,7 +44,7 @@ bool is_fn_decl(Decl const *decl)
 //|///////////////////// is_var_decl ////////////////////////////////////////
 bool is_var_decl(Decl const *decl)
 {
-  return decl->kind() == Decl::VoidVar || decl->kind() == Decl::StmtVar || decl->kind() == Decl::ParmVar || decl->kind() == Decl::FieldVar || decl->kind() == Decl::RangeVar || decl->kind() == Decl::ThisVar || decl->kind() == Decl::ErrorVar;
+  return decl->kind() == Decl::VoidVar || decl->kind() == Decl::StmtVar || decl->kind() == Decl::ParmVar || decl->kind() == Decl::FieldVar || decl->kind() == Decl::RangeVar || decl->kind() == Decl::ThisVar || decl->kind() == Decl::ErrorVar || decl->kind() == Decl::LambdaVar;
 }
 
 //|///////////////////// is_tag_decl ////////////////////////////////////////
@@ -253,6 +253,16 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
       if (auto &var = static_cast<ErrorVarDecl const &>(decl); var.type)
       {
         os << *var.type << ' ' << var.name;
+      }
+      break;
+
+    case Decl::LambdaVar:
+      if (auto &var = static_cast<LambdaVarDecl const &>(decl); var.type)
+      {
+        os << *var.type;
+
+        if (!var.name.empty())
+          os << ' ' << var.name;
       }
       break;
 
@@ -684,6 +694,11 @@ void LambdaDecl::dump(int indent) const
 {
   cout << spaces(indent) << "LambdaDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 
+  for(auto &capture : captures)
+  {
+    capture->dump(indent + 2);
+  }
+
   for(auto &decl : decls)
   {
     decl->dump(indent + 2);
@@ -776,6 +791,32 @@ void RangeVarDecl::dump(int indent) const
   if (range)
   {
     range->dump(indent + 2);
+  }
+}
+
+
+//|--------------------- LambdaVarDecl --------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// LambdaVarDecl::Constructor /////////////////////////
+LambdaVarDecl::LambdaVarDecl(SourceLocation loc)
+  : VarDecl(LambdaVar, loc)
+{
+}
+
+//|///////////////////// LambdaVarDecl::dump ////////////////////////////////
+void LambdaVarDecl::dump(int indent) const
+{
+  cout << spaces(indent) << "LambdaVarDecl " << this << " <" << m_loc << "> '" << name << "'\n";
+
+  if (type)
+  {
+    type->dump(indent + 2);
+  }
+
+  if (value)
+  {
+    value->dump(indent + 2);
   }
 }
 

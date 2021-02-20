@@ -580,13 +580,33 @@ namespace
 
     auto lambdatype = sema.make_typeref(lambda);
 
+    for(auto &capture : lambda->captures)
+    {
+      auto field = sema.field_declaration(capture->loc());
+      field->name = decl_cast<LambdaVarDecl>(capture)->name;
+      field->flags = capture->flags;
+      field->type = decl_cast<LambdaVarDecl>(capture)->type;
+
+      lambda->decls.push_back(field);
+      lambda->args.push_back(decl_cast<LambdaVarDecl>(capture)->arg);
+    }
+
     {
       auto ctor = sema.function_declaration(fn->loc());
 
       ctor->name = lambda->name;
       ctor->flags |= FunctionDecl::Public;
       ctor->flags |= FunctionDecl::Constructor;
-      ctor->flags |= FunctionDecl::Defaulted;
+      ctor->builtin = Builtin::Default_Constructor;
+
+      for(auto &capture : lambda->captures)
+      {
+        auto var = sema.parm_declaration(capture->loc());
+        var->name = decl_cast<LambdaVarDecl>(capture)->name;
+        var->type = sema.make_reference(sema.make_qualarg(remove_const_type(remove_reference_type(decl_cast<LambdaVarDecl>(capture)->type))));
+
+        ctor->parms.push_back(var);
+      }
 
       lambda->decls.push_back(ctor);
     }
@@ -597,12 +617,14 @@ namespace
       ctor->name = lambda->name;
       ctor->flags |= FunctionDecl::Public;
       ctor->flags |= FunctionDecl::Constructor;
-      ctor->flags |= FunctionDecl::Defaulted;
+      ctor->builtin = Builtin::Default_Copytructor;
 
       auto thatvar = sema.parm_declaration(fn->loc());
-      thatvar->type = sema.make_reference(sema.make_const(lambdatype));
+      thatvar->type = sema.make_reference(sema.make_qualarg(lambdatype));
 
       ctor->parms.push_back(thatvar);
+
+      ctor->args = lambda->args;
 
       lambda->decls.push_back(ctor);
     }
@@ -620,11 +642,13 @@ namespace
       copy->parms.push_back(thisvar);
 
       auto thatvar = sema.parm_declaration(fn->loc());
-      thatvar->type = sema.make_reference(sema.make_const(lambdatype));
+      thatvar->type = sema.make_reference(sema.make_qualarg(lambdatype));
 
       copy->parms.push_back(thatvar);
 
       copy->returntype = sema.make_reference(lambdatype);
+
+      copy->args = lambda->args;
 
       lambda->decls.push_back(copy);
     }
@@ -640,7 +664,7 @@ namespace
       lambda->decls.push_back(dtor);
     }
 
-    if (lambda->captures.size() == 0)
+    if (lambda->captures.empty())
     {
       auto body = stmt_cast<CompoundStmt>(fn->body);
       auto stmt = sema.declaration_statement(fn->loc());
@@ -880,6 +904,11 @@ namespace
           {
             ctx.diag.error("invalid defaulted constructor parameters", ctx.file, fn->loc());
           }
+        }
+
+        if ((*owner)->kind() == Decl::Lambda)
+        {
+          fn->flags |= FunctionDecl::Defaulted;
         }
       }
 

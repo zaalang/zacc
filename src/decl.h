@@ -50,6 +50,7 @@ class Decl
       FieldVar,
       RangeVar,
       ErrorVar,
+      LambdaVar,
       Initialiser,
       Concept,
       Requires,
@@ -427,6 +428,18 @@ class StructDecl : public TagDecl
 };
 
 
+//---------------------- UnionDecl ------------------------------------------
+//---------------------------------------------------------------------------
+
+class UnionDecl : public TagDecl
+{
+  public:
+    UnionDecl(SourceLocation loc);
+
+    void dump(int indent) const override;
+};
+
+
 //---------------------- LambdaDecl -----------------------------------------
 //---------------------------------------------------------------------------
 
@@ -487,6 +500,21 @@ class RangeVarDecl : public VarDecl
     RangeVarDecl(SourceLocation loc);
 
     Expr *range = nullptr;
+
+    void dump(int indent) const override;
+};
+
+
+//---------------------- LambdaVarDecl --------------------------------------
+//---------------------------------------------------------------------------
+
+class LambdaVarDecl : public VarDecl
+{
+  public:
+    LambdaVarDecl(SourceLocation loc);
+
+    Decl *arg = nullptr;
+    Expr *value = nullptr;
 
     void dump(int indent) const override;
 };
@@ -581,18 +609,6 @@ class EnumConstantDecl : public Decl
 };
 
 
-//---------------------- UnionDecl ------------------------------------------
-//---------------------------------------------------------------------------
-
-class UnionDecl : public TagDecl
-{
-  public:
-    UnionDecl(SourceLocation loc);
-
-    void dump(int indent) const override;
-};
-
-
 //---------------------- IfDecl ---------------------------------------------
 //---------------------------------------------------------------------------
 
@@ -650,6 +666,7 @@ template<> inline auto decl_cast<ThisVarDecl>(Decl *decl) { assert(decl && decl-
 template<> inline auto decl_cast<FieldVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::FieldVar); return static_cast<FieldVarDecl*>(decl); };
 template<> inline auto decl_cast<RangeVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::RangeVar); return static_cast<RangeVarDecl*>(decl); };
 template<> inline auto decl_cast<ErrorVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::ErrorVar); return static_cast<ErrorVarDecl*>(decl); };
+template<> inline auto decl_cast<LambdaVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::LambdaVar); return static_cast<LambdaVarDecl*>(decl); };
 template<> inline auto decl_cast<InitialiserDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Initialiser); return static_cast<InitialiserDecl*>(decl); };
 template<> inline auto decl_cast<ConceptDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Concept); return static_cast<ConceptDecl*>(decl); };
 template<> inline auto decl_cast<RequiresDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Requires); return static_cast<RequiresDecl*>(decl); };

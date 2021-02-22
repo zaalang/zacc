@@ -27,5 +27,5 @@ struct EvalResult
 //---------------------------------------------------------------------------
 
 EvalResult evaluate(Scope const &scope, MIR const &mir, TypeTable &typetable, class Diag &diag, SourceLocation loc);
-EvalResult evaluate(Scope const &scope, FnSig const &callee, std::vector<EvalResult> const &parms, TypeTable &typetable, class Diag &diag, SourceLocation loc);
+EvalResult evaluate(Scope const &scope, FnSig const &callee, Type *returntype, std::vector<EvalResult> const &parms, TypeTable &typetable, class Diag &diag, SourceLocation loc);
 EvalResult evaluate(Scope const &scope, Expr *expr, std::unordered_map<Decl*, MIR::Fragment> const &symbols, TypeTable &typetable, class Diag &diag, SourceLocation loc);

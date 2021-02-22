@@ -219,6 +219,8 @@ namespace
 
     vector<Scope> stack;
 
+    bool is_expression = false;
+
     ModuleDecl *module;
     TranslationUnitDecl *translationunit;
 
@@ -252,6 +254,32 @@ namespace
     }
   };
 
+  struct Cache
+  {
+    struct entry
+    {
+      MIR mir;
+      bool errored;
+    };
+
+    static entry const *lookup(FnSig const &fx)
+    {
+      auto j = lowered.find(fx);
+
+      if (j != lowered.end())
+        return &j->second;
+
+      return nullptr;
+    }
+
+    static MIR const &commit(FnSig const &fx, MIR &&mir, bool errored)
+    {
+      return lowered.emplace(fx, entry{ std::move(mir), errored }).first->second.mir;
+    }
+
+    static inline std::unordered_map<FnSig, entry> lowered;
+  };
+
   const long IllSpecified = 0x40000000;
   const long ResolveUsings = 0x10000000;
 
@@ -268,7 +296,7 @@ namespace
   bool deduce_type(LowerContext &ctx, Scope const &scope, Scope &fx, Type *lhs, MIR::Local const &rhs);
   bool deduce_type(LowerContext &ctx, Scope const &scope, Scope &fx, ParmVarDecl *parm, MIR::Local const &rhs);
   bool deduce_calltype(LowerContext &ctx, Scope const &scope, FnSig &fx, FunctionType *lhs, Type *rhs);
-  bool deduce_returntype(LowerContext &ctx, Scope const &scope, FunctionDecl *fn, MIR::Local const &lhs, MIR::Local &rhs);
+  bool deduce_returntype(LowerContext &ctx, Scope const &scope, FunctionDecl *fn, const MIR::Local &lhs, MIR::Local &rhs);
   bool promote_type(LowerContext &ctx, Type *&lhs, Type *rhs);
   void lower_decl(LowerContext &ctx, ParmVarDecl *parmvar);
   bool lower_expr(LowerContext &ctx, MIR::Fragment &result, Expr *expr);
@@ -1944,15 +1972,7 @@ namespace
         for(auto &arg : fx.fn->args)
           fx.set_type(arg, type);
 
-#if DEDUCE_CONCEPT_ARGS
-        if (reqires->requirestype)
-        {
-          if (auto returntype = resolve_type(ctx, Scope(fx.fn, fx.typeargs), reqires->requirestype); is_concrete_type(returntype))
-            fx.returntype = returntype;
-        }
-#endif
-
-        auto mir = lower(fx, ctx.typetable, diag);
+        auto &mir = lower(fx, ctx.typetable, diag);
 
         if (diag.has_errored())
           return false;
@@ -1997,7 +2017,7 @@ namespace
 
     auto fx = FnSig(decl_cast<FunctionDecl>(match->decl), sig.typeargs);
 
-    auto mir = lower(fx, ctx.typetable, diag);
+    auto &mir = lower(fx, ctx.typetable, diag);
 
     if (diag.has_errored())
       return false;
@@ -2490,7 +2510,14 @@ namespace
       return false;
 
     if (is_qualarg_type(lhs))
-      fx.set_type(parm, ctx.typetable.find_or_create<QualArgType>(qualifiers(rhs), ctx.typetable.var_defn));
+    {
+      auto flags = qualifiers(rhs);
+
+      if (is_voidpointer_type(type_cast<QualArgType>(lhs)->type) && is_pointference_type(rhs.type) && !is_voidpointer_type(rhs.type))
+        flags |= QualArgType::RValue;
+
+      fx.set_type(parm, ctx.typetable.find_or_create<QualArgType>(flags, ctx.typetable.var_defn));
+    }
 
     return true;
   }
@@ -2513,9 +2540,8 @@ namespace
     }
 
     fx = FnSig(fn, std::move(sig.typeargs));
-    fx.returntype = find_returntype(ctx, fx).type;
 
-    if (fx.returntype != resolve_type(ctx, scope, lhs->returntype))
+    if (find_returntype(ctx, fx).type != resolve_type(ctx, scope, lhs->returntype))
       return false;
 
     return true;
@@ -2555,6 +2581,9 @@ namespace
 
     if (rhs.type == ctx.ptrliteraltype)
       return true;
+
+    if (!fx.typeargs.empty())
+      type = resolve_type(ctx, fx, type);
 
     promote_type(ctx, rhs.type, type);
 
@@ -3374,11 +3403,7 @@ namespace
 
   FnSig find_builtin(LowerContext &ctx, Builtin::Kind kind, Type *T1 = nullptr, Type *T2 = nullptr)
   {
-    auto fx = Builtin::fn(ctx.translationunit->builtins, kind, T1, T2);
-
-    fx.returntype = find_returntype(ctx, fx).type;
-
-    return fx;
+    return Builtin::fn(ctx.translationunit->builtins, kind, T1, T2);
   }
 
   FnSig map_builtin(LowerContext &ctx, BinaryOpExpr::OpCode op, Type *T1 = nullptr, Type *T2 = nullptr)
@@ -3723,11 +3748,6 @@ namespace
       {
         callee.fx = find_builtin(ctx, Builtin::Tuple_Destructor, type);
       }
-
-      if (callee)
-      {
-        callee.fx.returntype = ctx.voidtype;
-      }
     }
 
     return callee;
@@ -3760,8 +3780,6 @@ namespace
   {
     MIR::Local returntype;
 
-    assert(!fx.returntype);
-
     if (fx.fn->returntype)
     {
       Scope scope(fx.fn, fx.typeargs);
@@ -3781,9 +3799,7 @@ namespace
 
     if (!fx.fn->returntype && fx.fn->body)
     {
-      // TODO: maybe cache the mir for reuse ?
-
-      auto mir = lower(fx, ctx.typetable, ctx.diag);
+      auto &mir = lower(fx, ctx.typetable, ctx.diag);
 
       if (mir.locals.empty() || !mir.locals[0])
         return nullptr;
@@ -3939,10 +3955,10 @@ namespace
     {
       auto &[callee, args, loc] = expr.value.get<MIR::RValue::Call>();
 
-      auto tagtype = type_cast<TagType>(callee.returntype);
+      auto tagtype = type_cast<TagType>(callee.fn->returntype);
       size_t kind = find(tagtype->fieldvars.begin(), tagtype->fieldvars.end(), callee.fn->args[0]) - tagtype->fieldvars.begin();
 
-      callee = FnSig(decl_cast<FunctionDecl>(callee.fn->args[1]), std::move(callee.typeargs), callee.throwtype, tagtype->fields[kind]);
+      callee = FnSig(decl_cast<FunctionDecl>(callee.fn->args[1]), std::move(callee.typeargs), callee.throwtype);
 
       if (callee.fn->flags & FunctionDecl::Builtin)
         expr.value = MIR::RValue::local(MIR::RValue::Val, args[0], loc);
@@ -4351,7 +4367,7 @@ namespace
   {
     auto V = callee.find_type(callee.fn->args[1])->second;
 
-    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::Literal);
+    result.type = MIR::Local(find_returntype(ctx, callee).type, MIR::Local::Const | MIR::Local::Literal);
     result.value = MIR::RValue::literal(type_cast<TypeLitType>(V)->value);
   }
 
@@ -4361,7 +4377,7 @@ namespace
     if (expr.type.flags & MIR::Local::Reference)
       lower_fer(ctx, expr, expr);
 
-    result.type = MIR::Local(callee.returntype, callee.fn->returntype, expr.type.flags);
+    result.type = MIR::Local(find_returntype(ctx, callee).type, expr.type.flags);
     result.value = std::move(expr.value);
   }
 
@@ -4469,7 +4485,7 @@ namespace
         assert(false);
     }
 
-    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::Literal);
+    result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
     result.value = ctx.mir.make_expr<BoolLiteralExpr>(match, loc);
   }
 
@@ -4484,7 +4500,7 @@ namespace
     if (type_cast<TypeLitType>(type_cast<ArrayType>(type)->size)->value->kind() != Expr::IntLiteral)
       return;
 
-    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::Literal);
+    result.type = MIR::Local(ctx.usizetype, MIR::Local::Const | MIR::Local::Literal);
     result.value = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(type_cast<ArrayType>(type)->size)->value);
   }
 
@@ -4496,7 +4512,7 @@ namespace
     while (is_struct_type(type) && decl_cast<StructDecl>(type_cast<TagType>(type)->decl)->basetype)
       type = type_cast<TagType>(type)->fields[0];
 
-    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::Literal);
+    result.type = MIR::Local(ctx.usizetype, MIR::Local::Const | MIR::Local::Literal);
     result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, type_cast<TupleType>(type)->fields.size()), loc);
   }
 
@@ -4510,7 +4526,8 @@ namespace
     fields.push_back(ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(ctx.site_override.charpos != -1 ? ctx.site_override.charpos : ctx.site.charpos), loc));
     fields.push_back(ctx.mir.make_expr<StringLiteralExpr>(ctx.mir.fx.fn ? ctx.mir.fx.fn->name : string_view(), loc));
 
-    result.type = MIR::Local(callee.returntype, MIR::Local::Const | MIR::Local::Literal);
+    result.type = find_returntype(ctx, callee);
+    result.type.flags = MIR::Local::Const | MIR::Local::Literal;
     result.value = ctx.mir.make_expr<CompoundLiteralExpr>(fields, loc);
   }
 
@@ -4782,7 +4799,7 @@ namespace
 
       commit_type(ctx, arg, expr.type.type, expr.type.flags);
 
-      expr.type = MIR::Local(type, expr.type.flags);
+      expr.type = MIR::Local(type, (expr.type.flags & ~MIR::Local::LValue) | MIR::Local::RValue);
       expr.value = MIR::RValue::cast(arg, expr.value.loc());
     }
 
@@ -5048,18 +5065,6 @@ namespace
       callee.throwtype = ctx.mir.locals[ctx.errorarg].type;
     }
 
-    // return type
-
-    result.type = find_returntype(ctx, callee);
-
-    if (is_function_type(result.type.type))
-      ctx.diag.error("cannot return a function type", ctx.stack.back(), loc);
-
-    if (is_unresolved_type(result.type.type))
-      ctx.diag.error("unresolved return type", ctx.stack.back(), loc);
-
-    callee.returntype = resolve_as_value(ctx, result.type).type;
-
     // handle const builtins
 
     if (callee.fn->flags & FunctionDecl::Builtin)
@@ -5067,9 +5072,6 @@ namespace
       switch(callee.fn->builtin)
       {
         case Builtin::Type_Void:
-          lower_expr(ctx, result, ctx.mir.make_expr<VoidLiteralExpr>(loc));
-          return true;
-
         case Builtin::Type_Bool:
         case Builtin::Type_Char:
         case Builtin::Type_I8:
@@ -5087,15 +5089,11 @@ namespace
         case Builtin::Type_IntLiteral:
         case Builtin::Type_FloatLiteral:
         case Builtin::Type_StringLiteral:
+        case Builtin::Type_PtrLiteral:
         case Builtin::Type_Ptr:
         case Builtin::Type_Ref:
         case Builtin::Type_Enum:
           lower_ctor(ctx, result, callee, parms[0], loc);
-          return true;
-
-        case Builtin::Type_PtrLiteral:
-          lower_expr(ctx, result, ctx.mir.make_expr<PointerLiteralExpr>(loc));
-          result.type.type = callee.returntype;
           return true;
 
         case Builtin::Type_Lit:
@@ -5143,11 +5141,21 @@ namespace
       }
     }
 
+    // return type
+
+    result.type = find_returntype(ctx, callee);
+
+    if (is_function_type(result.type.type))
+      ctx.diag.error("cannot return a function type", ctx.stack.back(), loc);
+
+    if (is_unresolved_type(result.type.type))
+      ctx.diag.error("unresolved return type", ctx.stack.back(), loc);
+
     // constant fold
 
     if (callee.fn->flags & FunctionDecl::Const)
     {
-      if (all_of(parms.begin(), parms.end(), [](auto &k) { return k.type.flags & MIR::Local::Literal; }) && is_trivial_copy_type(callee.returntype))
+      if (all_of(parms.begin(), parms.end(), [](auto &k) { return k.type.flags & MIR::Local::Literal; }) && is_trivial_copy_type(result.type.type))
       {
         vector<EvalResult> arglist;
 
@@ -5161,7 +5169,7 @@ namespace
           arglist.push_back(arg);
         }
 
-        if (auto expr = evaluate(ctx.stack.back(), callee, arglist, ctx.typetable, ctx.diag, loc))
+        if (auto expr = evaluate(ctx.stack.back(), callee, result.type.type, arglist, ctx.typetable, ctx.diag, loc))
         {
           lower_expr(ctx, result, expr.value);
 
@@ -5299,8 +5307,6 @@ namespace
       return false;
     }
 
-    callee.fx.returntype = find_returntype(ctx, callee.fx).type;
-
     MIR mir = {};
     mir.add_local(MIR::Local(parms[0].type.type));
     mir.add_local(MIR::Local(parms[0].type.type, MIR::Local::Reference));
@@ -5340,8 +5346,6 @@ namespace
       ctx.diag.error("cannot resolve operator reference", ctx.stack.back(), binaryop->loc());
       return false;
     }
-
-    callee.fx.returntype = find_returntype(ctx, callee.fx).type;
 
     MIR mir = {};
     mir.add_local(MIR::Local(parms[0].type.type));
@@ -6194,20 +6198,23 @@ namespace
         lower_cast(ctx, lhs, lhs, ctx.booltype, binaryop->lhs->loc());
       }
 
-      if (binaryop->op() == BinaryOpExpr::LAnd && is_false_constant(ctx, lhs))
+      if (ctx.is_expression)
       {
-        ctx.rollback_barrier(rm);
-        result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
-        result.value = std::move(lhs.value);
-        return;
-      }
+        if (binaryop->op() == BinaryOpExpr::LAnd && is_false_constant(ctx, lhs))
+        {
+          ctx.rollback_barrier(rm);
+          result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
+          result.value = std::move(lhs.value);
+          return;
+        }
 
-      if (binaryop->op() == BinaryOpExpr::LOr && is_true_constant(ctx, lhs))
-      {
-        ctx.rollback_barrier(rm);
-        result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
-        result.value = std::move(lhs.value);
-        return;
+        if (binaryop->op() == BinaryOpExpr::LOr && is_true_constant(ctx, lhs))
+        {
+          ctx.rollback_barrier(rm);
+          result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
+          result.value = std::move(lhs.value);
+          return;
+        }
       }
 
       auto dst = ctx.add_temporary();
@@ -6536,6 +6543,8 @@ namespace
         ctx.diag.error("invalid cast", ctx.stack.back(), cast->loc());
         return;
       }
+
+      result.type.flags = (result.type.flags & ~MIR::Local::LValue) | MIR::Local::RValue;
 
       realise_as_value(ctx, arg, source);
     }
@@ -9151,20 +9160,17 @@ namespace
 
       realise_as_value(ctx, 0, result);
 
-      if (!ctx.mir.fx.fn->returntype)
-      {
-        commit_type(ctx, 0, result.type.type, result.type.flags);
+      commit_type(ctx, 0, result.type.type, result.type.flags);
 
-        ctx.mir.locals[0].defn = result.type.defn;
+      ctx.mir.locals[0].defn = result.type.defn;
 
-        if (!(ctx.mir.locals[0].flags & MIR::Local::RValue))
-          ctx.mir.locals[0].flags |= MIR::Local::LValue;
+      if (!(ctx.mir.locals[0].flags & MIR::Local::RValue))
+        ctx.mir.locals[0].flags |= MIR::Local::LValue;
 
-        if (!is_reference_type(ctx.mir.locals[0].type))
-          ctx.mir.locals[0].flags &= ~(MIR::Local::LValue | MIR::Local::RValue);
+      if (!is_reference_type(ctx.mir.locals[0].type))
+        ctx.mir.locals[0].flags &= ~(MIR::Local::LValue | MIR::Local::RValue);
 
-        ctx.mir.locals[0].flags &= ~MIR::Local::XValue;
-      }
+      ctx.mir.locals[0].flags &= ~MIR::Local::XValue;
     }
     else
     {
@@ -9517,12 +9523,8 @@ namespace
 
               callee = FnSig(callee.fn, std::move(scope.typeargs), callee.throwtype);
 
-              callee.returntype = find_returntype(ctx, callee).type;
-
-              if (is_concrete_type(callee.returntype))
+              if (auto returntype = find_returntype(ctx, callee).type; is_concrete_type(returntype))
               {
-                auto returntype = callee.returntype;
-
                 if (statement.kind == MIR::Statement::Construct)
                   returntype = ctx.typetable.find_or_create<ReferenceType>(returntype);
 
@@ -9545,17 +9547,14 @@ namespace
 
   void backfill(LowerContext &ctx, MIR &mir)
   {
-    if (mir.fx.returntype && !promote_type(ctx, 0, mir.fx.returntype, 0))
-    {
-      ctx.diag.error("type mismatch", mir.fx.fn, mir.fx.fn->loc());
-      diag_mismatch(ctx, "return type", 0, mir.fx.returntype);
-    }
-
     if (mir.fx.fn->flags & FunctionDecl::Defaulted)
       return;
 
     for(size_t iteration = 0; iteration < 3; ++iteration)
     {
+      if (ctx.diag.has_errored())
+        return;
+
       for(auto block = mir.blocks.rbegin(); block != mir.blocks.rend(); ++block)
       {
         for(auto statement = block->statements.rbegin(); statement != block->statements.rend(); ++statement)
@@ -9622,7 +9621,7 @@ namespace
           {
             auto &[callee, args, loc] = statement->src.get<MIR::RValue::Call>();
 
-            if (any_of(args.begin(), args.end(), [&](auto arg) { return !is_resolved_type(mir.locals[arg].type); }) || !is_resolved_type(callee.returntype))
+            if (any_of(args.begin(), args.end(), [&](auto arg) { return !is_resolved_type(mir.locals[arg].type); }))
             {
               auto scope = Scope(callee.fn, callee.typeargs);
 
@@ -9633,7 +9632,7 @@ namespace
 
                 deduce_type(ctx, callee.fn, scope, callee.fn->returntype, dst);
 
-                callee = FnSig(callee.fn, scope.typeargs, callee.throwtype, callee.returntype);
+                callee = FnSig(callee.fn, scope.typeargs, callee.throwtype);
               }
 
               for(auto const &[parm, arg] : zip(callee.parameters(), args))
@@ -9650,31 +9649,14 @@ namespace
                 }
               }
             }
-
-            if (is_concrete_type(dst.type) && !is_resolved_type(callee.returntype))
-            {
-              auto dsttype = dst.type;
-
-              if (dst.flags & MIR::Local::Reference)
-                dsttype = ctx.typetable.find_or_create<ReferenceType>(dsttype);
-
-              if (!promote_type(ctx, callee.returntype, dsttype))
-              {
-                ctx.diag.error("type mismatch", ctx.mir.fx.fn, loc);
-                diag_mismatch(ctx, "return type", statement->dst, callee.returntype);
-              }
-            }
           }
         }
       }
-
-      if (ctx.diag.has_errored())
-        return;
     }
   }
 
-  //|///////////////////// deducer //////////////////////////////////////////
-  void deducer(LowerContext &ctx, MIR &mir)
+  //|///////////////////// downcsat /////////////////////////////////////////
+  void downcast_literals(LowerContext &ctx, MIR &mir)
   {
     bool changed = false;
 
@@ -9710,8 +9692,16 @@ namespace
 //|--------------------------------------------------------------------------
 
 //|///////////////////// lower //////////////////////////////////////////////
-MIR /*const &*/lower(FnSig const &fx, TypeTable &typetable, Diag &diag)
+MIR const &lower(FnSig const &fx, TypeTable &typetable, Diag &diag)
 {
+  if (auto j = Cache::lookup(fx))
+  {
+    if (j->errored)
+      diag.errored();
+
+    return j->mir;
+  }
+
   LowerContext ctx(typetable, diag);
 
   seed_stack(ctx.stack, Scope(fx.fn, fx.typeargs));
@@ -9726,16 +9716,13 @@ MIR /*const &*/lower(FnSig const &fx, TypeTable &typetable, Diag &diag)
   dump_mir(ctx.mir);
 #endif
 
-  if (diag.has_errored())
-    return ctx.mir;
-
   backfill(ctx, ctx.mir);
 
-  return std::move(ctx.mir);
+  return Cache::commit(fx, std::move(ctx.mir), diag.has_errored());
 }
 
 //|///////////////////// lower //////////////////////////////////////////////
-MIR /*const &*/lower(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fragment> const &symbols, TypeTable &typetable, Diag &diag)
+MIR lower(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fragment> const &symbols, TypeTable &typetable, Diag &diag)
 {
   LowerContext ctx(typetable, diag);
 
@@ -9743,6 +9730,7 @@ MIR /*const &*/lower(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::F
 
   ctx.translationunit = decl_cast<TranslationUnitDecl>(get<Decl*>(ctx.stack[0].owner));
   ctx.module = decl_cast<ModuleDecl>(get<Decl*>(ctx.stack[1].owner));
+  ctx.is_expression = true;
   ctx.symbols = symbols;
 
   lower_expression(ctx, expr);
@@ -9764,7 +9752,10 @@ MIR lower(FnSig const &fx, TypeTable &typetable, Diag &diag, long flags)
   if (diag.has_errored())
     return ctx.mir;
 
-  deducer(ctx, ctx.mir);
+  if (!is_concrete_type(ctx.mir.locals[0].type))
+    ctx.diag.error("unresolved return type", fx.fn, fx.fn->loc());
+
+  downcast_literals(ctx, ctx.mir);
 
   return std::move(ctx.mir);
 }

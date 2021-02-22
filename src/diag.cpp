@@ -166,6 +166,12 @@ void Diag::error(string_view msg, Scope const &scope, SourceLocation loc)
   m_errored = true;
 }
 
+//|///////////////////// Diag::errored //////////////////////////////////////
+void Diag::errored()
+{
+  m_errored = true;
+}
+
 //|///////////////////// Diag::marker ///////////////////////////////////////
 Diag::Marker Diag::marker()
 {

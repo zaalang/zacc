@@ -2327,6 +2327,8 @@ namespace
           ctx.diag.error("expected requires type", ctx.text, ctx.tok.loc);
           goto resume;
         }
+
+        fn->returntype = reqires->requirestype;
       }
 
       fn->body = parse_compound_statement(ctx, sema);

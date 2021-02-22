@@ -4103,11 +4103,6 @@ namespace
           if (statement.kind == MIR::Statement::Construct)
             dst.flags &= ~MIR::Local::Reference;
 
-          if (!is_concrete_type(callee.returntype))
-          {
-            ctx.diag.error("unresolved return type", fx.fn, loc);
-          }
-
           if (is_firstarg_return(ctx, callee, dst))
           {
             fx.locals[statement.dst].addressable = true;

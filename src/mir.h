@@ -24,8 +24,8 @@
 class FnSig
 {
   public:
-    FnSig(FunctionDecl *fn = nullptr, Type *throwtype = nullptr, Type *returntype = nullptr);
-    FnSig(FunctionDecl *fn, std::vector<std::pair<Decl*, Type*>> typeargs, Type *throwtype = nullptr, Type *returntype = nullptr);
+    FnSig(FunctionDecl *fn = nullptr, Type *throwtype = nullptr);
+    FnSig(FunctionDecl *fn, std::vector<std::pair<Decl*, Type*>> typeargs, Type *throwtype = nullptr);
 
     FunctionDecl *fn;
 
@@ -45,7 +45,7 @@ class FnSig
 
     friend bool operator ==(FnSig const &lhs, FnSig const &rhs)
     {
-      return lhs.fn == rhs.fn && lhs.typeargs == rhs.typeargs && lhs.returntype == rhs.returntype && lhs.throwtype == rhs.throwtype;
+      return lhs.fn == rhs.fn && lhs.typeargs == rhs.typeargs && lhs.throwtype == rhs.throwtype;
     }
 
     friend bool operator !=(FnSig const &lhs, FnSig const &rhs)
@@ -66,7 +66,6 @@ class FnSig
     }
 
     Type *throwtype;
-    Type *returntype;
 
     std::vector<std::pair<Decl*, Type*>> typeargs;
 

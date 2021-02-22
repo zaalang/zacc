@@ -272,6 +272,12 @@ Type *remove_pointer_type(Type *type)
   return type;
 }
 
+//|///////////////////// is_voidpointer_type ////////////////////////////////
+bool is_voidpointer_type(Type const *type)
+{
+  return is_pointference_type(type) && is_void_type(remove_const_type(remove_pointference_type(type)));
+}
+
 //|///////////////////// is_pointference_type ///////////////////////////////
 bool is_pointference_type(Type const *type)
 {
@@ -1451,3 +1457,4 @@ size_t offsetof_field(CompoundType const *type, size_t index)
 
   return offset;
 }
+

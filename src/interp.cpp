@@ -16,6 +16,7 @@
 #include <climits>
 #include <cstdio>
 #include <cmath>
+#include <memory>
 #include <sys/stat.h>
 
 using namespace std;
@@ -43,6 +44,27 @@ namespace
     Type *stringliteraltype;
     Type *ptrliteraltype;
 
+    void *allocate(size_t size, size_t alignment)
+    {
+      auto page = &memory.back();
+
+      if (page->capacity() - page->size() < size + alignment)
+      {
+        memory.push_back(vector<uint8_t>());
+        memory.back().reserve(max(size + alignment, size_t(4096)));
+        page = &memory.back();
+      }
+
+      auto sz = page->capacity() - page->size();
+      auto ptr = static_cast<void*>(page->data() + page->size());
+
+      std::align(alignment, size, ptr, sz);
+
+      page->resize(page->capacity() - sz + size);
+
+      return ptr;
+    }
+
     template<typename T, typename ...Args>
     T *make_expr(Args&&... args)
     {
@@ -63,6 +85,9 @@ namespace
       floatliteraltype = type(Builtin::Type_FloatLiteral);
       stringliteraltype = type(Builtin::Type_StringLiteral);
       ptrliteraltype = type(Builtin::Type_PtrLiteral);
+
+      memory.resize(1);
+      memory.back().reserve(4096);
     }
   };
 
@@ -151,10 +176,7 @@ namespace
 
     result.type = type;
     result.size = sizeof_type(type);
-
-    ctx.memory.push_back(vector<uint8_t>(max(result.size, size_t(1))));
-
-    result.alloc = ctx.memory.back().data();
+    result.alloc = ctx.allocate(result.size, alignof_type(type));
 
     return result;
   }
@@ -2533,10 +2555,8 @@ namespace
 
     mem_result result = {};
 
-    ctx.memory.push_back(vector<uint8_t>(size.value));
-
-    result.size = ctx.memory.back().size();
-    result.addr = ctx.memory.back().data();
+    result.size = size.value;
+    result.addr = ctx.allocate(size.value, 4096);
 
     memcpy(fx.locals[dst].alloc, &result, fx.locals[dst].size);
 
@@ -2567,12 +2587,6 @@ namespace
   bool eval_call(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
     auto &[callee, args, loc] = call;
-
-    if (is_unresolved_type(callee.returntype))
-    {
-      ctx.diag.error("unresolved return type", fx.scope, loc);
-      return false;
-    }
 
     if (callee.fn->flags & FunctionDecl::Builtin)
     {
@@ -2780,7 +2794,7 @@ namespace
     }
     else
     {
-      auto mir = lower(callee, ctx.typetable, ctx.diag);
+      auto &mir = lower(callee, ctx.typetable, ctx.diag);
 
 #if 0
       dump_mir(mir);
@@ -3238,19 +3252,19 @@ EvalResult evaluate(Scope const &scope, MIR const &mir, TypeTable &typetable, Di
   return result;
 }
 
-EvalResult evaluate(Scope const &scope, FnSig const &callee, vector<EvalResult> const &parms, TypeTable &typetable, Diag &diag, SourceLocation loc)
+EvalResult evaluate(Scope const &scope, FnSig const &callee, Type *returntype, vector<EvalResult> const &parms, TypeTable &typetable, Diag &diag, SourceLocation loc)
 {
   EvalResult result = {};
 
   EvalContext ctx(scope, typetable, diag);
 
-  if (is_unresolved_type(callee.returntype))
+  if (is_unresolved_type(returntype))
   {
     diag.error("unresolved return type", scope, loc);
     return result;
   }
 
-  auto returnvalue = alloc(ctx, callee.returntype);
+  auto returnvalue = alloc(ctx, returntype);
 
   if (eval_function(ctx, scope, callee, returnvalue, parms, loc))
   {

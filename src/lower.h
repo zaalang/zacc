@@ -327,6 +327,6 @@ namespace LowerFlags
   };
 }
 
-MIR /*const &*/lower(FnSig const &fx, TypeTable &typetable, class Diag &diag);
-MIR /*const &*/lower(Scope const &scope, Expr *expr, std::unordered_map<Decl*, MIR::Fragment> const &symbols, TypeTable &typetable, class Diag &diag);
+MIR const &lower(FnSig const &fx, TypeTable &typetable, class Diag &diag);
+MIR lower(Scope const &scope, Expr *expr, std::unordered_map<Decl*, MIR::Fragment> const &symbols, TypeTable &typetable, class Diag &diag);
 MIR lower(FnSig const &fx, TypeTable &typetable, class Diag &diag, long flags);

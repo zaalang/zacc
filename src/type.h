@@ -436,6 +436,7 @@ Type const *remove_pointer_type(Type const *type);
 Type *remove_reference_type(Type *type);
 Type const *remove_reference_type(Type const *type);
 
+bool is_voidpointer_type(Type const *type);
 bool is_pointference_type(Type const *type);
 
 Type *remove_pointference_type(Type *type);

@@ -340,24 +340,22 @@ std::ostream &operator <<(std::ostream &os, MIR::Terminator const &terminator)
 //|--------------------------------------------------------------------------
 
 //|///////////////////// Constructor ////////////////////////////////////////
-FnSig::FnSig(FunctionDecl *fn, Type *throwtype, Type *returntype)
+FnSig::FnSig(FunctionDecl *fn, Type *throwtype)
   : fn(fn),
-    throwtype(throwtype),
-    returntype(returntype)
+    throwtype(throwtype)
 {
   hash = std::hash<Decl*>()(fn);
 }
 
 //|///////////////////// Constructor ////////////////////////////////////////
-FnSig::FnSig(FunctionDecl *fn, vector<pair<Decl*, Type*>> typeargs, Type *throwtype, Type *returntype)
+FnSig::FnSig(FunctionDecl *fn, vector<pair<Decl*, Type*>> typeargs, Type *throwtype)
   : fn(fn),
     throwtype(throwtype),
-    returntype(returntype),
     typeargs(std::move(typeargs))
 {
   hash = std::hash<Decl*>()(fn);
 
-  for(auto &arg : typeargs)
+  for(auto &arg : this->typeargs)
   {
     hash ^= std::hash<Decl*>()(arg.first);
   }
@@ -383,9 +381,6 @@ void FnSig::set_type(Decl *in, Type *out)
 //|///////////////////// is_concrete_call ///////////////////////////////////
 bool is_concrete_call(FnSig const &fx)
 {
-  if (!is_concrete_type(fx.returntype))
-    return false;
-
   for(auto &[decl, type] : fx.typeargs)
   {
     if (decl->kind() == Decl::ParmVar && (decl_cast<ParmVarDecl>(decl)->flags & VarDecl::Literal))

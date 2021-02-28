@@ -1793,7 +1793,7 @@ namespace
         return parse_requires(ctx, sema);
 
       case Token::kw_fn:
-        return parse_lambda(ctx, sema);
+        return parse_expression_post(ctx, parse_lambda(ctx, sema), sema);
 
       case Token::kw_this:
       case Token::kw_typeof:

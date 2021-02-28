@@ -611,12 +611,6 @@ namespace
 
     vector<Decl*> decls;
 
-    if (usein->decl->kind() == Decl::TypeOf)
-    {
-      ctx.diag.error("typeof invalid in using", usein, usein->loc());
-      return;
-    }
-
     if (usein->decl->kind() == Decl::DeclRef)
     {
       auto declref = decl_cast<DeclRefDecl>(usein->decl);

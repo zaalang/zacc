@@ -409,6 +409,7 @@ namespace Builtin
     make_function(Tuple_Constructor, "pub fn #tuple<T>() -> T", FunctionDecl::Defaulted, __LINE__);
     make_function(Tuple_Inittructor, "pub fn #tuple<T>(T&&...) -> T", FunctionDecl::Defaulted, __LINE__);
     make_function(Tuple_Copytructor, "pub fn #tuple<T>(T&&) -> T", FunctionDecl::Defaulted, __LINE__);
+    make_function(Tuple_CopytructorEx, "pub fn #tuple<T, U>(U&&) -> T", FunctionDecl::Defaulted, __LINE__);
     make_function(Tuple_Assignment, "pub fn =<T>(T mut &, T&&) -> T mut &", FunctionDecl::Defaulted, __LINE__);
     make_function(Tuple_AssignmentEx, "pub fn =<T, U>(T mut &, U&&) -> T mut &", FunctionDecl::Defaulted, __LINE__);
     make_function(Tuple_Destructor, "pub fn ~#tuple<T>(T mut &) -> void", FunctionDecl::Defaulted, __LINE__);
@@ -706,6 +707,7 @@ namespace Builtin
           return is_tuple_type(T->second);
         break;
 
+      case Builtin::Tuple_CopytructorEx:
       case Builtin::Tuple_AssignmentEx:
       case Builtin::TupleEqEx:
       case Builtin::TupleCmpEx:

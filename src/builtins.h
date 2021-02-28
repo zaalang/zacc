@@ -65,6 +65,7 @@ namespace Builtin
     Tuple_Constructor,
     Tuple_Inittructor,
     Tuple_Copytructor,
+    Tuple_CopytructorEx,
     Tuple_Assignment,
     Tuple_AssignmentEx,
     Tuple_Destructor,

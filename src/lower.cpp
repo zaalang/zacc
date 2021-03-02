@@ -2794,6 +2794,7 @@ namespace
 
           if (is_pack_type(parm->type))
           {
+            vector<Type*> defns;
             vector<Type*> fields;
 
             auto n = parms.size();
@@ -2811,8 +2812,15 @@ namespace
             {
               auto field = parms[k].type.type;
 
+              if (is_reference_type(parms[k].type.defn))
+                field = resolve_as_value(ctx, parms[k].type).type;
+
+              defns.push_back(resolve_defn(ctx, parms[k].type.defn));
+
               if (is_reference_type(type_cast<PackType>(parm->type)->type))
               {
+                defns.back() = ctx.typetable.find_or_create<ReferenceType>(defns.back());
+
                 if (parms[k].type.flags & MIR::Local::Const)
                   field = ctx.typetable.find_or_create<ConstType>(field);
 
@@ -2836,13 +2844,6 @@ namespace
 
               fields.push_back(field);
             }
-
-            vector<Type*> defns;
-
-            if (is_reference_type(type_cast<PackType>(parm->type)->type))
-              defns = vector<Type*>(fields.size(), ctx.typetable.find_or_create<ReferenceType>(ctx.typetable.var_defn));
-            else
-              defns = vector<Type*>(fields.size(), ctx.typetable.var_defn);
 
             MIR::Local pack;
 
@@ -5011,14 +5012,14 @@ namespace
       field.type = MIR::Local(pack->fields[index], pack->defns[index], result.type.flags);
       field.value = MIR::RValue::field(MIR::RValue::Ref, arg, MIR::RValue::Field{ MIR::RValue::Val, index }, loc);
 
-      if (!lower_expr_deref(ctx, field))
-        return false;
-
       if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd)
       {
         if (field.type.flags & MIR::Local::XValue)
           field.type.flags = (field.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
       }
+
+      if (!lower_expr_deref(ctx, field))
+        return false;
 
       parms.push_back(std::move(field));
     }
@@ -5130,11 +5131,13 @@ namespace
 
         if (expr->kind() == Expr::Paren)
         {
-          lower_expand(ctx, parms, expr_cast<ParenExpr>(expr)->subexpr, expr->loc());
+          if (!lower_expand(ctx, parms, expr_cast<ParenExpr>(expr)->subexpr, expr->loc()))
+            return false;
         }
         else
         {
-          lower_unpack(ctx, parms, expr, expr->loc());
+          if (!lower_unpack(ctx, parms, expr, expr->loc()))
+            return false;
         }
       }
       else
@@ -6008,7 +6011,7 @@ namespace
       result = std::move(parms[0]);
 
       result.type = resolve_as_value(ctx, result.type);
-      result.type.defn = ctx.typetable.find_or_create<ReferenceType>(result.type.defn);
+      result.type.defn = ctx.typetable.var_defn;
 
       return true;
     }
@@ -6031,10 +6034,7 @@ namespace
       result = std::move(parms[0]);
 
       if (result.type.flags & MIR::Local::Reference)
-      {
-        result.type = resolve_as_value(ctx, result.type);
         result.type.defn = ctx.typetable.find_or_create<ReferenceType>(result.type.defn);
-      }
 
       return true;
     }
@@ -6203,7 +6203,18 @@ namespace
         auto tupletype = type_cast<TupleType>(parms[0].type.type);
 
         if (any_of(tupletype->defns.begin(), tupletype->defns.end(), [](auto defn) { return is_reference_type(defn); }))
+        {
+          for(size_t i = 0; i < tupletype->fields.size(); ++i)
+          {
+            if (is_reference_type(tupletype->defns[i]) && is_const_type(remove_reference_type(tupletype->fields[i])))
+            {
+              ctx.diag.error("invalid assignment to const field", ctx.stack.back(), loc);
+              return false;
+            }
+          }
+
           parms[0].type.flags &= ~MIR::Local::RValue;
+        }
       }
 
       if (callee && (parms[0].type.flags & MIR::Local::RValue) && !is_qualarg_type(remove_reference_type(decl_cast<ParmVarDecl>(callee.fx.fn->parms[0])->type)))
@@ -7159,7 +7170,7 @@ namespace
     {
       realise_as_value_type(ctx, arg, value, stmtvar->flags & VarDecl::Const);
 
-      if (is_reference_type(value.type.defn) && !(value.type.flags & MIR::Local::Const))
+      if (stmtvar->value->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(stmtvar->value)->op() == UnaryOpExpr::Ref && !(value.type.flags & MIR::Local::Const))
       {
         value.type.type = ctx.typetable.find_or_create<PointerType>(remove_reference_type(value.type.type));
       }
@@ -9332,6 +9343,12 @@ namespace
 
       if (!lower_expr(ctx, result, retrn->expr))
         return;
+
+      if (is_reference_type(result.type.defn))
+        result.type = resolve_as_value(ctx, result.type);
+
+      if (retrn->expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(retrn->expr)->op() == UnaryOpExpr::Ref)
+        result.type.defn = ctx.typetable.find_or_create<ReferenceType>(result.type.defn);
 
       if (ctx.mir.locals[0])
       {

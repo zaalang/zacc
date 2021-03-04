@@ -569,7 +569,7 @@ void MIR::dump() const
     if (throws)
       cout << " throws";
 
-    cout << " -> " << locals[0] << " {\n";
+    cout << " -> " << *locals[0].type << " {\n";
 
     locals[0].dump(2, 0);
 

@@ -678,6 +678,8 @@ namespace
       local.flags &= ~MIR::Local::Reference;
     }
 
+    local.flags &= ~MIR::Local::LValue;
+
     return local;
   }
 
@@ -715,11 +717,12 @@ namespace
   //|///////////////////// resolve_as_reference /////////////////////////////
   MIR::Local resolve_as_reference(LowerContext &ctx, MIR::Local local)
   {
-    local.flags &= ~MIR::Local::Const;
-
     assert(is_reference_type(local.type));
+    assert(~local.flags & MIR::Local::Reference);
 
     local.type = remove_reference_type(local.type);
+    local.flags &= ~MIR::Local::RValue;
+    local.flags &= ~MIR::Local::XValue;
     local.flags |= MIR::Local::Reference;
 
     if (is_qualarg_type(local.type))
@@ -3843,9 +3846,6 @@ namespace
       if (is_const_type(returntype.type) || is_qualarg_type(returntype.type))
         returntype.type = remove_const_type(returntype.type);
 
-      if (is_reference_type(fx.fn->returntype) && is_qualarg_type(remove_reference_type(fx.fn->returntype)))
-        returntype.flags = (returntype.flags & ~MIR::Local::LValue) | MIR::Local::RValue;
-
       returntype.defn = fx.fn->returntype;
     }
 
@@ -3862,12 +3862,8 @@ namespace
     returntype.flags &= ~MIR::Local::Const;
     returntype.flags &= ~MIR::Local::XValue;
     returntype.flags &= ~MIR::Local::Literal;
-
-    if (!(is_reference_type(returntype.type) && (returntype.flags & MIR::Local::LValue)))
-    {
-      returntype.flags |= MIR::Local::RValue;
-      returntype.flags &= ~MIR::Local::LValue;
-    }
+    returntype.flags &= ~MIR::Local::LValue;
+    returntype.flags |= MIR::Local::RValue;
 
     return returntype;
   }
@@ -4756,9 +4752,25 @@ namespace
         lower_fer(ctx, expr, expr);
 
       expr.type = resolve_as_reference(ctx, expr.type);
-      expr.type.flags = (expr.type.flags & ~MIR::Local::RValue) | MIR::Local::LValue;
       expr.type.defn = remove_const_type(remove_reference_type(expr.type.defn));
     }
+
+#if TRANSATIVE_CONST
+    if (expr.type.flags & MIR::Local::Const)
+    {
+      if (is_pointer_type(expr.type.type))
+      {
+        if (auto rhs = remove_pointer_type(expr.type.type); !is_const_type(rhs))
+          expr.type.type = ctx.typetable.find_or_create<PointerType>(ctx.typetable.find_or_create<ConstType>(rhs));
+      }
+
+      if (is_reference_type(expr.type.type))
+      {
+        if (auto rhs = remove_reference_type(expr.type.type); !is_const_type(rhs))
+          expr.type.type = ctx.typetable.find_or_create<ReferenceType>(ctx.typetable.find_or_create<ConstType>(rhs));
+      }
+    }
+#endif
 
     return true;
   }
@@ -4817,20 +4829,6 @@ namespace
 
     if (field.flags & VarDecl::Const)
       result.type.flags |= MIR::Local::Const;
-
-#if TRANSATIVE_CONST
-    if ((base.type.flags & MIR::Local::Const) && is_pointer_type(result.type.type))
-    {
-      if (auto rhs = remove_pointer_type(result.type.type); !is_const_type(rhs))
-        result.type.type = ctx.typetable.find_or_create<PointerType>(ctx.typetable.find_or_create<ConstType>(rhs));
-    }
-
-    if ((base.type.flags & MIR::Local::Const) && is_reference_type(result.type.type))
-    {
-      if (auto rhs = remove_reference_type(result.type.type); !is_const_type(rhs))
-        result.type.type = ctx.typetable.find_or_create<ReferenceType>(ctx.typetable.find_or_create<ConstType>(rhs));
-    }
-#endif
 
     result.type.flags |= MIR::Local::Reference;
     result.value = MIR::RValue::field(MIR::RValue::Ref, arg, std::move(fields), loc);
@@ -5012,14 +5010,14 @@ namespace
       field.type = MIR::Local(pack->fields[index], pack->defns[index], result.type.flags);
       field.value = MIR::RValue::field(MIR::RValue::Ref, arg, MIR::RValue::Field{ MIR::RValue::Val, index }, loc);
 
+      if (!lower_expr_deref(ctx, field))
+        return false;
+
       if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd)
       {
         if (field.type.flags & MIR::Local::XValue)
           field.type.flags = (field.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
       }
-
-      if (!lower_expr_deref(ctx, field))
-        return false;
 
       parms.push_back(std::move(field));
     }
@@ -5384,6 +5382,10 @@ namespace
     if (is_reference_type(result.type.defn))
     {
       result.type = resolve_as_reference(ctx, result.type);
+
+      if (is_qualarg_type(remove_reference_type(result.type.defn)))
+        result.type.flags = (result.type.flags & ~MIR::Local::LValue) | MIR::Local::RValue;
+
       result.type.defn = remove_const_type(remove_reference_type(result.type.defn));
     }
 
@@ -5619,7 +5621,7 @@ namespace
   //|///////////////////// lower_null ///////////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, PointerLiteralExpr *ptrliteral)
   {
-    result.type = MIR::Local(ctx.ptrliteraltype, MIR::Local::Const | MIR::Local::Literal);
+    result.type = MIR::Local(ctx.ptrliteraltype, MIR::Local::Literal | MIR::Local::RValue);
     result.value = ptrliteral;
   }
 

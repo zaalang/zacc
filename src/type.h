@@ -86,6 +86,7 @@ class BuiltinType : public Type
       IntLiteral,
       FloatLiteral,
       StringLiteral,
+      DeclidLiteral,
       PtrLiteral,
     };
 
@@ -395,6 +396,7 @@ bool is_char_type(Type const *type);
 bool is_string_type(Type const *type);
 bool is_bool_type(Type const *type);
 bool is_null_type(Type const *type);
+bool is_declid_type(Type const *type);
 bool is_signed_type(Type const *type);
 
 bool is_const_type(Type const *type);

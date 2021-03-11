@@ -131,6 +131,12 @@ WhileStmt *Sema::while_statement(SourceLocation loc)
   return ast->make_stmt<WhileStmt>(loc);
 }
 
+//|///////////////////// switch_statement ///////////////////////////////////
+SwitchStmt *Sema::switch_statement(SourceLocation loc)
+{
+  return ast->make_stmt<SwitchStmt>(loc);
+}
+
 //|///////////////////// expression_statement ///////////////////////////////
 ExprStmt *Sema::expression_statement(SourceLocation loc)
 {
@@ -263,6 +269,18 @@ LambdaVarDecl *Sema::capture_declaration(SourceLocation loc)
   return ast->make_decl<LambdaVarDecl>(loc);
 }
 
+//|///////////////////// case_declaration ///////////////////////////////////
+CaseDecl *Sema::case_declaration(SourceLocation loc)
+{
+  return ast->make_decl<CaseDecl>(loc);
+}
+
+//|///////////////////// casevar_declaration ////////////////////////////////
+CaseVarDecl *Sema::casevar_declaration(SourceLocation loc)
+{
+  return ast->make_decl<CaseVarDecl>(loc);
+}
+
 //|///////////////////// concept_declaration ////////////////////////////////
 ConceptDecl *Sema::concept_declaration(SourceLocation loc)
 {
@@ -285,6 +303,12 @@ EnumDecl *Sema::enum_declaration(SourceLocation loc)
 EnumConstantDecl *Sema::enum_constant_declaration(SourceLocation loc)
 {
   return ast->make_decl<EnumConstantDecl>(loc);
+}
+
+//|///////////////////// run_declaration ////////////////////////////////////
+RunDecl *Sema::run_declaration(SourceLocation loc)
+{
+  return ast->make_decl<RunDecl>(loc);
 }
 
 //|///////////////////// if_declaration /////////////////////////////////////

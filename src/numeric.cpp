@@ -607,25 +607,25 @@ namespace Numeric
   //|///////////////////// lt ///////////////////////////////////////////////
   bool operator<(Int const &lhs, Int const &rhs)
   {
-    return lhs.sign < rhs.sign || (lhs.sign == rhs.sign && ((lhs.sign > 0 && lhs.value < rhs.value) || (lhs.sign < 0 && lhs.value > rhs.value)));
+    return (lhs.sign == rhs.sign && ((lhs.sign > 0 && lhs.value < rhs.value) || (lhs.sign < 0 && lhs.value > rhs.value))) || (lhs.sign < rhs.sign && lhs.value != 0);
   }
 
   //|///////////////////// gt ///////////////////////////////////////////////
   bool operator>(Int const &lhs, Int const &rhs)
   {
-    return lhs.sign > rhs.sign || (lhs.sign == rhs.sign && ((lhs.sign > 0 && lhs.value > rhs.value) || (lhs.sign < 0 && lhs.value < rhs.value)));
+    return (lhs.sign == rhs.sign && ((lhs.sign > 0 && lhs.value > rhs.value) || (lhs.sign < 0 && lhs.value < rhs.value))) || (lhs.sign > rhs.sign && rhs.value != 0);
   }
 
   //|///////////////////// le ///////////////////////////////////////////////
   bool operator<=(Int const &lhs, Int const &rhs)
   {
-    return lhs.sign < rhs.sign || (lhs.sign == rhs.sign && ((lhs.sign > 0 && lhs.value <= rhs.value) || (lhs.sign < 0 && lhs.value >= rhs.value))) || (lhs.value == 0 && rhs.value == 0);
+    return (lhs.sign == rhs.sign && ((lhs.sign > 0 && lhs.value <= rhs.value) || (lhs.sign < 0 && lhs.value >= rhs.value))) || lhs.sign < rhs.sign || (lhs.value == 0 && rhs.value == 0);
   }
 
   //|///////////////////// ge ///////////////////////////////////////////////
   bool operator>=(Int const &lhs, Int const &rhs)
   {
-    return lhs.sign > rhs.sign || (lhs.sign == rhs.sign && ((lhs.sign > 0 && lhs.value >= rhs.value) || (lhs.sign < 0 && lhs.value <= rhs.value))) || (lhs.value == 0 && rhs.value == 0);
+    return (lhs.sign == rhs.sign && ((lhs.sign > 0 && lhs.value >= rhs.value) || (lhs.sign < 0 && lhs.value <= rhs.value))) || lhs.sign > rhs.sign || (lhs.value == 0 && rhs.value == 0);
   }
 
   //|///////////////////// neg //////////////////////////////////////////////

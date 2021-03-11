@@ -108,10 +108,11 @@ namespace
     size_t errorarg = 0;
   };
 
+  template <typename T>
   struct Range
   {
-    uint64_t beg;
-    uint64_t end;
+    T beg;
+    T end;
   };
 
   template <typename T>
@@ -131,7 +132,7 @@ namespace
     return is_float_type(type);
   }
 
-  bool is_slice_type(Type const *type)
+  bool is_span_type(Type const *type)
   {
     return is_array_type(type) && is_tuple_type(type_cast<ArrayType>(type)->type) &&
            (type_cast<TupleType>(type_cast<ArrayType>(type)->type)->fields.size() == 2 ||
@@ -265,6 +266,7 @@ namespace
         break;
 
       case BuiltinType::IntLiteral:
+      case BuiltinType::DeclidLiteral:
         memcpy(&value, alloc, sizeof(value));
         break;
 
@@ -353,9 +355,10 @@ namespace
   }
 
   //|///////////////////// load /////////////////////////////////////////////
-  Range load_range(EvalContext &ctx, void *alloc, Type *type)
+  template <typename T>
+  Range<T> load_range(EvalContext &ctx, void *alloc, Type *type)
   {
-    Range value;
+    Range<T> value;
 
     assert(is_tuple_type(type));
 
@@ -364,9 +367,10 @@ namespace
     return value;
   }
 
-  Range load_range(EvalContext &ctx, FunctionContext &fx, size_t src)
+  template <typename T>
+  Range<T> load_range(EvalContext &ctx, FunctionContext &fx, size_t src)
   {
-    return load_range(ctx, fx.locals[src].alloc, fx.locals[src].type);
+    return load_range<T>(ctx, fx.locals[src].alloc, fx.locals[src].type);
   }
 
   //|///////////////////// store ////////////////////////////////////////////
@@ -441,6 +445,7 @@ namespace
         break;
 
       case BuiltinType::IntLiteral:
+      case BuiltinType::DeclidLiteral:
         memcpy(alloc, &value, sizeof(value));
         break;
 
@@ -594,6 +599,13 @@ namespace
     }
   }
 
+  //|///////////////////// store ////////////////////////////////////////////
+  template<typename T>
+  void store(EvalContext &ctx, void *alloc, Type *type, Range<T> const &value)
+  {
+    memcpy(alloc, &value, sizeof(value));
+  }
+
   //|///////////////////// eval_constant ////////////////////////////////////
   bool eval_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, VoidLiteralExpr const *literal)
   {
@@ -664,7 +676,7 @@ namespace
       type = type_cast<TagType>(type)->fields[0];
     }
 
-    if (is_bool_type(type) || is_int_type(type) || is_char_type(type))
+    if (is_bool_type(type) || is_int_type(type) || is_char_type(type) || is_declid_type(type))
     {
       if (!literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
       {
@@ -1873,7 +1885,7 @@ namespace
     auto &[callee, args, loc] = call;
 
     auto src = load_string(ctx, fx, args[0]);
-    auto range = load_range(ctx, fx, args[1]);
+    auto range = load_range<uint64_t>(ctx, fx, args[1]);
 
     if (src.length() < range.beg)
     {
@@ -1992,9 +2004,15 @@ namespace
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, lhs != nullptr);
     }
-    else if (fx.locals[args[0]].type == ctx.ptrliteraltype)
+    else if (is_null_type(fx.locals[args[0]].type))
     {
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, false);
+    }
+    else if (is_declid_type(fx.locals[args[0]].type))
+    {
+      auto lhs = load_int(ctx, fx, args[0]);
+
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, lhs.value != 0);
     }
     else
     {
@@ -2322,6 +2340,267 @@ namespace
       result = Numeric::int_literal(1, (size_t)ptr - (size_t)source);
 
     store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
+
+    return true;
+  }
+
+  //|///////////////////// decl_kind ////////////////////////////////////////
+  bool eval_builtin_decl_kind(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto decl = reinterpret_cast<Decl*>(load_int(ctx, fx, args[0]).value);
+
+    if (!decl)
+    {
+      ctx.diag.error("invalid declid for decl_kind", fx.scope, loc);
+      return false;
+    }
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, ctx.make_expr<IntLiteralExpr>(Numeric::int_literal(decl->kind()), loc));
+
+    return true;
+  }
+
+  //|///////////////////// decl_name ////////////////////////////////////////
+  bool eval_builtin_decl_name(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto decl = reinterpret_cast<Decl*>(load_int(ctx, fx, args[0]).value);
+
+    if (!decl)
+    {
+      ctx.diag.error("invalid declid for decl_name", fx.scope, loc);
+      return false;
+    }
+
+    string_view result;
+
+    switch (decl->kind())
+    {
+      case Decl::TranslationUnit:
+        break;
+
+      case Decl::Module:
+        result = decl_cast<ModuleDecl>(decl)->name;
+        break;
+
+      case Decl::Function:
+        result = decl_cast<FunctionDecl>(decl)->name;
+        break;
+
+      case Decl::Struct:
+      case Decl::Union:
+      case Decl::Concept:
+      case Decl::Enum:
+        result = decl_cast<TagDecl>(decl)->name;
+        break;
+
+      case Decl::VoidVar:
+      case Decl::StmtVar:
+      case Decl::ParmVar:
+      case Decl::FieldVar:
+      case Decl::RangeVar:
+      case Decl::ThisVar:
+      case Decl::ErrorVar:
+        result = decl_cast<VarDecl>(decl)->name;
+        break;
+
+      case Decl::EnumConstant:
+        result = decl_cast<EnumConstantDecl>(decl)->name;
+        break;
+
+      case Decl::TypeAlias:
+        result = decl_cast<TypeAliasDecl>(decl)->name;
+        break;
+
+      case Decl::TypeArg:
+        result = decl_cast<TypeArgDecl>(decl)->name;
+        break;
+
+      default:
+        break;
+    }
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, ctx.make_expr<StringLiteralExpr>(result, loc));
+
+    return true;
+  }
+
+  //|///////////////////// decl_flags ///////////////////////////////////////
+  bool eval_builtin_decl_flags(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto decl = reinterpret_cast<Decl*>(load_int(ctx, fx, args[0]).value);
+
+    if (!decl)
+    {
+      ctx.diag.error("invalid declid for decl_flags", fx.scope, loc);
+      return false;
+    }
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, ctx.make_expr<IntLiteralExpr>(Numeric::int_literal(decl->flags), loc));
+
+    return true;
+  }
+
+  //|///////////////////// decl_parent //////////////////////////////////////
+  bool eval_builtin_decl_parent(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto decl = reinterpret_cast<Decl*>(load_int(ctx, fx, args[0]).value);
+
+    if (!decl)
+    {
+      ctx.diag.error("invalid declid for decl_parent", fx.scope, loc);
+      return false;
+    }
+
+    Decl *result = nullptr;
+
+    for(auto sx = parent_scope(decl); sx; sx = parent_scope(std::move(sx)))
+    {
+      if (is_decl_scope(sx))
+      {
+        result = get<Decl*>(sx.owner);
+        break;
+      }
+    }
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, ctx.make_expr<IntLiteralExpr>(Numeric::int_literal(0, reinterpret_cast<uintptr_t>(result)), loc));
+
+    return true;
+  }
+
+  //|///////////////////// decl_children ////////////////////////////////////
+  bool eval_builtin_decl_children(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto decl = reinterpret_cast<Decl*>(load_int(ctx, fx, args[0]).value);
+
+    if (!decl)
+    {
+      ctx.diag.error("invalid declid for decl_children", fx.scope, loc);
+      return false;
+    }
+
+    vector<Decl*> result;
+
+    switch (decl->kind())
+    {
+      case Decl::TranslationUnit:
+        result = decl_cast<TranslationUnitDecl>(decl)->decls;
+        break;
+
+      case Decl::Module:
+        result = decl_cast<ModuleDecl>(decl)->decls;
+        break;
+
+      case Decl::Struct:
+      case Decl::Union:
+      case Decl::Concept:
+      case Decl::Enum:
+        result = decl_cast<TagDecl>(decl)->decls;
+        break;
+
+      default:
+        break;
+    }
+
+    size_t size = result.size();
+    Numeric::Int *data = (Numeric::Int*)ctx.allocate(size * sizeof(Numeric::Int), alignof(uintptr_t));
+
+    for(size_t i = 0; i < size; ++i)
+      data[i] = Numeric::int_literal(0, reinterpret_cast<uintptr_t>(result[i]));
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Range<void*>{ data, data + size });
+
+    return true;
+  }
+
+  //|///////////////////// type_decl ////////////////////////////////////////
+  bool eval_builtin_type_decl(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    Decl *result = nullptr;
+
+    switch (auto type = callee.find_type(callee.fn->args[0])->second; type->klass())
+    {
+      case Type::Builtin:
+        if (auto unit = decl_cast<TranslationUnitDecl>(get<Decl*>(get_module(fx.scope)->owner)))
+        {
+          for(auto &decl : decl_cast<ModuleDecl>(unit->builtins)->decls)
+          {
+            if (decl->kind() == Decl::TypeAlias && decl_cast<TypeAliasDecl>(decl)->type == type)
+              result = decl;
+          }
+        }
+        break;
+
+      case Type::Tag:
+        result = type_cast<TagType>(type)->decl;
+        break;
+
+      default:
+        break;
+    }
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, ctx.make_expr<IntLiteralExpr>(Numeric::int_literal(0, reinterpret_cast<uintptr_t>(result)), loc));
+
+    return true;
+  }
+
+  //|///////////////////// type_fields //////////////////////////////////////
+  bool eval_builtin_type_fields(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    size_t size = 0;
+    Numeric::Int *data = nullptr;
+
+    if (auto type = callee.find_type(callee.fn->args[0])->second; is_struct_type(type) || is_union_type(type))
+    {
+      auto tagtype = type_cast<TagType>(type);
+
+      size = tagtype->fieldvars.size();
+      data = (Numeric::Int*)ctx.allocate(size * sizeof(Numeric::Int), alignof(uintptr_t));
+
+      for(size_t i = 0; i < size; ++i)
+        data[i] = Numeric::int_literal(0, reinterpret_cast<uintptr_t>(tagtype->fieldvars[i]));
+    }
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Range<void*>{ data, data + size });
+
+    return true;
+  }
+
+  //|///////////////////// type_enumerators /////////////////////////////////
+  bool eval_builtin_type_enumerators(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    size_t size = 0;
+    Numeric::Int *data = nullptr;
+
+    if (auto type = callee.find_type(callee.fn->args[0])->second; is_tag_type(type))
+    {
+      auto tagtype = type_cast<TagType>(type);
+
+      data = (Numeric::Int*)ctx.allocate(tagtype->decls.size() * sizeof(Numeric::Int), alignof(uintptr_t));
+
+      for(size_t i = 0; i < tagtype->decls.size(); ++i)
+      {
+        if (tagtype->decls[i]->kind() == Decl::EnumConstant)
+          data[size++] = Numeric::int_literal(0, reinterpret_cast<uintptr_t>(tagtype->decls[i]));
+      }
+    }
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Range<void*>{ data, data + size });
 
     return true;
   }
@@ -2750,6 +3029,30 @@ namespace
         case Builtin::memfind:
           return eval_builtin_memfind(ctx, fx, dst, call);
 
+        case Builtin::decl_kind:
+          return eval_builtin_decl_kind(ctx, fx, dst, call);
+
+        case Builtin::decl_name:
+          return eval_builtin_decl_name(ctx, fx, dst, call);
+
+        case Builtin::decl_flags:
+          return eval_builtin_decl_flags(ctx, fx, dst, call);
+
+        case Builtin::decl_parent:
+          return eval_builtin_decl_parent(ctx, fx, dst, call);
+
+        case Builtin::decl_children:
+          return eval_builtin_decl_children(ctx, fx, dst, call);
+
+        case Builtin::type_decl:
+          return eval_builtin_type_decl(ctx, fx, dst, call);
+
+        case Builtin::type_fields:
+          return eval_builtin_type_fields(ctx, fx, dst, call);
+
+        case Builtin::type_enumerators:
+          return eval_builtin_type_enumerators(ctx, fx, dst, call);
+
         default:
           assert(false);
       }
@@ -3003,7 +3306,7 @@ namespace
 
             block = cond ? terminator.blockid : get<1>(terminator.targets[0]);
           }
-          else if (is_int_type(fx.locals[terminator.value].type) || is_enum_type(fx.locals[terminator.value].type))
+          else if (is_int_type(fx.locals[terminator.value].type) || is_char_type(fx.locals[terminator.value].type) || is_enum_type(fx.locals[terminator.value].type))
           {
             auto cond = load_int(ctx, fx.locals[terminator.value].alloc, fx.locals[terminator.value].type);
 
@@ -3011,7 +3314,7 @@ namespace
 
             for(auto &[k, v] : terminator.targets)
             {
-              if (cond.sign * int(cond.value) == k)
+              if (cond.sign * cond.value == k)
                 block = v;
             }
           }
@@ -3124,29 +3427,28 @@ namespace
     {
       return ctx.make_expr<StringLiteralExpr>(load_string(ctx, alloc, type), loc);
     }
-    else if (is_slice_type(type))
+    else if (is_declid_type(type))
+    {
+      return ctx.make_expr<IntLiteralExpr>(load_int(ctx, alloc, type), loc);
+    }
+    else if (is_span_type(type))
     {
       auto slicetype = type_cast<TupleType>(type_cast<ArrayType>(type)->type);
-
       auto elemtype = remove_const_type(remove_pointference_type(slicetype->fields[0]));
       auto elemsize = sizeof_type(elemtype);
 
-      auto beg = load_ptr(ctx, alloc, slicetype->fields[0]);
-      auto end = load_ptr(ctx, (void*)((size_t)alloc + 8), slicetype->fields[1]);
+      auto span = load_range<void*>(ctx, alloc, slicetype);
 
       if (slicetype->fields.size() == 3)
-        end = (void*)((size_t)end + elemsize);
+        span.end = (void*)((size_t)span.end + elemsize);
 
-      auto arraylen = ((size_t)end - (size_t)beg) / elemsize;
+      auto arraylen = ((size_t)span.end - (size_t)span.beg) / elemsize;
       auto sizetype = ctx.typetable.find_or_create<TypeLitType>(ctx.make_expr<IntLiteralExpr>(Numeric::int_literal(arraylen), loc));
-
-      vector<Expr*> elements;
+      auto elements = vector<Expr*>(arraylen);
 
       for(size_t i = 0; i < arraylen; ++i)
       {
-        elements.push_back(make_expr(ctx, beg, elemtype, loc));
-
-        beg = (void*)((size_t)beg + elemsize);
+        elements[i] = make_expr(ctx, (void*)((size_t)span.beg + i * elemsize), elemtype, loc);
       }
 
       if (any_of(elements.begin(), elements.end(), [](auto &k) { return !k; }))
@@ -3159,14 +3461,11 @@ namespace
       auto elemtype = type_cast<ArrayType>(type)->type;
       auto elemsize = sizeof_type(elemtype);
       auto arraylen = array_len(type_cast<ArrayType>(type));
-
-      vector<Expr*> elements;
+      auto elements = vector<Expr*>(arraylen);
 
       for(size_t i = 0; i < arraylen; ++i)
       {
-        elements.push_back(make_expr(ctx, alloc, elemtype, loc));
-
-        alloc = (void*)((size_t)alloc + elemsize);
+        elements[i] = make_expr(ctx, (void*)((size_t)alloc + i * elemsize), elemtype, loc);
       }
 
       if (any_of(elements.begin(), elements.end(), [](auto &k) { return !k; }))
@@ -3176,19 +3475,19 @@ namespace
     }
     else if (is_compound_type(type) && is_trivial_copy_type(type))
     {
-      vector<Expr*> fields;
+      auto compoundtype = type_cast<CompoundType>(type);
+      auto fieldslen = compoundtype->fields.size();
+      auto fields = vector<Expr*>(fieldslen);
 
-      auto srctype = type_cast<CompoundType>(type);
-
-      for(auto &field : srctype->fields)
+      for(size_t i = 0; i < fieldslen; ++i)
       {
-        auto alignment = alignof_field(srctype, &field - &srctype->fields[0]);
+        auto alignment = alignof_field(compoundtype, i);
 
         alloc = (void*)(((size_t)alloc + alignment - 1) & -alignment);
 
-        fields.push_back(make_expr(ctx, alloc, field, loc));
+        fields[i] = make_expr(ctx, alloc, compoundtype->fields[i], loc);
 
-        alloc = (void*)((size_t)alloc + sizeof_type(field));
+        alloc = (void*)((size_t)alloc + sizeof_field(compoundtype, i));
       }
 
       if (any_of(fields.begin(), fields.end(), [](auto &k) { return !k; }))
@@ -3211,11 +3510,11 @@ namespace
     result.type = value.type;
     result.value = make_expr(ctx, value.alloc, value.type, loc);
 
-    if (is_slice_type(result.type))
+    if (is_span_type(result.type))
     {
       auto slicetype = type_cast<TupleType>(type_cast<ArrayType>(result.type)->type);
 
-      auto elemtype = remove_pointference_type(slicetype->fields[0]);
+      auto elemtype = remove_const_type(remove_pointference_type(slicetype->fields[0]));
       auto sizetype = expr_cast<ArrayLiteralExpr>(result.value)->size;
 
       result.type = ctx.typetable.find_or_create<ArrayType>(elemtype, sizetype);

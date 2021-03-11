@@ -268,7 +268,7 @@ class MIR
         local_t value;
         block_t blockid;
 
-        std::vector<std::tuple<int, block_t>> targets;
+        std::vector<std::tuple<size_t, block_t>> targets;
 
         static Terminator returner() { return { Return }; }
         static Terminator gotoer(block_t dst) { return { Goto, 0, dst }; }

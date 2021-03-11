@@ -52,11 +52,14 @@ class Decl
       ErrorVar,
       LambdaVar,
       Initialiser,
+      Case,
+      CaseVar,
       Concept,
       Requires,
       Enum,
       EnumConstant,
       Union,
+      Run,
       If,
     };
 
@@ -163,6 +166,7 @@ class FunctionDecl : public Decl
       LambdaDecl = 0x30000000,
       RequiresDecl = 0x40000000,
       MatchDecl = 0x50000000,
+      RunDecl = 0x60000000,
     };
 
   public:
@@ -544,6 +548,34 @@ class InitialiserDecl : public Decl
 };
 
 
+//---------------------- CaseDecl -------------------------------------------
+//---------------------------------------------------------------------------
+
+class CaseDecl : public Decl
+{
+  public:
+    CaseDecl(SourceLocation loc);
+
+    Expr *label = nullptr;
+    Decl *parm = nullptr;
+    Stmt *body = nullptr;
+
+    void dump(int indent) const override;
+};
+
+
+//---------------------- CaseVarDecl ----------------------------------------
+//---------------------------------------------------------------------------
+
+class CaseVarDecl : public VarDecl
+{
+  public:
+    CaseVarDecl(SourceLocation loc);
+
+    void dump(int indent) const override;
+};
+
+
 //---------------------- ConceptDecl ----------------------------------------
 //---------------------------------------------------------------------------
 
@@ -609,6 +641,20 @@ class EnumConstantDecl : public Decl
 };
 
 
+//---------------------- RunDecl --------------------------------------------
+//---------------------------------------------------------------------------
+
+class RunDecl : public Decl
+{
+  public:
+    RunDecl(SourceLocation loc);
+
+    Decl *fn = nullptr;
+
+    void dump(int indent) const override;
+};
+
+
 //---------------------- IfDecl ---------------------------------------------
 //---------------------------------------------------------------------------
 
@@ -631,6 +677,7 @@ class IfDecl : public Decl
 
     void dump(int indent) const override;
 };
+
 
 //
 // misc functions
@@ -668,12 +715,15 @@ template<> inline auto decl_cast<RangeVarDecl>(Decl *decl) { assert(decl && decl
 template<> inline auto decl_cast<ErrorVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::ErrorVar); return static_cast<ErrorVarDecl*>(decl); };
 template<> inline auto decl_cast<LambdaVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::LambdaVar); return static_cast<LambdaVarDecl*>(decl); };
 template<> inline auto decl_cast<InitialiserDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Initialiser); return static_cast<InitialiserDecl*>(decl); };
+template<> inline auto decl_cast<CaseDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Case); return static_cast<CaseDecl*>(decl); };
+template<> inline auto decl_cast<CaseVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::CaseVar); return static_cast<CaseVarDecl*>(decl); };
 template<> inline auto decl_cast<ConceptDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Concept); return static_cast<ConceptDecl*>(decl); };
 template<> inline auto decl_cast<RequiresDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Requires); return static_cast<RequiresDecl*>(decl); };
 template<> inline auto decl_cast<EnumDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Enum); return static_cast<EnumDecl*>(decl); };
 template<> inline auto decl_cast<EnumConstantDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::EnumConstant); return static_cast<EnumConstantDecl*>(decl); };
 template<> inline auto decl_cast<UnionDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Union); return static_cast<UnionDecl*>(decl); };
 template<> inline auto decl_cast<IfDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::If); return static_cast<IfDecl*>(decl); };
+template<> inline auto decl_cast<RunDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Run); return static_cast<RunDecl*>(decl); };
 
 template<> inline auto decl_cast<VarDecl>(Decl *decl) { assert(decl && is_var_decl(decl)); return static_cast<VarDecl*>(decl); };
 template<> inline auto decl_cast<TagDecl>(Decl *decl) { assert(decl && is_tag_decl(decl)); return static_cast<TagDecl*>(decl); };

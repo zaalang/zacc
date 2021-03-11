@@ -87,10 +87,10 @@ int main(int argc, char *argv[])
 
     for(int i = 0; i < argc; ++i)
     {
-      if (strcmp(argv[i], "-emit-asm") == 0)
+      if (strcmp(argv[i], "--emit-asm") == 0)
         opts.outputtype = GenOpts::OutputType::EmitAsm;
 
-      if (strcmp(argv[i], "-emit-ll") == 0)
+      if (strcmp(argv[i], "--emit-ll") == 0)
         opts.outputtype = GenOpts::OutputType::EmitLL;
 
       if (strcmp(argv[i], "-g") == 0)
@@ -108,7 +108,7 @@ int main(int argc, char *argv[])
       if (strcmp(argv[i], "-c") == 0)
         opts.linker = false;
 
-      if (strcmp(argv[i], "-dump-mir") == 0)
+      if (strcmp(argv[i], "--dump-mir") == 0)
         opts.dump_mir = true;
 
       if (strcmp(argv[i], "-mllvm") == 0)

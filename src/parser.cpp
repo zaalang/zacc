@@ -1913,6 +1913,26 @@ namespace
     return fn;
   }
 
+  //|///////////////////// parse_run_declaration ////////////////////////////
+  Decl *parse_run_declaration(ParseContext &ctx, Sema &sema)
+  {
+    auto run = sema.run_declaration(ctx.tok.loc);
+
+    ctx.consume_token(Token::hash);
+
+    auto fn = sema.function_declaration(ctx.tok.loc);
+
+    fn->flags |= FunctionDecl::RunDecl;
+
+    fn->returntype = Builtin::type(Builtin::Type_Void);
+
+    fn->body = parse_compound_statement(ctx, sema);
+
+    run->fn = fn;
+
+    return run;
+  }
+
   //|///////////////////// parse_if_declaration /////////////////////////////
   IfDecl *parse_if_declaration(ParseContext &ctx, Sema &sema)
   {
@@ -3076,6 +3096,10 @@ namespace
                 conditionals_stack.pop_back();
                 break;
 
+              case Token::l_brace:
+                decl = parse_run_declaration(ctx, sema);
+                break;
+
               default:
                 goto unhandled;
             }
@@ -3308,6 +3332,10 @@ namespace
                 conditionals_stack.pop_back();
                 break;
 
+              case Token::l_brace:
+                decl = parse_run_declaration(ctx, sema);
+                break;
+
               default:
                 goto unhandled;
             }
@@ -3496,6 +3524,10 @@ namespace
                 conditionals_stack.pop_back();
                 conditional = conditionals_stack.back();
                 conditionals_stack.pop_back();
+                break;
+
+              case Token::l_brace:
+                decl = parse_run_declaration(ctx, sema);
                 break;
 
               default:
@@ -3882,6 +3914,251 @@ namespace
       return nullptr;
   }
 
+  //|///////////////////// parse_case_declaration ///////////////////////////
+  Decl *parse_case_declaration(ParseContext &ctx, Sema &sema)
+  {
+    auto casse = sema.case_declaration(ctx.tok.loc);
+
+    if (ctx.tok == Token::kw_case)
+    {
+      ctx.consume_token(Token::kw_case);
+
+      if (ctx.tok == Token::identifier)
+      {
+        auto name = parse_qualified_name(ctx, sema);
+
+        casse->label = sema.make_declref_expression(name, ctx.tok.loc);
+      }
+      else
+      {
+        casse->label = parse_expression(ctx, sema);
+      }
+
+      if (ctx.try_consume_token(Token::l_paren))
+      {
+        auto var = sema.casevar_declaration(ctx.tok.loc);
+
+        var->name = ctx.tok.text;
+        var->type = sema.make_reference(sema.make_typearg(sema.make_typearg("var", ctx.tok.loc)));
+
+        ctx.consume_token();
+
+        casse->parm = var;
+
+        if (!ctx.try_consume_token(Token::r_paren))
+        {
+          ctx.diag.error("expected colon", ctx.text, ctx.tok.loc);
+          goto resume;
+        }
+      }
+    }
+
+    if (ctx.tok == Token::kw_else)
+    {
+      ctx.consume_token(Token::kw_else);
+    }
+
+    if (!ctx.try_consume_token(Token::colon))
+    {
+      ctx.diag.error("expected colon", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
+
+    if (ctx.tok != Token::kw_case && ctx.tok != Token::kw_else)
+    {
+      auto compound = sema.compound_statement(ctx.tok.loc);
+
+      while (ctx.tok != Token::kw_case && ctx.tok != Token::kw_else && ctx.tok != Token::r_brace && ctx.tok != Token::eof)
+      {
+        Stmt *stmt = nullptr;
+
+        if (ctx.tok == Token::hash && (ctx.token(1) == Token::kw_else || ctx.token(1).text == "end" || ctx.token(1) == Token::l_brace))
+          break;
+
+        switch(ctx.tok.type)
+        {
+          case Token::kw_fn:
+          case Token::kw_extern:
+          case Token::kw_const:
+          case Token::kw_static:
+          case Token::kw_import:
+          case Token::kw_using:
+          case Token::kw_struct:
+          case Token::kw_union:
+          case Token::kw_concept:
+          case Token::kw_enum:
+          case Token::kw_let:
+          case Token::kw_var:
+            stmt = parse_declaration_statement(ctx, sema);
+            break;
+
+          default:
+            stmt = parse_statement(ctx, sema);
+            break;
+        }
+
+        if (stmt)
+        {
+          compound->stmts.push_back(stmt);
+        }
+      }
+
+      compound->endloc = ctx.tok.loc;
+
+      casse->body = compound;
+    }
+
+    return casse;
+
+    resume:
+      ctx.comsume_til_resumable();
+      return nullptr;
+  }
+
+  //|///////////////////// parse_switch_statement ///////////////////////////
+  Stmt *parse_switch_statement(ParseContext &ctx, Sema &sema)
+  {
+    auto swtch = sema.switch_statement(ctx.tok.loc);
+
+    ctx.consume_token(Token::kw_switch);
+
+    if (!ctx.try_consume_token(Token::l_paren))
+    {
+      ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
+
+    {
+      auto inits = parse_statement_list(ctx, sema);
+
+      if (ctx.tok != Token::semi)
+      {
+        if (inits.size() == 1 && inits.back()->kind() == Stmt::Expression)
+        {
+          swtch->cond = stmt_cast<ExprStmt>(inits.back())->expr;
+        }
+      }
+
+      if (ctx.try_consume_token(Token::semi))
+      {
+        swtch->inits = std::move(inits);
+        swtch->cond = parse_expression(ctx, sema);
+      }
+    }
+
+    if (!swtch->cond)
+    {
+      ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
+
+    if (!ctx.try_consume_token(Token::r_paren))
+    {
+      ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
+
+    if (ctx.try_consume_token(Token::l_brace))
+    {
+      Decl *decl = nullptr;
+
+      IfDecl *conditional = nullptr;
+      vector<IfDecl*> conditionals_stack;
+
+      while (ctx.tok != Token::r_brace && ctx.tok != Token::eof)
+      {
+        auto tok = ctx.tok;
+        auto nexttok = 1;
+
+        switch(tok.type)
+        {
+          case Token::kw_case:
+          case Token::kw_else:
+            decl = parse_case_declaration(ctx, sema);
+            break;
+
+          case Token::hash:
+            switch (auto tok = ctx.token(nexttok); tok.type)
+            {
+              case Token::kw_if:
+                conditionals_stack.push_back(conditional);
+                conditionals_stack.push_back(parse_if_declaration(ctx, sema));
+                conditional = conditionals_stack.back();
+                continue;
+
+              case Token::kw_else:
+                if (conditionals_stack.empty())
+                  goto unhandled;
+
+                conditional = parse_else_declaration(ctx, conditional, sema);
+                continue;
+
+              case Token::identifier:
+                if (tok.text != "end")
+                  goto unhandled;
+                if (conditionals_stack.empty())
+                  goto unhandled;
+
+                decl = parse_endif_declaration(ctx, conditionals_stack.back(), sema);
+
+                conditionals_stack.pop_back();
+                conditional = conditionals_stack.back();
+                conditionals_stack.pop_back();
+                break;
+
+              case Token::l_brace:
+                decl = parse_run_declaration(ctx, sema);
+                break;
+
+              default:
+                goto unhandled;
+            }
+            break;
+
+          case Token::eof:
+            break;
+
+          default:
+          unhandled:
+            ctx.diag.error("expected case declaration", ctx.text, tok.loc);
+            goto resume;
+        }
+
+        if (!decl)
+          break;
+
+        if (conditional)
+        {
+          decl->flags |= Decl::Conditional;
+
+          conditional->decls.push_back(decl);
+
+          continue;
+        }
+
+        swtch->decls.push_back(decl);
+      }
+
+      if (ctx.tok == Token::eof)
+      {
+        ctx.diag.error("unexpected end of file", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
+
+      if (!ctx.try_consume_token(Token::r_brace))
+      {
+        ctx.diag.error("expected brace", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
+    }
+
+    return swtch;
+
+    resume:
+      ctx.comsume_til_resumable();
+      return nullptr;
+  }
+
   //|///////////////////// parse_try_statement //////////////////////////////
   Stmt *parse_try_statement(ParseContext &ctx, Sema &sema)
   {
@@ -4138,6 +4415,9 @@ namespace
 
       case Token::kw_while:
         return parse_while_statement(ctx, sema);
+
+      case Token::kw_switch:
+        return parse_switch_statement(ctx, sema);
 
       case Token::kw_throw:
         return parse_throw_statement(ctx, sema);

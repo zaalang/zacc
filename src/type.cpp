@@ -77,6 +77,12 @@ bool is_null_type(Type const *type)
   return type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->kind() == BuiltinType::PtrLiteral;
 }
 
+//|///////////////////// is_declid_type /////////////////////////////////////
+bool is_declid_type(Type const *type)
+{
+  return type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->kind() == BuiltinType::DeclidLiteral;
+}
+
 //|///////////////////// is_signed_type /////////////////////////////////////
 bool is_signed_type(Type const *type)
 {
@@ -482,10 +488,10 @@ BuiltinType::BuiltinType(Kind kind)
   flags |= Type::TrivialAssign;
   flags |= Type::TrivialDestroy;
 
-  if (!(m_kind == IntLiteral || m_kind == FloatLiteral))
+  if (!(m_kind == IntLiteral || m_kind == FloatLiteral || m_kind == DeclidLiteral))
     flags |= Type::Concrete;
 
-  if (!(m_kind == IntLiteral || m_kind == FloatLiteral || m_kind == PtrLiteral))
+  if (!(m_kind == IntLiteral || m_kind == FloatLiteral || m_kind == PtrLiteral || m_kind == DeclidLiteral))
     flags |= Type::Resolved;
 
   if (sizeof_type(this) == 0)
@@ -516,6 +522,7 @@ const char *BuiltinType::name() const
     case IntLiteral: return "#int";
     case FloatLiteral: return "#float";
     case StringLiteral: return "#string";
+    case DeclidLiteral: return "#declid";
     case PtrLiteral: return "null";
   }
 
@@ -561,6 +568,7 @@ bool literal_valid(BuiltinType::Kind kind, Numeric::Int const &value)
       return (value.sign > 0 && value.value <= uint64_t(std::numeric_limits<uint64_t>::max())) || (value.maybe_unsigned && value.value - 1<= uint64_t(std::numeric_limits<uint64_t>::max()));;
 
     case BuiltinType::IntLiteral:
+    case BuiltinType::DeclidLiteral:
       return true;
 
     default:
@@ -1271,6 +1279,7 @@ size_t sizeof_type(Type const *type)
           return 8 + sizeof(void*);
 
         case BuiltinType::IntLiteral:
+        case BuiltinType::DeclidLiteral:
           return sizeof(Numeric::Int);
 
         case BuiltinType::FloatLiteral:
@@ -1379,6 +1388,7 @@ size_t alignof_type(Type const *type)
           return 8;
 
         case BuiltinType::IntLiteral:
+        case BuiltinType::DeclidLiteral:
           return alignof(Numeric::Int);
 
         case BuiltinType::FloatLiteral:

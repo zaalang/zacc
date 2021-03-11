@@ -758,6 +758,19 @@ namespace
     semantic_decl(ctx, init->decl, sema);
   }
 
+  //|///////////////////// case /////////////////////////////////////////////
+  void semantic_decl(SemanticContext &ctx, CaseDecl *casse, Sema &sema)
+  {
+    ctx.stack.emplace_back(casse);
+
+    if (casse->body)
+    {
+      semantic_statement(ctx, casse->body, sema);
+    }
+
+    ctx.stack.pop_back();
+  }
+
   //|///////////////////// import ///////////////////////////////////////////
   void semantic_decl(SemanticContext &ctx, ImportDecl *imprt, Sema &sema)
   {
@@ -1022,6 +1035,14 @@ namespace
     ctx.stack.pop_back();
   }
 
+  //|///////////////////// run //////////////////////////////////////////////
+  void semantic_decl(SemanticContext &ctx, RunDecl *run, Sema &sema)
+  {
+    run->flags |= Decl::Public;
+
+    semantic_decl(ctx, run->fn, sema);
+  }
+
   //|///////////////////// if ///////////////////////////////////////////////
   void semantic_decl(SemanticContext &ctx, IfDecl *ifd, Sema &sema)
   {
@@ -1126,6 +1147,10 @@ namespace
         semantic_decl(ctx, decl_cast<InitialiserDecl>(decl), sema);
         break;
 
+      case Decl::Case:
+        semantic_decl(ctx, decl_cast<CaseDecl>(decl), sema);
+        break;
+
       case Decl::Import:
         semantic_decl(ctx, decl_cast<ImportDecl>(decl), sema);
         break;
@@ -1136,6 +1161,10 @@ namespace
 
       case Decl::Function:
         semantic_decl(ctx, decl_cast<FunctionDecl>(decl), sema);
+        break;
+
+      case Decl::Run:
+        semantic_decl(ctx, decl_cast<RunDecl>(decl), sema);
         break;
 
       case Decl::If:
@@ -1284,6 +1313,26 @@ namespace
     ctx.stack.pop_back();
   }
 
+  //|///////////////////// switch_statement /////////////////////////////////
+  void semantic_switch_statement(SemanticContext &ctx, SwitchStmt *swtch, Sema &sema)
+  {
+    ctx.stack.emplace_back(swtch);
+
+    for(auto &init : swtch->inits)
+    {
+      semantic_statement(ctx, init, sema);
+    }
+
+    semantic_expr(ctx, swtch->cond, sema);
+
+    for(auto &decl : swtch->decls)
+    {
+      semantic_decl(ctx, decl, sema);
+    }
+
+    ctx.stack.pop_back();
+  }
+
   //|///////////////////// try_statement ////////////////////////////////////
   void semantic_try_statement(SemanticContext &ctx, TryStmt *trys, Sema &sema)
   {
@@ -1374,6 +1423,10 @@ namespace
 
       case Stmt::While:
         semantic_while_statement(ctx, stmt_cast<WhileStmt>(stmt), sema);
+        break;
+
+      case Stmt::Switch:
+        semantic_switch_statement(ctx, stmt_cast<SwitchStmt>(stmt), sema);
         break;
 
       case Stmt::Try:

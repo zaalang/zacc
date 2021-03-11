@@ -200,6 +200,7 @@ namespace
 
           case BuiltinType::IntLiteral:
           case BuiltinType::FloatLiteral:
+          case BuiltinType::DeclidLiteral:
             return TypeCategory::Unresolved;
 
           case BuiltinType::PtrLiteral:
@@ -527,6 +528,7 @@ namespace
 
           case BuiltinType::IntLiteral:
           case BuiltinType::FloatLiteral:
+          case BuiltinType::DeclidLiteral:
             break;
         }
         break;
@@ -3680,7 +3682,7 @@ namespace
   }
 
   //|///////////////////// codegen_switch_terminator ////////////////////////
-  void codegen_switch_terminator(GenContext &ctx, FunctionContext &fx, MIR::local_t value, vector<tuple<int, MIR::block_t>> const &targets, MIR::block_t blockid)
+  void codegen_switch_terminator(GenContext &ctx, FunctionContext &fx, MIR::local_t value, vector<tuple<size_t, MIR::block_t>> const &targets, MIR::block_t blockid)
   {
     auto cond = load(ctx, fx, value);
 
@@ -3695,7 +3697,7 @@ namespace
       else
         ctx.builder.CreateCondBr(cond, fx.blocks[blockid].bx, fx.blocks[get<1>(targets[0])].bx);
     }
-    else if (is_int_type(type) || is_enum_type(type))
+    else if (is_int_type(type) || is_char_type(type) || is_enum_type(type))
     {
       auto value = ctx.builder.CreateZExt(cond, ctx.builder.getInt64Ty());
       auto swtch = ctx.builder.CreateSwitch(value, fx.blocks[blockid].bx, targets.size());

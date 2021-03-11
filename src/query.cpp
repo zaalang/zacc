@@ -73,6 +73,15 @@ bool is_tag_scope(Scope const &scope)
   return false;
 }
 
+//|///////////////////// is_decl_scope //////////////////////////////////////
+bool is_decl_scope(Scope const &scope)
+{
+  if (auto owner = get_if<Decl*>(&scope.owner); owner && *owner)
+    return true;
+
+  return false;
+}
+
 //|///////////////////// is_stmt_scope //////////////////////////////////////
 bool is_stmt_scope(Scope const &scope)
 {
@@ -195,6 +204,7 @@ void find_decl(Decl *decl, string_view name, long flags, vector<Decl*> &results)
     case Decl::ThisVar:
     case Decl::ErrorVar:
     case Decl::RangeVar:
+    case Decl::CaseVar:
       if (decl_cast<VarDecl>(decl)->name == name && (flags & Variables))
         results.push_back(decl);
       break;
@@ -244,6 +254,10 @@ void find_decl(Decl *decl, string_view name, long flags, vector<Decl*> &results)
     case Decl::Using:
       if (flags & Usings)
         results.push_back(decl);
+      break;
+
+    case Decl::Run:
+      results.push_back(decl);
       break;
 
     case Decl::If:
@@ -297,6 +311,11 @@ void find_decls(Scope const &scope, string_view name, long flags, vector<Decl*> 
           find_decl(decl, name, flags, results);
         for(auto &decl : decl_cast<FunctionDecl>(*owner)->parms)
           find_decl(decl, name, flags, results);
+        break;
+
+      case Decl::Case:
+        if (decl_cast<CaseDecl>(*owner)->parm)
+          find_decl(decl_cast<CaseDecl>(*owner)->parm, name, flags, results);
         break;
 
       case Decl::If:
@@ -363,6 +382,9 @@ void find_decls(Scope const &scope, string_view name, long flags, vector<Decl*> 
           if (init->kind() == Stmt::Declaration)
             find_decl(stmt_cast<DeclStmt>(init)->decl, name, flags, results);
         }
+        break;
+
+      case Stmt::Switch:
         break;
 
       case Stmt::Try:

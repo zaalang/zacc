@@ -48,6 +48,7 @@ namespace Builtin
     Type_IntLiteral,
     Type_FloatLiteral,
     Type_StringLiteral,
+    Type_DeclidLiteral,
     Type_PtrLiteral,
 
     Default_Constructor,
@@ -149,8 +150,11 @@ namespace Builtin
     is_const,
     is_rvalue,
     is_match,
+    is_enum,
     is_array,
     is_tuple,
+    is_union,
+    is_struct,
     is_builtin,
     is_pointer,
     is_reference,
@@ -192,11 +196,23 @@ namespace Builtin
     memmove,
     memfind,
 
+    decl_kind,
+    decl_name,
+    decl_flags,
+    decl_parent,
+    decl_children,
+    type_decl,
+    type_fields,
+    type_enumerators,
+
     __argc__,
     __argv__,
     __envp__,
 
     __site__,
+    __decl__,
+    __function__,
+    __module__,
 
     Module,
   };

@@ -156,6 +156,8 @@ struct Token
     kw_for,
     kw_rof,
     kw_while,
+    kw_switch,
+    kw_case,
     kw_break,
     kw_continue,
     kw_concept,

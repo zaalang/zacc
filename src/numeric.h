@@ -51,22 +51,22 @@ namespace Numeric
 
   inline Int int_literal(int64_t value)
   {
-    return Int{ (value < 0) ? -1 : +1, (uint64_t)(std::abs(value)), false };
+    return Int{ (value < 0) ? -1 : +1, static_cast<uint64_t>(std::abs(value)), false, false };
   }
 
   inline Int int_literal(int sign, uint64_t value)
   {
-    return Int{ sign, value, false };
+    return Int{ sign, value, false, false };
   }
 
   inline bool operator==(Int const &lhs, Int const &rhs)
   {
-    return lhs.sign == rhs.sign && lhs.value == rhs.value;
+    return (lhs.sign == rhs.sign && lhs.value == rhs.value) || (lhs.value == 0 && rhs.value == 0);
   }
 
   inline bool operator!=(Int const &lhs, Int const &rhs)
   {
-    return lhs.sign != rhs.sign || lhs.value != rhs.value;
+    return !(lhs == rhs);
   }
 
   Int operator-(Int const &i);

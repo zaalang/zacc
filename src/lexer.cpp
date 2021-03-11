@@ -602,6 +602,8 @@ namespace
           type = Token::kw_class;
         else if (identifier == "cast")
           type = Token::kw_cast;
+        else if (identifier == "case")
+          type = Token::kw_case;
         else if (identifier == "catch")
           type = Token::kw_catch;
         else if (identifier == "continue")
@@ -671,6 +673,8 @@ namespace
       case 's':
         if (identifier == "struct")
           type = Token::kw_struct;
+        else if (identifier == "switch")
+          type = Token::kw_switch;
         else if (identifier == "sizeof")
           type = Token::kw_sizeof;
         else if (identifier == "static")

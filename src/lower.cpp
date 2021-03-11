@@ -219,6 +219,7 @@ namespace
     Type *intliteraltype;
     Type *floatliteraltype;
     Type *stringliteraltype;
+    Type *declidliteraltype;
     Type *ptrliteraltype;
 
     vector<Scope> stack;
@@ -252,6 +253,7 @@ namespace
       intliteraltype = type(Builtin::Type_IntLiteral);
       floatliteraltype = type(Builtin::Type_FloatLiteral);
       stringliteraltype = type(Builtin::Type_StringLiteral);
+      declidliteraltype = type(Builtin::Type_DeclidLiteral);
       ptrliteraltype = type(Builtin::Type_PtrLiteral);
 
       currentblockid = 0;
@@ -524,6 +526,11 @@ namespace
           return true;
       }
 
+      if (result.type == ctx.declidliteraltype)
+      {
+        return expr_cast<IntLiteralExpr>(result.value)->value().value != 0;
+      }
+
       ctx.diag.error("non bool condition", scope, expr->loc());
 
       return -1;
@@ -770,6 +777,16 @@ namespace
         continue;
       }
 
+      if (decl->kind() == Decl::Run)
+      {
+        auto sx = super_scope(scope, decl);
+        auto fx = FnSig(decl_cast<FunctionDecl>(decl_cast<RunDecl>(decl)->fn), sx.typeargs);
+
+        evaluate(sx, fx, ctx.voidtype, {}, ctx.typetable, ctx.diag, decl->loc());
+
+        continue;
+      }
+
       results.push_back(decl);
     }
   }
@@ -852,9 +869,18 @@ namespace
             if (auto elseif = ifd->elseif)
               results.push_back(elseif);
         }
+
+        continue;
       }
-      else
-        ++i;
+
+      if (decl->kind() == Decl::Run)
+      {
+        results.erase(results.begin() + i);
+
+        continue;
+      }
+
+      ++i;
     }
   }
 
@@ -1078,6 +1104,21 @@ namespace
     explicit operator bool() const { return type; }
   };
 
+  Field find_field(LowerContext &ctx, ArrayType *type, size_t index)
+  {
+    Field field;
+
+    if (index < array_len(type))
+    {
+      field.index = index;
+      field.type = type->type;
+      field.defn = type->type;
+      field.flags = 0;
+    }
+
+    return field;
+  }
+
   Field find_field(LowerContext &ctx, CompoundType *type, size_t index)
   {
     Field field;
@@ -1180,29 +1221,44 @@ namespace
 
   //|///////////////////// find_index ///////////////////////////////////////
 
-  size_t find_index(LowerContext &ctx, vector<Scope> const &stack, string_view name)
+  size_t find_index(LowerContext &ctx, vector<Scope> const &stack, Type *target, string_view name)
   {
-    size_t index = size_t(-1);
+    auto value = size_t(-1);
 
-    if (auto [p, ec] = from_chars(name.data(), name.data() + name.length(), index); ec != std::errc())
+    if (auto [p, ec] = from_chars(name.data(), name.data() + name.length(), value); ec == std::errc())
+      return value;
+
+    if (auto decl = find_vardecl(ctx, stack, name); decl && (decl->flags & VarDecl::Literal))
     {
-      for(auto &[decl, type] : stack.back().typeargs)
-      {
-        if (decl->kind() == Decl::TypeArg && decl_cast<TypeArgDecl>(decl)->name == name && is_int_literal(ctx, type))
-          index = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(type)->value)->value().value;
-      }
+      auto type = ctx.intliteraltype;
 
-      if (auto decl = find_vardecl(ctx, stack, name); decl && (decl->flags & VarDecl::Literal))
+      if (decl->kind() == Decl::ParmVar)
       {
         if (auto T = stack.back().find_type(decl); T != stack.back().typeargs.end() && is_int_literal(ctx, T->second))
-          index = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(T->second)->value)->value().value;
-
-        if (auto T = ctx.symbols.find(decl); T != ctx.symbols.end() && is_int_literal(ctx, T->second))
-          index = get<IntLiteralExpr*>(T->second.value.get<MIR::RValue::Constant>())->value().value;
+        {
+          type = resolve_type(ctx, stack.back(), decl->type);
+          value = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(T->second)->value)->value().value;
+        }
       }
+
+      if (auto T = ctx.symbols.find(decl); T != ctx.symbols.end() && is_int_literal(ctx, T->second))
+      {
+        type = T->second.type.type;
+        value = get<IntLiteralExpr*>(T->second.value.get<MIR::RValue::Constant>())->value().value;
+      }
+
+      if (is_declid_type(type) && is_tag_type(target))
+      {
+        auto declid = reinterpret_cast<Decl*>(value);
+        auto &fields = type_cast<TagType>(target)->fieldvars;
+
+        value = std::find(fields.begin(), fields.end(), declid) - fields.begin();
+      }
+
+      return value;
     }
 
-    return index;
+    return value;
   }
 
   //|///////////////////// resolve_type /////////////////////////////////////
@@ -1566,11 +1622,9 @@ namespace
 
           if (is_compound_type(type))
           {
-            auto compoundtype = type_cast<CompoundType>(type);
-
-            if (auto index = find_index(ctx, stack, declref.decl->name); index != size_t(-1))
+            if (auto index = find_index(ctx, stack, type, declref.decl->name); index != size_t(-1))
             {
-              if (auto field = find_field(ctx, compoundtype, index))
+              if (auto field = find_field(ctx, type_cast<CompoundType>(type), index))
               {
                 types.push_back(resolve_deref(ctx, field.type, field.defn));
               }
@@ -2237,13 +2291,15 @@ namespace
 
         if (rhs->klass() == Type::Array)
         {
+          DeduceContext ttx;
+
           if (type_cast<ArrayType>(lhs)->type == ctx.typetable.var_defn)
             return false;
 
-          if (!deduce_type(ctx, tx, scope, fx, type_cast<ArrayType>(lhs)->type, type_cast<ArrayType>(rhs)->type))
+          if (!deduce_type(ctx, ttx, scope, fx, type_cast<ArrayType>(lhs)->type, type_cast<ArrayType>(rhs)->type))
             return false;
 
-          if (!deduce_type(ctx, tx, scope, fx, type_cast<ArrayType>(lhs)->size, type_cast<ArrayType>(rhs)->size))
+          if (!deduce_type(ctx, ttx, scope, fx, type_cast<ArrayType>(lhs)->size, type_cast<ArrayType>(rhs)->size))
             return false;
 
           return true;
@@ -3697,6 +3753,42 @@ namespace
         }
       }
 
+      if (auto owner = get_if<Decl*>(&declref.scope.owner); owner && *owner && is_tag_decl(*owner))
+      {
+        if (auto decl = find_vardecl(ctx, stack, tx.name); decl && (decl->flags & VarDecl::Literal))
+        {
+          auto value = size_t(-1);
+          auto type = ctx.intliteraltype;
+
+          if (decl->kind() == Decl::ParmVar)
+          {
+            if (auto T = stack.back().find_type(decl); T != stack.back().typeargs.end() && is_int_literal(ctx, T->second))
+            {
+              type = resolve_type(ctx, stack.back(), decl->type);
+              value = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(T->second)->value)->value().value;
+            }
+          }
+
+          if (auto T = ctx.symbols.find(decl); T != ctx.symbols.end() && is_int_literal(ctx, T->second))
+          {
+            type = T->second.type.type;
+            value = get<IntLiteralExpr*>(T->second.value.get<MIR::RValue::Constant>())->value().value;
+          }
+
+          if (is_declid_type(type))
+          {
+            auto declid = reinterpret_cast<Decl*>(value);
+            auto &decls = decl_cast<TagDecl>(*owner)->decls;
+
+            if (auto j = std::find(decls.begin(), decls.end(), declid); j != decls.end())
+            {
+              tx.name = "";
+              tx.decls.push_back(*j);
+            }
+          }
+        }
+      }
+
       if (auto owner = get_if<Decl*>(&declref.scope.owner); owner && *owner && (*owner)->kind() == Decl::Union)
       {
         auto type = resolve_type(ctx, type_scope(ctx, declref.scope, *owner), *owner);
@@ -4481,12 +4573,24 @@ namespace
         match = is_qualarg_type(args[0]) && (type_cast<QualArgType>(args[0])->qualifiers & QualArgType::RValue);
         break;
 
+      case Builtin::is_enum:
+        match = is_enum_type(type[0]);
+        break;
+
       case Builtin::is_array:
         match = is_array_type(type[0]);
         break;
 
       case Builtin::is_tuple:
         match = is_tuple_type(type[0]);
+        break;
+
+      case Builtin::is_union:
+        match = is_union_type(type[0]);
+        break;
+
+      case Builtin::is_struct:
+        match = is_struct_type(type[0]);
         break;
 
       case Builtin::is_builtin:
@@ -4605,6 +4709,43 @@ namespace
     result.type = find_returntype(ctx, callee);
     result.type.flags = MIR::Local::Const | MIR::Local::Literal;
     result.value = ctx.mir.make_expr<CompoundLiteralExpr>(fields, loc);
+  }
+
+  //|///////////////////// lower_declid /////////////////////////////////////
+  void lower_declid(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
+  {
+    uintptr_t declid = 0;
+
+    for(auto sx = ctx.stack.rbegin(); sx != ctx.stack.rend(); ++sx)
+    {
+      switch (callee.fn->builtin)
+      {
+        case Builtin::__decl__:
+          if (is_decl_scope(*sx))
+            declid = reinterpret_cast<uintptr_t>(get<Decl*>(sx->owner));
+          break;
+
+        case Builtin::__function__:
+          if (is_fn_scope(*sx))
+            declid = reinterpret_cast<uintptr_t>(get<Decl*>(sx->owner));
+          break;
+
+        case Builtin::__module__:
+          if (is_module_scope(*sx))
+            declid = reinterpret_cast<uintptr_t>(get<Decl*>(sx->owner));
+          break;
+
+        default:
+          assert(false);
+      }
+
+      if (declid)
+        break;
+    }
+
+    result.type = find_returntype(ctx, callee);
+    result.type.flags = MIR::Local::Const | MIR::Local::Literal;
+    result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(declid), loc);
   }
 
   //|///////////////////// lower_ref ////////////////////////////////////////
@@ -4799,10 +4940,21 @@ namespace
   {
     if (base.value.kind() == MIR::RValue::Constant)
     {
-      auto literal = get<CompoundLiteralExpr*>(base.value.get<MIR::RValue::Constant>());
+      if (is_compound_type(base.type.type))
+      {
+        auto literal = get<CompoundLiteralExpr*>(base.value.get<MIR::RValue::Constant>());
 
-      result.type = MIR::Local(field.type, base.type.flags);
-      result.value = MIR::RValue::literal(literal->fields[field.index]);
+        result.type = MIR::Local(field.type, base.type.flags);
+        result.value = MIR::RValue::literal(literal->fields[field.index]);
+      }
+
+      if (is_array_type(base.type.type))
+      {
+        auto literal = get<ArrayLiteralExpr*>(base.value.get<MIR::RValue::Constant>());
+
+        result.type = MIR::Local(field.type, base.type.flags);
+        result.value = MIR::RValue::literal(literal->elements[field.index]);
+      }
 
       return true;
     }
@@ -4915,6 +5067,42 @@ namespace
     result.value = MIR::RValue::function(callop, expr.value.loc());
 
     return true;
+  }
+
+  //|///////////////////// lower_label //////////////////////////////////////
+  bool lower_label(LowerContext &ctx, size_t &result, Type *type, Expr *label)
+  {
+    MIR::Fragment value;
+
+    ctx.stack.insert(ctx.stack.begin() + 2, type_scope(ctx, type));
+
+    lower_expr(ctx, value, label);
+
+    ctx.stack.erase(ctx.stack.begin() + 2);
+
+    if (value.type.type != type && !is_int_type(type) && !is_char_type(type))
+    {
+      ctx.diag.error("type mismatch on case label", ctx.stack.back(), label->loc());
+      return false;
+    }
+
+    if (is_constant(ctx, value) && get_if<CharLiteralExpr*>(&value.value.get<MIR::RValue::Constant>()))
+    {
+      result = get<CharLiteralExpr*>(value.value.get<MIR::RValue::Constant>())->value().value;
+
+      return true;
+    }
+
+    if (is_constant(ctx, value) && get_if<IntLiteralExpr*>(&value.value.get<MIR::RValue::Constant>()))
+    {
+      result = get<IntLiteralExpr*>(value.value.get<MIR::RValue::Constant>())->value().value;
+
+      return true;
+    }
+
+    ctx.diag.error("invalid label expression", ctx.stack.back(), label->loc());
+
+    return false;
   }
 
   //|///////////////////// lower_pack ///////////////////////////////////////
@@ -5344,8 +5532,11 @@ namespace
 
         case Builtin::is_const:
         case Builtin::is_rvalue:
+        case Builtin::is_enum:
         case Builtin::is_array:
         case Builtin::is_tuple:
+        case Builtin::is_union:
+        case Builtin::is_struct:
         case Builtin::is_builtin:
         case Builtin::is_pointer:
         case Builtin::is_reference:
@@ -5362,6 +5553,12 @@ namespace
 
         case Builtin::__site__:
           lower_site(ctx, result, callee, loc);
+          return true;
+
+        case Builtin::__decl__:
+        case Builtin::__function__:
+        case Builtin::__module__:
+          lower_declid(ctx, result, callee, loc);
           return true;
 
         default:
@@ -5886,10 +6083,10 @@ namespace
 
     if (is_compound_type(base.type.type))
     {
-      auto compoundtype = type_cast<CompoundType>(base.type.type);
-
-      if (auto index = find_index(ctx, ctx.stack, name); index != size_t(-1))
+      if (auto index = find_index(ctx, ctx.stack, base.type.type, name); index != size_t(-1))
       {
+        auto compoundtype = type_cast<CompoundType>(base.type.type);
+
         if (compoundtype->fields.size() <= index)
         {
           ctx.diag.error("field out of range", ctx.stack.back(), declref->loc());
@@ -7261,6 +7458,27 @@ namespace
 
     ctx.locals[parmvar] = arg;
     ctx.symbols[parmvar].type = ctx.mir.locals[arg];
+  }
+
+  //|///////////////////// lower_casemvar ///////////////////////////////////
+  void lower_decl(LowerContext &ctx, CaseVarDecl *casevar, MIR::Fragment &value)
+  {
+    auto arg = ctx.add_local();
+
+    realise_as_reference(ctx, arg, value, casevar->flags & VarDecl::Const);
+
+    value.type = resolve_as_value(ctx, value.type);
+
+    value.type.flags |= MIR::Local::LValue;
+    value.type.flags &= ~MIR::Local::XValue;
+    value.type.flags &= ~MIR::Local::RValue;
+
+    commit_type(ctx, arg, value.type.type, value.type.flags);
+
+    ctx.mir.add_varinfo(arg, casevar->name, casevar->loc());
+
+    ctx.locals[casevar] = arg;
+    ctx.symbols[casevar].type = ctx.mir.locals[arg];
   }
 
   //|///////////////////// lower_errorvar ///////////////////////////////////
@@ -9068,6 +9286,15 @@ namespace
           continue;
         }
 
+        if (is_array_type(base.type.type))
+        {
+          iterations = min(iterations, array_len(type_cast<ArrayType>(base.type.type)));
+
+          ranges.push_back({ rangevar, base });
+
+          continue;
+        }
+
         ctx.diag.error("unsupported static for initialiser", ctx.stack.back(), rangevar->range->loc());
 
         continue;
@@ -9086,10 +9313,21 @@ namespace
       {
         MIR::Fragment value = get<1>(range);
 
-        auto field = find_field(ctx, type_cast<TupleType>(value.type.type), index);
+        if (is_tuple_type(value.type.type))
+        {
+          auto field = find_field(ctx, type_cast<TupleType>(value.type.type), index);
 
-        if (!lower_field(ctx, value, value, field, get<0>(range)->loc()))
-          return;
+          if (!lower_field(ctx, value, value, field, get<0>(range)->loc()))
+            return;
+        }
+
+        if (is_array_type(value.type.type))
+        {
+          auto field = find_field(ctx, type_cast<ArrayType>(value.type.type), index);
+
+          if (!lower_field(ctx, value, value, field, get<0>(range)->loc()))
+            return;
+        }
 
         lower_decl(ctx, get<0>(range), value);
       }
@@ -9229,6 +9467,134 @@ namespace
       ctx.mir.blocks[ctx.breaks[i]].terminator.blockid = ctx.currentblockid;
 
     ctx.breaks.resize(ctx.barriers.back().firstbreak);
+
+    ctx.stack.pop_back();
+    ctx.retire_barrier(sm);
+  }
+
+  //|///////////////////// lower_switch_statement ///////////////////////////
+  void lower_switch_statement(LowerContext &ctx, SwitchStmt *swtch)
+  {
+    auto sm = ctx.push_barrier();
+    ctx.stack.emplace_back(swtch, ctx.stack.back().typeargs);
+
+    for(auto &init : swtch->inits)
+    {
+      ctx.stack.back().goalpost = init;
+
+      lower_statement(ctx, init);
+    }
+
+    ctx.stack.back().goalpost = nullptr;
+
+    ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1));
+
+    auto ssm = ctx.push_barrier();
+
+    MIR::Fragment base;
+    MIR::Fragment condition;
+    vector<MIR::block_t> blocks;
+
+    if (!lower_expr(ctx, condition, swtch->cond))
+      return;
+
+    if (!lower_base_deref(ctx, condition))
+      return;
+
+    if (is_union_type(condition.type.type))
+    {
+      base = std::move(condition);
+
+      auto field = find_field(ctx, type_cast<CompoundType>(base.type.type), 0);
+
+      if (!lower_field(ctx, condition, base, field, swtch->cond->loc()))
+        return;
+    }
+
+    auto cond = ctx.add_variable();
+
+    realise_as_value(ctx, cond, condition);
+
+    commit_type(ctx, cond, condition.type.type, condition.type.flags);
+
+    ctx.retire_barrier(ssm);
+
+    auto block_cond = ctx.add_block(MIR::Terminator::switcher(cond, ctx.currentblockid));
+
+    vector<Decl*> decls;
+    find_decls(ctx, ctx.stack.back(), swtch->decls, decls);
+
+    for(auto &decl : decls)
+    {
+      if (decl->kind() != Decl::Case)
+      {
+        ctx.diag.error("invalid case in switch", ctx.stack.back(), decl->loc());
+        continue;
+      }
+
+      auto casse = decl_cast<CaseDecl>(decl);
+
+      if (casse->label)
+      {
+        auto value = size_t(-1);
+
+        if (!lower_label(ctx, value, condition.type.type, casse->label))
+          return;
+
+        if (std::find_if(ctx.mir.blocks[block_cond].terminator.targets.begin(), ctx.mir.blocks[block_cond].terminator.targets.end(), [&](auto &target) { return get<0>(target) == value; }) != ctx.mir.blocks[block_cond].terminator.targets.end())
+        {
+          ctx.diag.error("duplicate label in switch", ctx.stack.back(), decl->loc());
+        }
+
+        if (casse->parm)
+        {
+          auto casevar = decl_cast<CaseVarDecl>(casse->parm);
+
+          if (!base)
+          {
+            ctx.diag.error("case parameter requires union condition", ctx.stack.back(), decl->loc());
+            return;
+          }
+
+          MIR::Fragment parm;
+
+          auto field = find_field(ctx, type_cast<CompoundType>(base.type.type), value);
+
+          if (!lower_field(ctx, parm, base, field, casevar->loc()))
+            return;
+
+          lower_decl(ctx, casevar, parm);
+        }
+
+        ctx.mir.blocks[block_cond].terminator.targets.emplace_back(value, ctx.currentblockid);
+      }
+      else
+      {
+        if (ctx.mir.blocks[block_cond].terminator.blockid != block_cond)
+          ctx.diag.error("duplicate else in switch", ctx.stack.back(), decl->loc());
+
+        ctx.mir.blocks[block_cond].terminator.blockid = ctx.currentblockid;
+      }
+
+      if (casse->body)
+      {
+        ctx.stack.emplace_back(casse, ctx.stack.back().typeargs);
+
+        lower_statement(ctx, casse->body);
+
+        ctx.stack.pop_back();
+
+        blocks.push_back(ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1)));
+      }
+
+      ctx.unreachable = false;
+    }
+
+    if (ctx.mir.blocks[block_cond].terminator.blockid == block_cond)
+      ctx.mir.blocks[block_cond].terminator.blockid = ctx.currentblockid;
+
+    for(auto &block : blocks)
+      ctx.mir.blocks[block].terminator.blockid = ctx.currentblockid;
 
     ctx.stack.pop_back();
     ctx.retire_barrier(sm);
@@ -9483,6 +9849,10 @@ namespace
 
       case Stmt::While:
         lower_while_statement(ctx, stmt_cast<WhileStmt>(stmt));
+        break;
+
+      case Stmt::Switch:
+        lower_switch_statement(ctx, stmt_cast<SwitchStmt>(stmt));
         break;
 
       case Stmt::Try:

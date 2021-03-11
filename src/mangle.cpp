@@ -128,8 +128,9 @@ namespace
         return mangle_scope(strct->owner) + mangle_name(strct->name);
       }
 
+      case Decl::Case:
       case Decl::TypeAlias:
-        return mangle_scope(decl_cast<TypeAliasDecl>(decl)->owner);
+        return mangle_scope(decl->owner);
 
       default:
         throw logic_error("invalid decl for mangling");

@@ -44,7 +44,7 @@ bool is_fn_decl(Decl const *decl)
 //|///////////////////// is_var_decl ////////////////////////////////////////
 bool is_var_decl(Decl const *decl)
 {
-  return decl->kind() == Decl::VoidVar || decl->kind() == Decl::StmtVar || decl->kind() == Decl::ParmVar || decl->kind() == Decl::FieldVar || decl->kind() == Decl::RangeVar || decl->kind() == Decl::ThisVar || decl->kind() == Decl::ErrorVar || decl->kind() == Decl::LambdaVar;
+  return decl->kind() == Decl::VoidVar || decl->kind() == Decl::StmtVar || decl->kind() == Decl::ParmVar || decl->kind() == Decl::FieldVar || decl->kind() == Decl::RangeVar || decl->kind() == Decl::ThisVar || decl->kind() == Decl::ErrorVar || decl->kind() == Decl::LambdaVar || decl->kind() == Decl::CaseVar;
 }
 
 //|///////////////////// is_tag_decl ////////////////////////////////////////
@@ -273,6 +273,20 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
       }
       break;
 
+    case Decl::Case:
+      if (auto &casse = static_cast<CaseDecl const &>(decl); casse.label)
+      {
+        os << *casse.label;
+      }
+      break;
+
+    case Decl::CaseVar:
+      if (auto &var = static_cast<CaseVarDecl const &>(decl); true)
+      {
+        os << var.name;
+      }
+      break;
+
     case Decl::Requires:
       if (auto &reqires = static_cast<RequiresDecl const &>(decl); true)
       {
@@ -285,6 +299,10 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
       {
         os << var.name;
       }
+      break;
+
+    case Decl::Run:
+      os << "#run";
       break;
 
     case Decl::If:
@@ -847,6 +865,57 @@ void InitialiserDecl::dump(int indent) const
 }
 
 
+//|--------------------- CaseDecl -------------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// CaseDecl::Constructor //////////////////////////////
+CaseDecl::CaseDecl(SourceLocation loc)
+  : Decl(Case, loc)
+{
+}
+
+//|///////////////////// CaseDecl::dump /////////////////////////////////////
+void CaseDecl::dump(int indent) const
+{
+  cout << spaces(indent) << "CaseDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
+
+  if (label)
+  {
+    label->dump(indent + 2);
+  }
+
+  if (parm)
+  {
+    parm->dump(indent + 2);
+  }
+
+  if (body)
+  {
+    body->dump(indent + 2);
+  }
+}
+
+
+//|--------------------- CaseVarDecl ----------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// CaseVarDecl::Constructor ///////////////////////////
+CaseVarDecl::CaseVarDecl(SourceLocation loc)
+  : VarDecl(CaseVar, loc)
+{
+}
+
+//|///////////////////// CaseVarDecl::dump //////////////////////////////////
+void CaseVarDecl::dump(int indent) const
+{
+  cout << spaces(indent) << "CaseVarDecl " << this << " <" << m_loc << "> '" << name << "'\n";
+
+  if (type)
+  {
+    type->dump(indent + 2);
+  }
+}
+
 //|--------------------- ConceptDecl ----------------------------------------
 //|--------------------------------------------------------------------------
 
@@ -942,16 +1011,37 @@ void EnumConstantDecl::dump(int indent) const
 }
 
 
+//|--------------------- RunDecl --------------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// RunDecl::Constructor ///////////////////////////////
+RunDecl::RunDecl(SourceLocation loc)
+  : Decl(Run, loc)
+{
+}
+
+//|///////////////////// RunDecl::dump //////////////////////////////////////
+void RunDecl::dump(int indent) const
+{
+  cout << spaces(indent) << "RunDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
+
+  if (fn)
+  {
+    fn->dump(indent + 2);
+  }
+}
+
+
 //|--------------------- IfDecl ---------------------------------------------
 //|--------------------------------------------------------------------------
 
-//|///////////////////// IfDecl::Constructor ///////////////////////////
+//|///////////////////// IfDecl::Constructor ////////////////////////////////
 IfDecl::IfDecl(SourceLocation loc)
   : Decl(If, loc)
 {
 }
 
-//|///////////////////// IfDecl::dump /////////////////////////////////
+//|///////////////////// IfDecl::dump ///////////////////////////////////////
 void IfDecl::dump(int indent) const
 {
   cout << spaces(indent) << "IfDecl " << this << " <" << m_loc << "> '" << *this << "'\n";

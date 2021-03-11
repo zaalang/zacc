@@ -962,6 +962,7 @@ namespace
               tx.set_type(arg, resolve_typearg(ctx, arg, sema));
             break;
 
+          case Decl::Case:
           case Decl::TypeAlias:
             break;
 
@@ -1755,6 +1756,19 @@ namespace
     resolve_decl(ctx, ctx.stack.back(), init, sema);
   }
 
+  //|///////////////////// case /////////////////////////////////////////////
+  void typer_decl(TyperContext &ctx, CaseDecl *casse, Sema &sema)
+  {
+    ctx.stack.emplace_back(casse);
+
+    if (casse->body)
+    {
+      typer_statement(ctx, casse->body, sema);
+    }
+
+    ctx.stack.pop_back();
+  }
+
   //|///////////////////// import ///////////////////////////////////////////
   void typer_decl(TyperContext &ctx, ImportDecl *imprt, Sema &sema)
   {
@@ -1821,6 +1835,12 @@ namespace
     }
 
     ctx.stack.pop_back();
+  }
+
+  //|///////////////////// run //////////////////////////////////////////////
+  void typer_decl(TyperContext &ctx, RunDecl *run, Sema &sema)
+  {
+    typer_decl(ctx, run->fn, sema);
   }
 
   //|///////////////////// if ///////////////////////////////////////////////
@@ -1926,6 +1946,10 @@ namespace
         typer_decl(ctx, decl_cast<InitialiserDecl>(decl), sema);
         break;
 
+      case Decl::Case:
+        typer_decl(ctx, decl_cast<CaseDecl>(decl), sema);
+        break;
+
       case Decl::Import:
         typer_decl(ctx, decl_cast<ImportDecl>(decl), sema);
         break;
@@ -1936,6 +1960,10 @@ namespace
 
       case Decl::Function:
         typer_decl(ctx, decl_cast<FunctionDecl>(decl), sema);
+        break;
+
+      case Decl::Run:
+        typer_decl(ctx, decl_cast<RunDecl>(decl), sema);
         break;
 
       case Decl::If:
@@ -2073,6 +2101,30 @@ namespace
     ctx.stack.pop_back();
   }
 
+  //|///////////////////// typer_switch_statement ///////////////////////////
+  void typer_switch_statement(TyperContext &ctx, SwitchStmt *swtch, Sema &sema)
+  {
+    ctx.stack.emplace_back(swtch);
+
+    for(auto &init : swtch->inits)
+    {
+      ctx.stack.back().goalpost = init;
+
+      typer_statement(ctx, init, sema);
+    }
+
+    ctx.stack.back().goalpost = nullptr;
+
+    resolve_expr(ctx, ctx.stack.back(), swtch->cond, sema);
+
+    for(auto &decl : swtch->decls)
+    {
+      typer_decl(ctx, decl, sema);
+    }
+
+    ctx.stack.pop_back();
+  }
+
   //|///////////////////// typer_try_statement //////////////////////////////
   void typer_try_statement(TyperContext &ctx, TryStmt *trys, Sema &sema)
   {
@@ -2144,6 +2196,10 @@ namespace
 
       case Stmt::While:
         typer_while_statement(ctx, stmt_cast<WhileStmt>(stmt), sema);
+        break;
+
+      case Stmt::Switch:
+        typer_switch_statement(ctx, stmt_cast<SwitchStmt>(stmt), sema);
         break;
 
       case Stmt::Try:

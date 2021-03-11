@@ -132,7 +132,6 @@ namespace
     return LexCursor{ lineno, linestart - src.head(), ptr - src.head() };
   }
 
-
   //|///////////////////// lex_char_constant ////////////////////////////////
   LexCursor lex_char_constant(SourceText const &src, LexCursor const &cursor, Token &tok)
   {
@@ -161,7 +160,6 @@ namespace
     return LexCursor{ cursor.lineno, cursor.linestart, ptr - src.head() };
   }
 
-
   //|///////////////////// lex_string_literal ///////////////////////////////
   LexCursor lex_string_literal(SourceText const &src, LexCursor const &cursor, Token &tok)
   {
@@ -189,7 +187,6 @@ namespace
 
     return LexCursor{ cursor.lineno, cursor.linestart, ptr - src.head() };
   }
-
 
   //|///////////////////// lex_numeric_constant /////////////////////////////
   LexCursor lex_numeric_constant(SourceText const &src, LexCursor const &cursor, Token &tok)
@@ -234,7 +231,6 @@ namespace
 
     return LexCursor{ cursor.lineno, cursor.linestart, ptr - src.head() };
   }
-
 
   //|///////////////////// lex_punctuators //////////////////////////////////
   LexCursor lex_punctuators(SourceText const &src, LexCursor const &cursor, Token &tok)
@@ -565,7 +561,6 @@ namespace
     return LexCursor{ cursor.lineno, cursor.linestart, ptr - src.head() };
   }
 
-
   //|///////////////////// lex_identifier ///////////////////////////////////
   LexCursor lex_identifier(SourceText const &src, LexCursor const &cursor, Token &tok)
   {
@@ -573,7 +568,10 @@ namespace
 
     auto ptr = beg;
 
-    assert(ptr >= src.head() && ptr < src.tail() && (is_alpha(*ptr) || *ptr == '_'));
+    assert(ptr >= src.head() && ptr < src.tail() && (is_alpha(*ptr) || *ptr == '_' || *ptr == '#'));
+
+    if (*ptr == '#')
+      ++ptr;
 
     while (is_identifier_body(*ptr))
       ++ptr;
@@ -727,6 +725,17 @@ namespace
 
     return LexCursor{ cursor.lineno, cursor.linestart, ptr - src.head() };
   }
+
+  //|///////////////////// lex_identifieror_or_hash /////////////////////////
+  LexCursor lex_identifieror_or_hash(SourceText const &src, LexCursor const &cursor, Token &tok)
+  {
+    auto ptr = src.head() + cursor.position;
+
+    if (cursor.position == 0 || (ptr[-1] != '.' && ptr[-1] != ':'))
+      return lex_punctuators(src, cursor, tok);
+    else
+      return lex_identifier(src, cursor, tok);
+  }
 }
 
 
@@ -849,7 +858,7 @@ auto lex(SourceText const &src, LexCursor cursor, Token &tok) -> LexCursor
         return lex_identifier(src, cursor, tok);
 
       case '#':
-        return lex_punctuators(src, cursor, tok);
+        return lex_identifieror_or_hash(src, cursor, tok);
 
       default:
         ptr += 1;

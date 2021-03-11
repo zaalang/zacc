@@ -1228,31 +1228,36 @@ namespace
     if (auto [p, ec] = from_chars(name.data(), name.data() + name.length(), value); ec == std::errc())
       return value;
 
-    if (auto decl = find_vardecl(ctx, stack, name); decl && (decl->flags & VarDecl::Literal))
+    if (name.substr(0, 1) == "#")
     {
-      auto type = ctx.intliteraltype;
+      name.remove_prefix(1);
 
-      if (decl->kind() == Decl::ParmVar)
+      if (auto decl = find_vardecl(ctx, stack, name); decl && (decl->flags & VarDecl::Literal))
       {
-        if (auto T = stack.back().find_type(decl); T != stack.back().typeargs.end() && is_int_literal(ctx, T->second))
+        auto type = ctx.intliteraltype;
+
+        if (decl->kind() == Decl::ParmVar)
         {
-          type = resolve_type(ctx, stack.back(), decl->type);
-          value = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(T->second)->value)->value().value;
+          if (auto T = stack.back().find_type(decl); T != stack.back().typeargs.end() && is_int_literal(ctx, T->second))
+          {
+            type = resolve_type(ctx, stack.back(), decl->type);
+            value = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(T->second)->value)->value().value;
+          }
         }
-      }
 
-      if (auto T = ctx.symbols.find(decl); T != ctx.symbols.end() && is_int_literal(ctx, T->second))
-      {
-        type = T->second.type.type;
-        value = get<IntLiteralExpr*>(T->second.value.get<MIR::RValue::Constant>())->value().value;
-      }
+        if (auto T = ctx.symbols.find(decl); T != ctx.symbols.end() && is_int_literal(ctx, T->second))
+        {
+          type = T->second.type.type;
+          value = get<IntLiteralExpr*>(T->second.value.get<MIR::RValue::Constant>())->value().value;
+        }
 
-      if (is_declid_type(type) && is_tag_type(target))
-      {
-        auto declid = reinterpret_cast<Decl*>(value);
-        auto &fields = type_cast<TagType>(target)->fieldvars;
+        if (is_declid_type(type) && is_tag_type(target))
+        {
+          auto declid = reinterpret_cast<Decl*>(value);
+          auto &fields = type_cast<TagType>(target)->fieldvars;
 
-        value = std::find(fields.begin(), fields.end(), declid) - fields.begin();
+          value = std::find(fields.begin(), fields.end(), declid) - fields.begin();
+        }
       }
 
       return value;
@@ -3753,40 +3758,44 @@ namespace
         }
       }
 
-      if (auto owner = get_if<Decl*>(&declref.scope.owner); owner && *owner && is_tag_decl(*owner))
+      if (tx.name.substr(0, 1) == "#")
       {
-        if (auto decl = find_vardecl(ctx, stack, tx.name); decl && (decl->flags & VarDecl::Literal))
+        tx.name.remove_prefix(1);
+
+        if (auto owner = get_if<Decl*>(&declref.scope.owner); owner && *owner && is_tag_decl(*owner))
         {
-          auto value = size_t(-1);
-          auto type = ctx.intliteraltype;
-
-          if (decl->kind() == Decl::ParmVar)
+          if (auto decl = find_vardecl(ctx, stack, tx.name); decl && (decl->flags & VarDecl::Literal))
           {
-            if (auto T = stack.back().find_type(decl); T != stack.back().typeargs.end() && is_int_literal(ctx, T->second))
+            auto value = size_t(-1);
+            auto type = ctx.intliteraltype;
+
+            if (decl->kind() == Decl::ParmVar)
             {
-              type = resolve_type(ctx, stack.back(), decl->type);
-              value = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(T->second)->value)->value().value;
+              if (auto T = stack.back().find_type(decl); T != stack.back().typeargs.end() && is_int_literal(ctx, T->second))
+              {
+                type = resolve_type(ctx, stack.back(), decl->type);
+                value = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(T->second)->value)->value().value;
+              }
             }
-          }
 
-          if (auto T = ctx.symbols.find(decl); T != ctx.symbols.end() && is_int_literal(ctx, T->second))
-          {
-            type = T->second.type.type;
-            value = get<IntLiteralExpr*>(T->second.value.get<MIR::RValue::Constant>())->value().value;
-          }
-
-          if (is_declid_type(type))
-          {
-            auto declid = reinterpret_cast<Decl*>(value);
-            auto &decls = decl_cast<TagDecl>(*owner)->decls;
-
-            if (auto j = std::find(decls.begin(), decls.end(), declid); j != decls.end())
+            if (auto T = ctx.symbols.find(decl); T != ctx.symbols.end() && is_int_literal(ctx, T->second))
             {
-              tx.name = "";
-              tx.decls.push_back(*j);
+              type = T->second.type.type;
+              value = get<IntLiteralExpr*>(T->second.value.get<MIR::RValue::Constant>())->value().value;
+            }
+
+            if (is_declid_type(type))
+            {
+              auto declid = reinterpret_cast<Decl*>(value);
+              auto &decls = decl_cast<TagDecl>(*owner)->decls;
+
+              if (auto j = std::find(decls.begin(), decls.end(), declid); j != decls.end())
+                tx.decls.push_back(*j);
             }
           }
         }
+
+        tx.name = "";
       }
 
       if (auto owner = get_if<Decl*>(&declref.scope.owner); owner && *owner && (*owner)->kind() == Decl::Union)
@@ -4946,6 +4955,8 @@ namespace
 
         result.type = MIR::Local(field.type, base.type.flags);
         result.value = MIR::RValue::literal(literal->fields[field.index]);
+
+        return true;
       }
 
       if (is_array_type(base.type.type))
@@ -4954,9 +4965,9 @@ namespace
 
         result.type = MIR::Local(field.type, base.type.flags);
         result.value = MIR::RValue::literal(literal->elements[field.index]);
-      }
 
-      return true;
+        return true;
+      }
     }
 
     if (base.value.kind() != MIR::RValue::Variable || get<0>(base.value.get<MIR::RValue::Variable>()) == MIR::RValue::Fer)
@@ -9319,6 +9330,10 @@ namespace
 
           if (!lower_field(ctx, value, value, field, get<0>(range)->loc()))
             return;
+
+          lower_decl(ctx, get<0>(range), value);
+
+          continue;
         }
 
         if (is_array_type(value.type.type))
@@ -9327,9 +9342,13 @@ namespace
 
           if (!lower_field(ctx, value, value, field, get<0>(range)->loc()))
             return;
+
+          lower_decl(ctx, get<0>(range), value);
+
+          continue;
         }
 
-        lower_decl(ctx, get<0>(range), value);
+        assert(false);
       }
 
       if (fors->cond)

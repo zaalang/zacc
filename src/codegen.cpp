@@ -1167,28 +1167,13 @@ namespace
     }
   }
 
-  //|///////////////////// codegen_constant /////////////////////////////////
-  void codegen_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, VoidLiteralExpr *literal)
+  //|///////////////////// codegen_assign_constant //////////////////////////
+  void codegen_assign_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, VoidLiteralExpr *literal)
   {
   }
 
-  //|///////////////////// codegen_constant /////////////////////////////////
-  void codegen_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, BoolLiteralExpr *literal)
-  {
-    if (!is_concrete_type(fx.mir.locals[dst].type))
-    {
-      ctx.diag.error("unresolved literal type", fx.fn, literal->loc());
-      return;
-    }
-
-    if (auto value = llvm_constant(ctx, fx, fx.mir.locals[dst].type, literal))
-    {
-      store(ctx, fx, dst, value);
-    }
-  }
-
-  //|///////////////////// codegen_constant /////////////////////////////////
-  void codegen_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, CharLiteralExpr *literal)
+  //|///////////////////// codegen_assign_constant //////////////////////////
+  void codegen_assign_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, BoolLiteralExpr *literal)
   {
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
@@ -1202,8 +1187,8 @@ namespace
     }
   }
 
-  //|///////////////////// codegen_constant /////////////////////////////////
-  void codegen_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, IntLiteralExpr *literal)
+  //|///////////////////// codegen_assign_constant //////////////////////////
+  void codegen_assign_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, CharLiteralExpr *literal)
   {
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
@@ -1217,8 +1202,8 @@ namespace
     }
   }
 
-  //|///////////////////// codegen_constant /////////////////////////////////
-  void codegen_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, FloatLiteralExpr *literal)
+  //|///////////////////// codegen_assign_constant //////////////////////////
+  void codegen_assign_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, IntLiteralExpr *literal)
   {
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
@@ -1232,8 +1217,8 @@ namespace
     }
   }
 
-  //|///////////////////// codegen_constant /////////////////////////////////
-  void codegen_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, PointerLiteralExpr *literal)
+  //|///////////////////// codegen_assign_constant //////////////////////////
+  void codegen_assign_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, FloatLiteralExpr *literal)
   {
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
@@ -1247,8 +1232,8 @@ namespace
     }
   }
 
-  //|///////////////////// codegen_constant /////////////////////////////////
-  void codegen_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, StringLiteralExpr *literal)
+  //|///////////////////// codegen_assign_constant //////////////////////////
+  void codegen_assign_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, PointerLiteralExpr *literal)
   {
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
@@ -1262,8 +1247,23 @@ namespace
     }
   }
 
-  //|///////////////////// codegen_constant /////////////////////////////////
-  void codegen_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, ArrayLiteralExpr *literal)
+  //|///////////////////// codegen_assign_constant //////////////////////////
+  void codegen_assign_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, StringLiteralExpr *literal)
+  {
+    if (!is_concrete_type(fx.mir.locals[dst].type))
+    {
+      ctx.diag.error("unresolved literal type", fx.fn, literal->loc());
+      return;
+    }
+
+    if (auto value = llvm_constant(ctx, fx, fx.mir.locals[dst].type, literal))
+    {
+      store(ctx, fx, dst, value);
+    }
+  }
+
+  //|///////////////////// codegen_assign_constant //////////////////////////
+  void codegen_assign_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, ArrayLiteralExpr *literal)
   {
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
@@ -1279,8 +1279,8 @@ namespace
     }
   }
 
-  //|///////////////////// codegen_constant /////////////////////////////////
-  void codegen_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, CompoundLiteralExpr *literal)
+  //|///////////////////// codegen_assign_constant //////////////////////////
+  void codegen_assign_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, CompoundLiteralExpr *literal)
   {    
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
@@ -1296,14 +1296,14 @@ namespace
     }
   }
 
-  //|///////////////////// codegen_constant /////////////////////////////////
-  void codegen_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::ConstantData const &constant)
+  //|///////////////////// codegen_assign_constant //////////////////////////
+  void codegen_assign_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::ConstantData const &constant)
   {
-    std::visit([&](auto &v) { codegen_constant(ctx, fx, dst, v); }, constant);
+    std::visit([&](auto &v) { codegen_assign_constant(ctx, fx, dst, v); }, constant);
   }
 
-  //|///////////////////// codegen_constant /////////////////////////////////
-  void codegen_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::FunctionData const &constant)
+  //|///////////////////// codegen_assign_constant //////////////////////////
+  void codegen_assign_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::FunctionData const &constant)
   {
     auto &[pointee, loc] = constant;
 
@@ -1418,8 +1418,8 @@ namespace
     }
   }
 
-  //|///////////////////// codegen_variable /////////////////////////////////
-  void codegen_variable(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::VariableData const &variable)
+  //|///////////////////// codegen_assign_variable //////////////////////////
+  void codegen_assign_variable(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::VariableData const &variable)
   {
     auto &[op, arg, fields, loc] = variable;
 
@@ -3777,15 +3777,15 @@ namespace
         break;
 
       case MIR::RValue::Constant:
-        codegen_constant(ctx, fx, dst, src.get<MIR::RValue::Constant>());
+        codegen_assign_constant(ctx, fx, dst, src.get<MIR::RValue::Constant>());
         break;
 
       case MIR::RValue::Function:
-        codegen_constant(ctx, fx, dst, src.get<MIR::RValue::Function>());
+        codegen_assign_constant(ctx, fx, dst, src.get<MIR::RValue::Function>());
         break;
 
       case MIR::RValue::Variable:
-        codegen_variable(ctx, fx, dst, src.get<MIR::RValue::Variable>());
+        codegen_assign_variable(ctx, fx, dst, src.get<MIR::RValue::Variable>());
         break;
 
       case MIR::RValue::Call:

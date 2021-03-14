@@ -46,6 +46,7 @@ set(SRCS ${SRCS} typer.h typer.cpp)
 set(SRCS ${SRCS} lower.h lower.cpp)
 set(SRCS ${SRCS} interp.h interp.cpp)
 set(SRCS ${SRCS} codegen.h codegen.cpp)
+set(SRCS ${SRCS} lifetime.h lifetime.cpp)
 set(SRCS ${SRCS} toolchain.h toolchain.cpp)
 
 add_executable(zacc ${SRCS})

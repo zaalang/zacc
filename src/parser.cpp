@@ -706,7 +706,7 @@ namespace
   {
     auto name = ctx.tok.text;
 
-    if (ctx.tok == Token::l_square || ctx.tok == Token::l_paren || (ctx.tok == Token::tilde && ctx.token(1) == Token::identifier))
+    if (ctx.tok == Token::l_square || ctx.tok == Token::l_paren || ctx.tok == Token::hash || (ctx.tok == Token::tilde && ctx.token(1) == Token::identifier))
     {
       ctx.consume_token();
 
@@ -1741,7 +1741,7 @@ namespace
   {
     auto op = ctx.tok;
 
-    if (ctx.token(1) == Token::coloncolon)
+    if (auto nexttok = ctx.token(1); nexttok == Token::coloncolon)
     {
       return parse_expression_post(ctx, parse_callee(ctx, sema), sema);
     }
@@ -4006,6 +4006,12 @@ namespace
       compound->endloc = ctx.tok.loc;
 
       casse->body = compound;
+    }
+
+    if (casse->parm && !casse->body)
+    {
+      ctx.diag.error("parameterised case requires body", ctx.text, ctx.tok.loc);
+      goto resume;
     }
 
     return casse;

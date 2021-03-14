@@ -606,8 +606,8 @@ namespace
     memcpy(alloc, &value, sizeof(value));
   }
 
-  //|///////////////////// eval_constant ////////////////////////////////////
-  bool eval_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, VoidLiteralExpr const *literal)
+  //|///////////////////// eval_assign_constant /////////////////////////////
+  bool eval_assign_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, VoidLiteralExpr const *literal)
   {
     auto type = fx.locals[dst].type;
 
@@ -621,8 +621,8 @@ namespace
     return true;
   }
 
-  //|///////////////////// eval_constant ////////////////////////////////////
-  bool eval_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, BoolLiteralExpr const *literal)
+  //|///////////////////// eval_assign_constant /////////////////////////////
+  bool eval_assign_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, BoolLiteralExpr const *literal)
   {
     auto type = fx.locals[dst].type;
 
@@ -640,8 +640,8 @@ namespace
     return true;
   }
 
-  //|///////////////////// eval_constant ////////////////////////////////////
-  bool eval_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, CharLiteralExpr const *literal)
+  //|///////////////////// eval_assign_constant /////////////////////////////
+  bool eval_assign_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, CharLiteralExpr const *literal)
   {
     auto type = fx.locals[dst].type;
 
@@ -666,8 +666,8 @@ namespace
     return true;
   }
 
-  //|///////////////////// eval_constant ////////////////////////////////////
-  bool eval_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, IntLiteralExpr const *literal)
+  //|///////////////////// eval_assign_constant /////////////////////////////
+  bool eval_assign_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, IntLiteralExpr const *literal)
   {
     auto type = fx.locals[dst].type;
 
@@ -708,8 +708,8 @@ namespace
     return true;
   }
 
-  //|///////////////////// eval_constant ////////////////////////////////////
-  bool eval_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, FloatLiteralExpr const *literal)
+  //|///////////////////// eval_assign_constant /////////////////////////////
+  bool eval_assign_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, FloatLiteralExpr const *literal)
   {
     auto type = fx.locals[dst].type;
 
@@ -746,8 +746,8 @@ namespace
     return true;
   }
 
-  //|///////////////////// eval_constant ////////////////////////////////////
-  bool eval_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, PointerLiteralExpr const *literal)
+  //|///////////////////// eval_assign_constant /////////////////////////////
+  bool eval_assign_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, PointerLiteralExpr const *literal)
   {
     auto type = fx.locals[dst].type;
 
@@ -766,8 +766,8 @@ namespace
     return true;
   }
 
-  //|///////////////////// eval_constant ////////////////////////////////////
-  bool eval_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, StringLiteralExpr const *literal)
+  //|///////////////////// eval_assign_constant /////////////////////////////
+  bool eval_assign_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, StringLiteralExpr const *literal)
   {
     auto type = fx.locals[dst].type;
 
@@ -783,8 +783,8 @@ namespace
     return true;
   }
 
-  //|///////////////////// eval_constant ////////////////////////////////////
-  bool eval_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, ArrayLiteralExpr const *literal)
+  //|///////////////////// eval_assign_constant /////////////////////////////
+  bool eval_assign_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, ArrayLiteralExpr const *literal)
   {
     auto type = fx.locals[dst].type;
 
@@ -809,8 +809,8 @@ namespace
     return true;
   }
 
-  //|///////////////////// eval_constant ////////////////////////////////////
-  bool eval_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, CompoundLiteralExpr const *literal)
+  //|///////////////////// eval_assign_constant /////////////////////////////
+  bool eval_assign_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, CompoundLiteralExpr const *literal)
   {
     auto type = fx.locals[dst].type;
 
@@ -826,14 +826,14 @@ namespace
     return true;
   }
 
-  //|///////////////////// eval_constant ////////////////////////////////////
-  bool eval_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::ConstantData const &constant)
+  //|///////////////////// eval_assign_constant /////////////////////////////
+  bool eval_assign_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::ConstantData const &constant)
   {
-    return std::visit([&](auto &v) { return eval_constant(ctx, fx, dst, v); }, constant);
+    return std::visit([&](auto &v) { return eval_assign_constant(ctx, fx, dst, v); }, constant);
   }
 
-  //|///////////////////// eval_variable ////////////////////////////////////
-  bool eval_variable(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::VariableData const &variable)
+  //|///////////////////// eval_assign_variable /////////////////////////////
+  bool eval_assign_variable(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::VariableData const &variable)
   {
     auto &[op, arg, fields, loc] = variable;
 
@@ -3186,10 +3186,10 @@ namespace
         return true;
 
       case MIR::RValue::Constant:
-        return eval_constant(ctx, fx, dst, src.get<MIR::RValue::Constant>());
+        return eval_assign_constant(ctx, fx, dst, src.get<MIR::RValue::Constant>());
 
       case MIR::RValue::Variable:
-        return eval_variable(ctx, fx, dst, src.get<MIR::RValue::Variable>());
+        return eval_assign_variable(ctx, fx, dst, src.get<MIR::RValue::Variable>());
 
       case MIR::RValue::Call:
         return eval_call(ctx, fx, dst, src.get<MIR::RValue::Call>());
@@ -3260,7 +3260,7 @@ namespace
 
     for(auto &[arg, value] : mir.statics)
     {
-      eval_constant(ctx, fx, arg, value.get<MIR::RValue::Constant>());
+      eval_assign_constant(ctx, fx, arg, value.get<MIR::RValue::Constant>());
     }
 
     for(size_t block = 0; block < mir.blocks.size(); )
@@ -3367,13 +3367,13 @@ namespace
       {
         fx.locals.push_back(alloc(ctx, remove_const_type(remove_reference_type(parms[k].type))));
 
-        eval_constant(ctx, fx, args.back() + 1, MIR::RValue::literal(parms[k].value));
+        eval_assign_constant(ctx, fx, args.back() + 1, MIR::RValue::literal(parms[k].value));
 
         store(ctx, fx.locals[args.back()].alloc, fx.locals[args.back()].type, fx.locals[args.back() + 1].alloc);
       }
       else
       {
-        eval_constant(ctx, fx, args.back(), MIR::RValue::literal(parms[k].value));
+        eval_assign_constant(ctx, fx, args.back(), MIR::RValue::literal(parms[k].value));
       }
     }
 

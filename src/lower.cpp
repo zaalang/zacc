@@ -10,6 +10,7 @@
 #include "lower.h"
 #include "interp.h"
 #include "diag.h"
+#include "lifetime.h"
 #include <variant>
 #include <algorithm>
 #include <charconv>
@@ -7343,6 +7344,7 @@ namespace
       }
 
       ctx.mir.statics.emplace_back(arg, std::move(value.value));
+      ctx.barriers.back().retires.erase(ctx.barriers.back().retires.end() - 1);
 
       if (!(stmtvar->flags & VarDecl::Const))
         value.type.flags &= ~MIR::Local::Const;
@@ -7471,10 +7473,10 @@ namespace
     ctx.symbols[parmvar].type = ctx.mir.locals[arg];
   }
 
-  //|///////////////////// lower_casemvar ///////////////////////////////////
+  //|///////////////////// lower_casevar ////////////////////////////////////
   void lower_decl(LowerContext &ctx, CaseVarDecl *casevar, MIR::Fragment &value)
   {
-    auto arg = ctx.add_local();
+    auto arg = ctx.add_variable();
 
     realise_as_reference(ctx, arg, value, casevar->flags & VarDecl::Const);
 
@@ -8749,7 +8751,7 @@ namespace
         return;
     }
 
-    auto cond = ctx.add_variable();
+    auto cond = ctx.add_local();
 
     realise_as_value(ctx, cond, condition);
 
@@ -8935,7 +8937,7 @@ namespace
       if (!lower_expr(ctx, compare, BinaryOpExpr::NE, parms, namedparms, fors->loc()))
         return;
 
-      auto flg = ctx.add_temporary();
+      auto flg = ctx.add_local();
 
       realise_as_value(ctx, flg, compare);
 
@@ -8969,7 +8971,7 @@ namespace
           return;
       }
 
-      auto cond = ctx.add_variable();
+      auto cond = ctx.add_local();
 
       realise_as_value(ctx, cond, condition);
 
@@ -9146,7 +9148,7 @@ namespace
       if (!lower_expr(ctx, compare, BinaryOpExpr::EQ, parms, namedparms, rofs->loc()))
         return;
 
-      auto flg = ctx.add_temporary();
+      auto flg = ctx.add_local();
 
       realise_as_value(ctx, flg, compare);
 
@@ -9201,7 +9203,7 @@ namespace
           return;
       }
 
-      auto cond = ctx.add_variable();
+      auto cond = ctx.add_local();
 
       realise_as_value(ctx, cond, condition);
 
@@ -9459,7 +9461,7 @@ namespace
         return;
     }
 
-    auto cond = ctx.add_variable();
+    auto cond = ctx.add_local();
 
     realise_as_value(ctx, cond, condition);
 
@@ -9508,8 +9510,6 @@ namespace
 
     ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1));
 
-    auto ssm = ctx.push_barrier();
-
     MIR::Fragment base;
     MIR::Fragment condition;
     vector<MIR::block_t> blocks;
@@ -9530,13 +9530,11 @@ namespace
         return;
     }
 
-    auto cond = ctx.add_variable();
+    auto cond = ctx.add_local();
 
     realise_as_value(ctx, cond, condition);
 
     commit_type(ctx, cond, condition.type.type, condition.type.flags);
-
-    ctx.retire_barrier(ssm);
 
     auto block_cond = ctx.add_block(MIR::Terminator::switcher(cond, ctx.currentblockid));
 
@@ -10269,7 +10267,7 @@ namespace
     }
   }
 
-  //|///////////////////// downcsat /////////////////////////////////////////
+  //|///////////////////// solidify /////////////////////////////////////////
   void solidify(LowerContext &ctx, MIR &mir)
   {
     bool changed = false;
@@ -10331,6 +10329,10 @@ MIR const &lower(FnSig const &fx, TypeTable &typetable, Diag &diag)
 #endif
 
   backfill(ctx, ctx.mir);
+
+#if 1
+  lifetime(ctx.mir, typetable, diag);
+#endif
 
   return Cache::commit(fx, std::move(ctx.mir), diag.has_errored());
 }

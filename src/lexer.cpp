@@ -725,17 +725,6 @@ namespace
 
     return LexCursor{ cursor.lineno, cursor.linestart, ptr - src.head() };
   }
-
-  //|///////////////////// lex_identifieror_or_hash /////////////////////////
-  LexCursor lex_identifieror_or_hash(SourceText const &src, LexCursor const &cursor, Token &tok)
-  {
-    auto ptr = src.head() + cursor.position;
-
-    if (cursor.position == 0 || (ptr[-1] != '.' && ptr[-1] != ':'))
-      return lex_punctuators(src, cursor, tok);
-    else
-      return lex_identifier(src, cursor, tok);
-  }
 }
 
 
@@ -858,7 +847,7 @@ auto lex(SourceText const &src, LexCursor cursor, Token &tok) -> LexCursor
         return lex_identifier(src, cursor, tok);
 
       case '#':
-        return lex_identifieror_or_hash(src, cursor, tok);
+        return lex_punctuators(src, cursor, tok);
 
       default:
         ptr += 1;

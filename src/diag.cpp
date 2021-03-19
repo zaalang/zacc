@@ -12,10 +12,6 @@
 #include <algorithm>
 #include <iostream>
 
-#if defined _WIN32
-#include <windows.h>
-#endif
-
 using namespace std;
 
 namespace
@@ -87,13 +83,15 @@ Diag::Diag(string_view leader)
 {
   colored = true;
   m_leader = leader;
+}
 
-#if defined _WIN32
-  HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
-  DWORD mode = 0;
-  GetConsoleMode(handle, &mode);
-  SetConsoleMode(handle, mode | 0x0004);
-#endif
+//|///////////////////// Constructor ////////////////////////////////////////
+Diag::Diag(Diag const &other)
+{
+  colored = other.colored;
+  m_leader = other.m_leader;
+  m_errored = other.m_errored;
+  os << other.str();
 }
 
 //|///////////////////// info ///////////////////////////////////////////////

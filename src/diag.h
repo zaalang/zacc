@@ -23,6 +23,7 @@ class Diag
 {
   public:
     Diag(std::string_view leader);
+    Diag(Diag const &other);
 
     std::string_view leader() const { return m_leader; }
 
@@ -59,18 +60,20 @@ class Diag
     friend Diag &operator<<(Diag &diag, Diag::normal);
 
     template<typename T>
-    friend Diag &operator<<(Diag &diag, T &&out)
+    friend Diag &operator<<(Diag &diag, T const &out)
     {
       diag.os << out;
+
       return diag;
     }
 
-    friend Diag &operator<<(Diag &diag, Diag &out)
+    friend Diag &operator<<(Diag &diag, Diag const &out)
     {
       if (out.has_errored())
         diag.m_errored = true;
 
       diag.os << out.str();
+
       return diag;
     }
 

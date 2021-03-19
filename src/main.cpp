@@ -20,11 +20,24 @@
 #include <cstring>
 #include <algorithm>
 
+#if defined _WIN32
+#include <windows.h>
+#endif
+
 using namespace std;
 
 //|//////////////////// main ////////////////////////////////////////////////
 int main(int argc, char *argv[])
 {
+  Diag diag("zacc");
+
+#if defined _WIN32
+  HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
+  DWORD mode = 0;
+  GetConsoleMode(handle, &mode);
+  SetConsoleMode(handle, mode | 0x0004);
+#endif
+
   string input = "";
 
   for(int i = 0, j = 0; i < argc; ++i)
@@ -42,8 +55,6 @@ int main(int argc, char *argv[])
 
     ++j;
   }
-
-  Diag diag("zacc");
 
   if (input == "")
   {

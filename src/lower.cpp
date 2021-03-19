@@ -28,7 +28,7 @@ namespace
 {
   struct LowerContext
   {
-    Diag &diag;
+    Diag diag;
 
     MIR mir;
 
@@ -236,9 +236,12 @@ namespace
 
     TypeTable &typetable;
 
+    Diag &outdiag;
+
     LowerContext(TypeTable &typetable, Diag &diag)
-      : diag(diag),
-        typetable(typetable)
+      : diag(diag.leader()),
+        typetable(typetable),
+        outdiag(diag)
     {
       errorarg = 0;
       unreachable = false;
@@ -260,6 +263,11 @@ namespace
       currentblockid = 0;
       currentblock.terminator.kind = MIR::Terminator::Return;
     }
+
+    ~LowerContext()
+    {
+      outdiag << diag;
+    }
   };
 
   struct Cache
@@ -267,7 +275,7 @@ namespace
     struct entry
     {
       MIR mir;
-      bool errored;
+      Diag diag;
     };
 
     static entry const *lookup(FnSig const &fx)
@@ -280,9 +288,9 @@ namespace
       return nullptr;
     }
 
-    static MIR const &commit(FnSig const &fx, MIR &&mir, bool errored)
+    static MIR const &commit(FnSig const &fx, MIR &&mir, Diag const &diag)
     {
-      return lowered.emplace(fx, entry{ std::move(mir), errored }).first->second.mir;
+      return lowered.emplace(fx, entry{ std::move(mir), diag }).first->second.mir;
     }
 
     static inline std::unordered_map<FnSig, entry> lowered;
@@ -1667,10 +1675,13 @@ namespace
       if (lower_expr(cttx, result, typedecl->expr))
         return result.type.type;
 
-      assert(ctx.diag.has_errored());
+      assert(cttx.diag.has_errored());
 
       return ctx.voidtype;
     }
+
+    if (auto stmt = get_if<Stmt*>(&typedecl->owner); stmt)
+      stack.back().goalpost = *stmt;
 
     if (auto type = find_type(ctx, stack, typedecl->expr).type)
       return type;
@@ -2594,9 +2605,6 @@ namespace
       {
         auto returntype = find_returntype(ctx, refn);
 
-        if (!returntype)
-          return false;
-
         if (!deduce_type(ctx, tx, scope, fx, remove_const_type(lhs), returntype.type))
           return false;
 
@@ -3043,10 +3051,10 @@ namespace
 
                   lower_expression(cttx, expr_cast<UnaryOpExpr>(value)->subexpr);
 
-                  if (ctx.diag.has_errored())
+                  if (cttx.diag.has_errored())
                     break;
 
-                  if (auto expr = evaluate(fnscope, cttx.mir, ctx.typetable, ctx.diag, parm->defult->loc()))
+                  if (auto expr = evaluate(fnscope, cttx.mir, cttx.typetable, cttx.diag, parm->defult->loc()))
                   {
                     value = expr.value;
                   }
@@ -3956,7 +3964,10 @@ namespace
       auto &mir = lower(fx, ctx.typetable, ctx.diag);
 
       if (mir.locals.empty() || !mir.locals[0])
-        return nullptr;
+      {
+        ctx.diag.error("unable to determine function return type", fx.fn, fx.fn->loc());
+        return ctx.voidtype;
+      }
 
       returntype = mir.locals[0];
     }
@@ -10308,8 +10319,8 @@ MIR const &lower(FnSig const &fx, TypeTable &typetable, Diag &diag)
 {
   if (auto j = Cache::lookup(fx))
   {
-    if (j->errored)
-      diag.errored();
+    if (!diag.has_errored() && j->diag.has_errored())
+      diag << j->diag;
 
     return j->mir;
   }
@@ -10331,10 +10342,10 @@ MIR const &lower(FnSig const &fx, TypeTable &typetable, Diag &diag)
   backfill(ctx, ctx.mir);
 
 #if 1
-  lifetime(ctx.mir, typetable, diag);
+  lifetime(ctx.mir, typetable, ctx.diag);
 #endif
 
-  return Cache::commit(fx, std::move(ctx.mir), diag.has_errored());
+  return Cache::commit(fx, std::move(ctx.mir), ctx.diag);
 }
 
 //|///////////////////// lower //////////////////////////////////////////////
@@ -10363,9 +10374,9 @@ MIR lower(FnSig const &fx, TypeTable &typetable, Diag &diag, long flags)
 {
   LowerContext ctx(typetable, diag);
 
-  ctx.mir = lower(fx, typetable, diag);
+  ctx.mir = lower(fx, typetable, ctx.diag);
 
-  if (diag.has_errored())
+  if (ctx.diag.has_errored())
     return ctx.mir;
 
   if (!is_concrete_type(ctx.mir.locals[0].type))

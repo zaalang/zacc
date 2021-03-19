@@ -16,7 +16,47 @@ fn test_pow()
   assert(pow(2.0, 10.0) == 1024.0);
 }
 
+fn test_sin()
+{
+  assert(sin(3.2) == -0.058374143427580086);
+  assert(asin(0.9) == 1.1197695149986342);
+}
+
+fn test_cos()
+{
+  assert(cos(3.2) == -0.9982947757947531);
+  assert(acos(0.9) == 0.45102681179626236);
+}
+
+fn test_tan()
+{
+  assert(tan(3.2) == 0.058473854459578645);
+  assert(atan(0.9) == 0.7328151017865066);
+}
+
+fn test_sqrt()
+{
+  assert(sqrt(2.0) == Sqrt2);
+}
+
+fn test_log()
+{
+  assert(ln(2.0) == Ln2);
+  assert(log2(19.0) == 4.247927513443585);  
+}
+
+fn test_exp()
+{
+  assert(exp(1.0) == E);
+}
+
 fn main()
 {
   #test_pow();
+  #test_sin();
+  #test_cos();
+  #test_tan();
+  #test_sqrt();
+  #test_log();
+  #test_exp();
 }

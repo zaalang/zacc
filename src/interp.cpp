@@ -71,10 +71,13 @@ namespace
       return new T(std::forward<Args>(args)...);
     }
 
+    Diag &outdiag;
+
     EvalContext(Scope const &dx, TypeTable &typetable, Diag &diag)
       : dx(dx),
         diag(diag.leader()),
-        typetable(typetable)
+        typetable(typetable),
+        outdiag(diag)
     {
       exception = false;
 
@@ -88,6 +91,11 @@ namespace
 
       memory.resize(1);
       memory.back().reserve(4096);
+    }
+
+    ~EvalContext()
+    {
+      outdiag << diag;
     }
   };
 
@@ -3535,7 +3543,7 @@ EvalResult evaluate(Scope const &scope, MIR const &mir, TypeTable &typetable, Di
 
   if (is_unresolved_type(mir.locals[0].type))
   {
-    diag.error("unresolved expression type", scope, loc);
+    ctx.diag.error("unresolved expression type", scope, loc);
     return result;
   }
 
@@ -3545,8 +3553,6 @@ EvalResult evaluate(Scope const &scope, MIR const &mir, TypeTable &typetable, Di
   {
     result = make_result(ctx, returnvalue, loc);
   }
-
-  diag << ctx.diag;
 
   return result;
 }
@@ -3559,7 +3565,7 @@ EvalResult evaluate(Scope const &scope, FnSig const &callee, Type *returntype, v
 
   if (is_unresolved_type(returntype))
   {
-    diag.error("unresolved return type", scope, loc);
+    ctx.diag.error("unresolved return type", scope, loc);
     return result;
   }
 
@@ -3569,15 +3575,12 @@ EvalResult evaluate(Scope const &scope, FnSig const &callee, Type *returntype, v
   {
     if (ctx.exception)
     {
-      diag << ctx.diag;
-      diag.error("exception occured in compile time context", scope, loc);
+      ctx.diag.error("exception occured in compile time context", scope, loc);
       return result;
     }
 
     result = make_result(ctx, returnvalue, loc);
   }
-
-  diag << ctx.diag;
 
   return result;
 }
@@ -3591,14 +3594,11 @@ EvalResult evaluate(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fr
   auto mir = lower(scope, expr, symbols, typetable, ctx.diag);
 
   if (ctx.diag.has_errored())
-  {
-    diag << ctx.diag;
     return result;
-  }
 
   if (is_unresolved_type(mir.locals[0].type))
   {
-    diag.error("unresolved expression type", scope, loc);
+    ctx.diag.error("unresolved expression type", scope, loc);
     return result;
   }
 
@@ -3608,8 +3608,6 @@ EvalResult evaluate(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fr
   {
     result = make_result(ctx, returnvalue, loc);
   }
-
-  diag << ctx.diag;
 
   return result;
 }

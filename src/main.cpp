@@ -44,7 +44,7 @@ int main(int argc, char *argv[])
   {    
     if (argv[i][0] == '-')
     {
-      if ((argv[i][1] == 'I' || argv[i][1] == 'L' || argv[i][1] == 'l') && argv[i][2] == 0)
+      if ((argv[i][1] == 'I' || argv[i][1] == 'L' || argv[i][1] == 'l' || argv[i][1] == 'o') && argv[i][2] == 0)
         ++i;
 
       continue;
@@ -93,6 +93,13 @@ int main(int argc, char *argv[])
     cout << "--" << endl;
 #endif
 
+    if (diag.has_errored())
+    {
+      cerr << diag;
+
+      exit(1);
+    }
+
     GenOpts opts;
     opts.modulename = input;
 
@@ -116,11 +123,38 @@ int main(int argc, char *argv[])
       if (strcmp(argv[i], "-O3") == 0)
         opts.optlevel = GenOpts::OptLevel::Aggressive;
 
+      if (strcmp(argv[i], "-fpic") == 0)
+        opts.reloc = GenOpts::Reloc::PIC;
+
+      if (strcmp(argv[i], "-fstack-protect") == 0)
+        opts.stackprotect = GenOpts::StackProtect::Yes;
+
+      if (strcmp(argv[i], "-fno-stack-protect") == 0)
+        opts.stackprotect = GenOpts::StackProtect::None;
+
+      if (strcmp(argv[i], "-mred-zone") == 0)
+        opts.redzone = GenOpts::RedZone::Yes;
+
+      if (strcmp(argv[i], "-mno-red-zone") == 0)
+        opts.redzone = GenOpts::RedZone::None;
+
+      if (strcmp(argv[i], "-mcmodel=kernel") == 0)
+        opts.model = GenOpts::CodeModel::Kernel;
+
+      if (strcmp(argv[i], "-mcmodel=large") == 0)
+        opts.model = GenOpts::CodeModel::Large;
+
       if (strcmp(argv[i], "-c") == 0)
         opts.linker = false;
 
       if (strcmp(argv[i], "--dump-mir") == 0)
         opts.dump_mir = true;
+
+      if (strncmp(argv[i], "--target=", 9) == 0)
+        opts.triple = argv[i] + 9;
+
+      if (strncmp(argv[i], "--features=", 11) == 0)
+        opts.features = argv[i] + 11;
 
       if (strcmp(argv[i], "-mllvm") == 0)
         opts.llvmargs.push_back(argv[++i]);

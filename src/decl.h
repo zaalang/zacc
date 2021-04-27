@@ -45,6 +45,7 @@ class Decl
       StmtVar,
       ParmVar,
       Struct,
+      Union,
       Lambda,
       ThisVar,
       FieldVar,
@@ -58,7 +59,7 @@ class Decl
       Requires,
       Enum,
       EnumConstant,
-      Union,
+      Attribute,
       Run,
       If,
     };
@@ -159,7 +160,11 @@ class FunctionDecl : public Decl
       Deleted = 0x80,
 
       ExternC = 0x1000,
-      ExternMask = ExternC,
+      ExternWin64 = 0x2000,
+      ExternSysv64 = 0x4000,
+      ExternNaked = 0x8000,
+      ExternInterrupt = 0x10000,
+      ExternMask = ExternC | ExternWin64 | ExternSysv64 | ExternNaked | ExternInterrupt,
 
       DeclType = 0x70000000,
       ConstDecl = 0x20000000,
@@ -185,6 +190,8 @@ class FunctionDecl : public Decl
     Expr *throws = nullptr;
     Expr *match = nullptr;
     Expr *where = nullptr;
+
+    std::vector<Decl*> attributes;
 
     void dump(int indent) const override;
 };
@@ -346,6 +353,7 @@ class VarDecl : public Decl
       Const = 0x02,
       Literal = 0x10,
       Static = 0x20,
+      ThreadLocal = 0x100,
     };
 
   public:
@@ -415,6 +423,8 @@ class TagDecl : public Decl
     std::string name;
     std::vector<Decl*> args;
     std::vector<Decl*> decls;
+
+    std::vector<Decl*> attributes;
 };
 
 
@@ -641,6 +651,21 @@ class EnumConstantDecl : public Decl
 };
 
 
+//---------------------- AttributeDecl --------------------------------------
+//---------------------------------------------------------------------------
+
+class AttributeDecl : public Decl
+{
+  public:
+    AttributeDecl(SourceLocation loc);
+
+    std::string name;
+    std::string options;
+
+    void dump(int indent) const override;
+};
+
+
 //---------------------- RunDecl --------------------------------------------
 //---------------------------------------------------------------------------
 
@@ -722,6 +747,7 @@ template<> inline auto decl_cast<RequiresDecl>(Decl *decl) { assert(decl && decl
 template<> inline auto decl_cast<EnumDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Enum); return static_cast<EnumDecl*>(decl); };
 template<> inline auto decl_cast<EnumConstantDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::EnumConstant); return static_cast<EnumConstantDecl*>(decl); };
 template<> inline auto decl_cast<UnionDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Union); return static_cast<UnionDecl*>(decl); };
+template<> inline auto decl_cast<AttributeDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Attribute); return static_cast<AttributeDecl*>(decl); };
 template<> inline auto decl_cast<IfDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::If); return static_cast<IfDecl*>(decl); };
 template<> inline auto decl_cast<RunDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Run); return static_cast<RunDecl*>(decl); };
 

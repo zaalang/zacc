@@ -28,6 +28,8 @@ namespace
 
     SourceText const &text;
 
+    vector<Decl*> attributes;
+
     ParseContext(SourceText const &text, Diag &diag)
       : diag(diag),
         text(text)
@@ -82,7 +84,7 @@ namespace
     {
       while (true)
       {
-        switch(tok.type)
+        switch (tok.type)
         {
           case Token::l_brace:
             consume_til(Token::r_brace);
@@ -221,6 +223,7 @@ namespace
       case Token::star: return UnaryOpExpr::Fer;
       case Token::ampamp: return UnaryOpExpr::Fwd;
       case Token::hash: return UnaryOpExpr::Literal;
+      case Token::kw_extern: return UnaryOpExpr::Extern;
 
       default:
         throw logic_error("invalid unary op");
@@ -279,6 +282,60 @@ namespace
   Decl *parse_union_declaration(ParseContext &ctx, Sema &sema);
   Stmt *parse_statement(ParseContext &ctx, Sema &sema);
   Stmt *parse_compound_statement(ParseContext &ctx, Sema &sema);
+
+  //|///////////////////// consume_attributes ///////////////////////////////
+  void consume_attributes(ParseContext &ctx, Sema &sema)
+  {
+    ctx.try_consume_token(Token::hash);
+    ctx.try_consume_token(Token::l_square);
+
+    while (ctx.tok != Token::r_square && ctx.tok != Token::eof)
+    {
+      auto attribute = sema.attribute_declaration(ctx.tok.loc);
+
+      attribute->name = ctx.tok.text;
+
+      if (!ctx.try_consume_token(Token::identifier))
+      {
+        ctx.diag.error("expected attribute", ctx.text, ctx.tok.loc);
+        break;
+      }
+
+      if (ctx.tok == Token::l_paren)
+      {
+        auto beg = ctx.tok.text.data();
+
+        for(int indent = 0; ctx.tok != Token::eof; )
+        {
+          if (ctx.tok == Token::l_paren)
+            indent += 1;
+
+          if (ctx.tok == Token::r_paren)
+            if (--indent <= 0)
+              break;
+
+          ctx.consume_token();
+        }
+
+        attribute->options = string_view(beg, ctx.tok.text.data() - beg + 1);
+
+        if (!ctx.try_consume_token(Token::r_paren))
+        {
+          ctx.diag.error("expected bracket", ctx.text, ctx.tok.loc);
+        }
+      }
+
+      ctx.attributes.push_back(attribute);
+
+      if (!ctx.try_consume_token(Token::comma))
+        break;
+    }
+
+    if (!ctx.try_consume_token(Token::r_square))
+    {
+      ctx.diag.error("expected bracket", ctx.text, ctx.tok.loc);
+    }
+  }
 
   //|///////////////////// parse_typearg_list ///////////////////////////////
   vector<Type*> parse_typearg_list(ParseContext &ctx, Sema &sema)
@@ -502,7 +559,7 @@ namespace
 
         auto flags = 0;
 
-        switch(ctx.tok.type)
+        switch (ctx.tok.type)
         {
           case Token::kw_var:
             break;
@@ -1050,7 +1107,7 @@ namespace
 
     while (true)
     {
-      switch(tok.type)
+      switch (tok.type)
       {
         case Token::plus:
         case Token::minus:
@@ -1338,6 +1395,81 @@ namespace
     }
 
     return nullptr;
+  }
+
+  //|///////////////////// parse_offsetof ///////////////////////////////////
+  Expr *parse_offsetof(ParseContext &ctx, Sema &sema)
+  {
+    auto loc = ctx.tok.loc;
+
+    ctx.consume_token(Token::kw_offsetof);
+
+    if (!ctx.try_consume_token(Token::l_paren))
+    {
+      ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+      ctx.comsume_til_resumable();
+      return nullptr;
+    }
+
+    auto type = parse_type(ctx, sema);
+
+    if (!ctx.try_consume_token(Token::comma))
+    {
+      ctx.diag.error("expected comma", ctx.text, ctx.tok.loc);
+      ctx.comsume_til_resumable();
+      return nullptr;
+    }
+
+    auto name = ctx.tok.text;
+
+    if (!ctx.try_consume_token(Token::identifier))
+    {
+      ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
+      ctx.comsume_til_resumable();
+      return nullptr;
+    }
+
+    if (!ctx.try_consume_token(Token::r_paren))
+    {
+      ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+      ctx.comsume_til_resumable();
+      return nullptr;
+    }
+
+    return sema.make_offsetof_expression(type, name, loc);
+  }
+
+  //|///////////////////// parse_extern /////////////////////////////////////
+  Expr *parse_extern(ParseContext &ctx, Sema &sema)
+  {
+    auto loc = ctx.tok.loc;
+
+    ctx.consume_token(Token::kw_extern);
+
+    if (!ctx.try_consume_token(Token::l_paren))
+    {
+      ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+      ctx.comsume_til_resumable();
+      return nullptr;
+    }
+
+    auto name = ctx.tok.text;
+
+    if (!ctx.try_consume_token(Token::identifier))
+    {
+      ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
+      ctx.comsume_til_resumable();
+      return nullptr;
+    }
+
+    if (!ctx.try_consume_token(Token::r_paren))
+    {
+      ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+      ctx.comsume_til_resumable();
+      return nullptr;
+    }
+
+    return sema.make_unary_expression(UnaryOpExpr::Extern, sema.make_string_literal(name, loc), loc);
   }
 
   //|///////////////////// parse_cast ///////////////////////////////////////
@@ -1712,7 +1844,7 @@ namespace
   {
     auto op = ctx.tok;
 
-    switch(op.type)
+    switch (op.type)
     {
       case Token::period:
         return parse_expression_post(ctx, parse_member(ctx, lhs, sema), sema);
@@ -1746,7 +1878,7 @@ namespace
       return parse_expression_post(ctx, parse_callee(ctx, sema), sema);
     }
 
-    switch(op.type)
+    switch (op.type)
     {
       case Token::l_paren:
         return parse_expression_post(ctx, parse_paren(ctx, sema), sema);
@@ -1783,6 +1915,9 @@ namespace
       case Token::kw_alignof:
         return parse_alignof(ctx, sema);
 
+      case Token::kw_offsetof:
+        return parse_offsetof(ctx, sema);
+
       case Token::kw_cast:
         return parse_expression_post(ctx, parse_cast(ctx, sema), sema);
 
@@ -1794,6 +1929,9 @@ namespace
 
       case Token::kw_fn:
         return parse_expression_post(ctx, parse_lambda(ctx, sema), sema);
+
+      case Token::kw_extern:
+        return parse_extern(ctx, sema);
 
       case Token::kw_this:
       case Token::kw_typeof:
@@ -2028,9 +2166,9 @@ namespace
       goto resume;
     }
 
-    ctx.consume_token(Token::identifier);
-
     imprt->alias = name;
+
+    ctx.consume_token(Token::identifier);
 
     while (ctx.try_consume_token(Token::period))
     {
@@ -2202,7 +2340,7 @@ namespace
   {
     auto var = sema.var_declaration(ctx.tok.loc);
 
-    switch(ctx.tok.type)
+    switch (ctx.tok.type)
     {
       case Token::kw_var:
         break;
@@ -2224,6 +2362,13 @@ namespace
     }
 
     ctx.consume_token();
+
+    if (ctx.tok.text == "thread_local")
+    {
+      var->flags |= VarDecl::ThreadLocal;
+
+      ctx.consume_token();
+    }
 
     var->type = sema.make_typearg(sema.make_typearg("var", ctx.tok.loc));
 
@@ -2424,7 +2569,7 @@ namespace
 
       while (ctx.tok != Token::r_brace && ctx.tok != Token::eof)
       {
-        switch(ctx.tok.type)
+        switch (ctx.tok.type)
         {
           case Token::kw_requires:
             decl = parse_requires_declaration(ctx, sema);
@@ -2558,6 +2703,18 @@ namespace
 
       if (ctx.tok == Token::string_literal)
       {
+        if (ctx.tok.text == "\"naked\"")
+          abi = FunctionDecl::ExternNaked;
+
+        if (ctx.tok.text == "\"win64\"")
+          abi = FunctionDecl::ExternWin64;
+
+        if (ctx.tok.text == "\"sysv64\"")
+          abi = FunctionDecl::ExternSysv64;
+
+        if (ctx.tok.text == "\"interrupt\"")
+          abi = FunctionDecl::ExternInterrupt;
+
         ctx.consume_token(Token::string_literal);
       }
 
@@ -2566,6 +2723,8 @@ namespace
 
     if (ctx.try_consume_token(Token::kw_const))
       fn->flags |= FunctionDecl::Const;
+
+    fn->attributes = std::move(ctx.attributes);
 
     if (!ctx.try_consume_token(Token::kw_fn))
       ctx.diag.error("expected function", ctx.text, ctx.tok.loc);
@@ -2673,12 +2832,6 @@ namespace
 
     if (!ctx.try_consume_token(Token::semi))
     {
-      if (fn->flags & FunctionDecl::ExternMask)
-      {
-        ctx.diag.error("expected semi on extern function", ctx.text, ctx.tok.loc);
-        goto resume;
-      }
-
       fn->body = parse_compound_statement(ctx, sema);
     }
 
@@ -2745,6 +2898,8 @@ namespace
 
     if (ctx.try_consume_token(Token::kw_const))
       fn->flags |= FunctionDecl::Const;
+
+    fn->attributes = std::move(ctx.attributes);
 
     fn->name = ctx.tok.text;
 
@@ -2828,6 +2983,8 @@ namespace
 
     if (ctx.try_consume_token(Token::kw_pub))
       fn->flags |= FunctionDecl::Public;
+
+    fn->attributes = std::move(ctx.attributes);
 
     fn->name = string_view(ctx.tok.text.data(), ctx.token(1).text.length() + 1);
 
@@ -2922,6 +3079,8 @@ namespace
     if (ctx.try_consume_token(Token::kw_pub))
       strct->flags |= StructDecl::Public;
 
+    strct->attributes = std::move(ctx.attributes);
+
     ctx.consume_token(Token::kw_struct);
 
     if (ctx.tok == Token::identifier)
@@ -2986,7 +3145,7 @@ namespace
           }
         }
 
-        switch(tok.type)
+        switch (tok.type)
         {
           case Token::semi:
             ctx.diag.warn("extra semi", ctx.text, tok.loc);
@@ -3070,6 +3229,10 @@ namespace
           case Token::hash:
             switch (auto tok = ctx.token(nexttok); tok.type)
             {
+              case Token::l_square:
+                consume_attributes(ctx, sema);
+                continue;
+
               case Token::kw_if:
                 conditionals_stack.push_back(conditional);
                 conditionals_stack.push_back(parse_if_declaration(ctx, sema));
@@ -3112,6 +3275,11 @@ namespace
           unhandled:
             ctx.diag.error("expected member declaration", ctx.text, tok.loc);
             goto resume;
+        }
+
+        if (!ctx.attributes.empty())
+        {
+          ctx.diag.error("unexpected attributes", ctx.text, tok.loc);
         }
 
         if (!decl)
@@ -3195,6 +3363,8 @@ namespace
     if (ctx.try_consume_token(Token::kw_pub))
       unnion->flags |= StructDecl::Public;
 
+    unnion->attributes = std::move(ctx.attributes);
+
     ctx.consume_token(Token::kw_union);
 
     if (ctx.tok == Token::identifier)
@@ -3254,7 +3424,7 @@ namespace
           }
         }
 
-        switch(tok.type)
+        switch (tok.type)
         {
           case Token::semi:
             ctx.diag.warn("extra semi", ctx.text, tok.loc);
@@ -3306,6 +3476,10 @@ namespace
           case Token::hash:
             switch (auto tok = ctx.token(nexttok); tok.type)
             {
+              case Token::l_square:
+                consume_attributes(ctx, sema);
+                continue;
+
               case Token::kw_if:
                 conditionals_stack.push_back(conditional);
                 conditionals_stack.push_back(parse_if_declaration(ctx, sema));
@@ -3348,6 +3522,11 @@ namespace
           unhandled:
             ctx.diag.error("expected member declaration", ctx.text, tok.loc);
             goto resume;
+        }
+
+        if (!ctx.attributes.empty())
+        {
+          ctx.diag.error("unexpected attributes", ctx.text, tok.loc);
         }
 
         if (!decl)
@@ -3425,6 +3604,8 @@ namespace
     if (ctx.try_consume_token(Token::kw_pub))
       enumm->flags |= EnumDecl::Public;
 
+    enumm->attributes = std::move(ctx.attributes);
+
     ctx.consume_token(Token::kw_enum);
 
     if (ctx.tok == Token::identifier)
@@ -3478,7 +3659,7 @@ namespace
           }
         }
 
-        switch(tok.type)
+        switch (tok.type)
         {
           case Token::semi:
             ctx.diag.warn("extra semi", ctx.text, tok.loc);
@@ -3500,6 +3681,10 @@ namespace
           case Token::hash:
             switch (auto tok = ctx.token(nexttok); tok.type)
             {
+              case Token::l_square:
+                consume_attributes(ctx, sema);
+                continue;
+
               case Token::kw_if:
                 conditionals_stack.push_back(conditional);
                 conditionals_stack.push_back(parse_if_declaration(ctx, sema));
@@ -3542,6 +3727,11 @@ namespace
           unhandled:
             ctx.diag.error("expected member declaration", ctx.text, tok.loc);
             goto resume;
+        }
+
+        if (!ctx.attributes.empty())
+        {
+          ctx.diag.error("unexpected attributes", ctx.text, tok.loc);
         }
 
         if (!decl)
@@ -3723,7 +3913,7 @@ namespace
     if ((ifs->flags & IfStmt::Static) && ctx.tok == Token::hash && ctx.token(1) == Token::kw_else)
       ctx.consume_token(Token::hash);
 
-    if (ctx.tok == Token::kw_else)
+    if (ctx.tok == Token::kw_else && ctx.token(1) != Token::colon)
     {
       if (!(ifs->flags & IfStmt::Static) || ctx.token(1) != Token::kw_if)
         ctx.consume_token(Token::kw_else);
@@ -3975,7 +4165,7 @@ namespace
         if (ctx.tok == Token::hash && (ctx.token(1) == Token::kw_else || ctx.token(1).text == "end" || ctx.token(1) == Token::l_brace))
           break;
 
-        switch(ctx.tok.type)
+        switch (ctx.tok.type)
         {
           case Token::kw_fn:
           case Token::kw_extern:
@@ -4076,7 +4266,7 @@ namespace
         auto tok = ctx.tok;
         auto nexttok = 1;
 
-        switch(tok.type)
+        switch (tok.type)
         {
           case Token::kw_case:
           case Token::kw_else:
@@ -4353,7 +4543,12 @@ namespace
     {
       Stmt *stmt = nullptr;
 
-      switch(ctx.tok.type)
+      while (ctx.tok == Token::hash && ctx.token(1) == Token::l_square)
+      {
+        consume_attributes(ctx, sema);
+      }
+
+      switch (ctx.tok.type)
       {
         case Token::kw_fn:
         case Token::kw_extern:
@@ -4373,6 +4568,11 @@ namespace
         default:
           stmt = parse_statement(ctx, sema);
           break;
+      }
+
+      if (!ctx.attributes.empty())
+      {
+        ctx.diag.error("unexpected attributes", ctx.text, ctx.tok.loc);
       }
 
       if (stmt)
@@ -4405,7 +4605,7 @@ namespace
   //|///////////////////// parse_statement //////////////////////////////////
   Stmt *parse_statement(ParseContext &ctx, Sema &sema)
   {
-    switch(ctx.tok.type)
+    switch (ctx.tok.type)
     {
       case Token::kw_if:
         return parse_if_statement(ctx, sema);
@@ -4545,6 +4745,10 @@ namespace
         case Token::hash:
           switch (auto tok = ctx.token(nexttok); tok.type)
           {
+            case Token::l_square:
+              consume_attributes(ctx, sema);
+              continue;
+
             case Token::kw_if:
               conditionals_stack.push_back(conditional);
               conditionals_stack.push_back(parse_if_declaration(ctx, sema));
@@ -4584,6 +4788,11 @@ namespace
           ctx.diag.error("expected toplevel declaration", ctx.text, tok.loc);
           ctx.comsume_til_resumable();
           return nullptr;
+      }
+
+      if (!ctx.attributes.empty())
+      {
+        ctx.diag.error("unexpected attributes", ctx.text, tok.loc);
       }
 
       if (!decl || !conditional)

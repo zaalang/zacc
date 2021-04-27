@@ -71,6 +71,9 @@ namespace Builtin
     Tuple_AssignmentEx,
     Tuple_Destructor,
 
+    Literal_Copytructor,
+    Literal_Assignment,
+
     Builtin_Destructor,
 
     Plus,
@@ -195,6 +198,27 @@ namespace Builtin
     memcpy,
     memmove,
     memfind,
+
+    symbol,
+
+    atomic_load,
+    atomic_store,
+    atomic_xchg,
+    atomic_cmpxchg,
+
+    atomic_fetch_add,
+    atomic_fetch_sub,
+    atomic_fetch_and,
+    atomic_fetch_xor,
+    atomic_fetch_or,
+    atomic_fetch_nand,
+
+    atomic_thread_fence,
+
+    rdtsc,
+    rdtscp,
+    pause,
+    inline_asm,
 
     decl_kind,
     decl_name,

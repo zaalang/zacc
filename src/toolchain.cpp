@@ -146,6 +146,7 @@ int ToolChain::ld(string_view input, string_view output, vector<string> librarie
     cmd = m_base + "/bin/ld";
 
     cmd += " -nostdlib";
+    //cmd += " -pie --dynamic-linker=/lib64/ld-linux-x86-64.so.2";
 
     cmd += " " + string(input);
     cmd += " -o " + string(output);

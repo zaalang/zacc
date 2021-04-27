@@ -439,6 +439,9 @@ namespace
           return j->second;
         break;
 
+      case Type::Function:
+        return sema.make_fntype(substitute_type(ctx, typeargs, type_cast<FunctionType>(type)->returntype, sema), substitute_type(ctx, typeargs, type_cast<FunctionType>(type)->paramtuple, sema));
+
       case Type::TypeRef:
         return type;
 
@@ -529,6 +532,9 @@ namespace
 
         break;
       }
+
+      case Type::Function:
+        break;
 
       case Type::TypeLit:
       case Type::TypeArg:
@@ -1063,13 +1069,7 @@ namespace
         break;
       }
 
-      if (decls.size() == 1 && is_fn_decl(decls[0]))
-      {
-        dst = sema.make_typelit(sema.make_call_expression(declref, declref->loc()));
-        return;
-      }
-
-      if (decls.size() == 1 && is_var_decl(decls[0]))
+      if (decls.size() == 1)
       {
         dst = sema.make_typelit(sema.make_declref_expression(declref, declref->loc()));
         return;
@@ -1427,6 +1427,12 @@ namespace
     }
   }
 
+  //|///////////////////// offsetof_expression //////////////////////////////
+  void resolve_expr(TyperContext &ctx, Scope const &scope, OffsetofExpr *call, Sema &sema)
+  {
+    resolve_type(ctx, scope, call->type, sema);
+  }
+
   //|///////////////////// cast_expression //////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, CastExpr *call, Sema &sema)
   {
@@ -1525,6 +1531,10 @@ namespace
 
       case Expr::Alignof:
         resolve_expr(ctx, scope, expr_cast<AlignofExpr>(expr), sema);
+        break;
+
+      case Expr::Offsetof:
+        resolve_expr(ctx, scope, expr_cast<OffsetofExpr>(expr), sema);
         break;
 
       case Expr::Cast:

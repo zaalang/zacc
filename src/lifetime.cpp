@@ -77,6 +77,9 @@ namespace
         break;
 
       case MIR::RValue::Fer:
+        if (all_of(fields.begin(), fields.end(), [](auto k){ return k.op != MIR::RValue::Val; }))
+          for(auto dep : ctx.threads[0].locals[arg].depends_upon)
+            ctx.threads[0].locals[dst].depends_upon.merge(ctx.threads[0].locals[dep].depends_upon);
         break;
 
       case MIR::RValue::Idx:
@@ -106,7 +109,12 @@ namespace
         case Builtin::Assign:
           for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
             ctx.threads[0].locals[dep].depends_upon = ctx.threads[0].locals[args[1]].depends_upon;
-          // The return type is a reference to the tracked object, so would have to track deref_depends_upon as well...
+          ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[args[0]].depends_upon;
+          break;
+
+        case Builtin::PreInc:
+        case Builtin::PreDec:
+          ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[args[0]].depends_upon;
           break;
 
         case Builtin::OffsetAdd:
@@ -118,6 +126,10 @@ namespace
         case Builtin::ArrayIndex:
         case Builtin::ArrayBegin:
         case Builtin::ArrayEnd:
+          ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[args[0]].depends_upon;
+          break;
+
+        case Builtin::DeRef:
           ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[args[0]].depends_upon;
           break;
 

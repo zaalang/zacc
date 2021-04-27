@@ -45,6 +45,7 @@ class Expr
       Call,
       Sizeof,
       Alignof,
+      Offsetof,
       Cast,
       New,
       Requires,
@@ -255,6 +256,7 @@ class UnaryOpExpr : public Expr
       Fer,
       Fwd,
       Literal,
+      Extern,
       Unpack
     };
 
@@ -420,6 +422,21 @@ class AlignofExpr : public Expr
 };
 
 
+//---------------------- OffsetofExpr ---------------------------------------
+//---------------------------------------------------------------------------
+
+class OffsetofExpr : public Expr
+{
+  public:
+    OffsetofExpr(Type *type, std::string_view name, SourceLocation loc);
+
+    Type *type;
+    std::string name;
+
+    void dump(int indent) const override;
+};
+
+
 //---------------------- CastExpr -------------------------------------------
 //---------------------------------------------------------------------------
 
@@ -525,6 +542,7 @@ template<> inline auto expr_cast<DeclRefExpr>(Expr *expr) { assert(expr && expr-
 template<> inline auto expr_cast<CallExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Call); return static_cast<CallExpr*>(expr); };
 template<> inline auto expr_cast<SizeofExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Sizeof); return static_cast<SizeofExpr*>(expr); };
 template<> inline auto expr_cast<AlignofExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Alignof); return static_cast<AlignofExpr*>(expr); };
+template<> inline auto expr_cast<OffsetofExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Offsetof); return static_cast<OffsetofExpr*>(expr); };
 template<> inline auto expr_cast<CastExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Cast); return static_cast<CastExpr*>(expr); };
 template<> inline auto expr_cast<NewExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::New); return static_cast<NewExpr*>(expr); };
 template<> inline auto expr_cast<RequiresExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Requires); return static_cast<RequiresExpr*>(expr); };

@@ -215,6 +215,12 @@ namespace
     }
   }
 
+  //|///////////////////// offsetof_expression //////////////////////////////
+  void semantic_expr(SemanticContext &ctx, OffsetofExpr *call, Sema &sema)
+  {
+    semantic_type(ctx, call->type, sema);
+  }
+
   //|///////////////////// cast_expression //////////////////////////////////
   void semantic_expr(SemanticContext &ctx, CastExpr *cast, Sema &sema)
   {
@@ -318,6 +324,10 @@ namespace
 
       case Expr::Alignof:
         semantic_expr(ctx, expr_cast<AlignofExpr>(expr), sema);
+        break;
+
+      case Expr::Offsetof:
+        semantic_expr(ctx, expr_cast<OffsetofExpr>(expr), sema);
         break;
 
       case Expr::Cast:
@@ -681,7 +691,7 @@ namespace
     {
       auto thisvar = sema.parm_declaration(fn->loc());
       thisvar->name = lambda->name;
-      thisvar->type = sema.make_reference(sema.make_const(lambdatype));
+      thisvar->type = sema.make_reference(sema.make_qualarg(lambdatype));
 
       fn->parms.insert(fn->parms.begin(), thisvar);
     }
@@ -811,6 +821,10 @@ namespace
       if (!umbrella)
       {
         umbrella = sema.module_declaration(imprt->alias, imprt->alias + '/' + imprt->alias + ".zaa");
+
+        load(umbrella, sema, ctx.diag);
+
+        semantic(umbrella, sema, ctx.diag);
       }
 
       auto j = find_if(umbrella->decls.begin(), umbrella->decls.end(), [&](auto &decl) { return decl->kind() == Decl::Using && decl_cast<UsingDecl>(decl)->decl == module; });
@@ -821,6 +835,7 @@ namespace
 
         umbrella_using->decl = module;
         umbrella_using->flags |= UsingDecl::Public;
+        umbrella_using->flags |= UsingDecl::Resolved;
 
         umbrella->decls.push_back(umbrella_using);
       }
@@ -843,7 +858,8 @@ namespace
   //|///////////////////// using ////////////////////////////////////////////
   void semantic_decl(SemanticContext &ctx, UsingDecl *usein, Sema &sema)
   {
-    semantic_decl(ctx, usein->decl, sema);
+    if (!(usein->flags & UsingDecl::Resolved))
+      semantic_decl(ctx, usein->decl, sema);
   }
 
   //|///////////////////// function /////////////////////////////////////////
@@ -912,7 +928,10 @@ namespace
             if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[0])->type))
               ctx.diag.error("non-reference first parameter", ctx.file, fn->loc());
 
-            fn->builtin = Builtin::Default_Copytructor;
+            if (fn->parms[0]->flags & ParmVarDecl::Literal)
+              fn->builtin = Builtin::Literal_Copytructor;
+            else
+              fn->builtin = Builtin::Default_Copytructor;
           }
           else
           {
@@ -964,7 +983,10 @@ namespace
         if (!fn->returntype)
           ctx.diag.error("missing return type", ctx.file, fn->loc());
 
-        fn->builtin = Builtin::Default_Assignment;
+        if (fn->parms[1]->flags & ParmVarDecl::Literal)
+          fn->builtin = Builtin::Literal_Assignment;
+        else
+          fn->builtin = Builtin::Default_Assignment;
       }
     }
 
@@ -1510,9 +1532,9 @@ namespace
 
     ctx.stack.emplace_back(module);
 
-    for(auto &decl : module->decls)
+    for(size_t i = 0; i < module->decls.size(); ++i)
     {
-      semantic_toplevel_declaration(ctx, decl, sema);
+      semantic_toplevel_declaration(ctx, module->decls[i], sema);
     }
 
     ctx.stack.pop_back();

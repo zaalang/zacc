@@ -187,10 +187,8 @@ string mangle_scope(variant<Decl*, Stmt*> const &scope)
 //|///////////////////// get_mangled_name /////////////////////////////////
 string get_mangled_name(FunctionDecl const *fn)
 {
-  if (fn->flags & FunctionDecl::ExternC)
-  {
+  if (fn->flags & FunctionDecl::ExternMask)
     return fn->name;
-  }
 
   return "_ZN" + mangle_scope(fn->owner) + mangle_name(fn->name) + "I" + type_parameters(fn) + "EE" + function_parameters(fn);
 }

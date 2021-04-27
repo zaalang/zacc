@@ -3464,7 +3464,7 @@ namespace
 
       return ctx.make_expr<ArrayLiteralExpr>(elements, sizetype, loc);
     }
-    else if (is_array_type(type) && is_trivial_copy_type(type))
+    else if (is_array_type(type) && is_literal_copy_type(type))
     {
       auto elemtype = type_cast<ArrayType>(type)->type;
       auto elemsize = sizeof_type(elemtype);
@@ -3481,7 +3481,7 @@ namespace
 
       return ctx.make_expr<ArrayLiteralExpr>(elements, type_cast<ArrayType>(type)->size, loc);
     }
-    else if (is_compound_type(type) && is_trivial_copy_type(type))
+    else if (is_compound_type(type) && is_literal_copy_type(type))
     {
       auto compoundtype = type_cast<CompoundType>(type);
       auto fieldslen = compoundtype->fields.size();

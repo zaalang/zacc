@@ -654,6 +654,11 @@ namespace
           type = Token::kw_nil;
         break;
 
+      case 'o':
+        if (identifier == "offsetof")
+          type = Token::kw_offsetof;
+        break;
+
       case 'p':
         if (identifier == "pub")
           type = Token::kw_pub;

@@ -143,6 +143,7 @@ struct Token
     kw_union,
     kw_sizeof,
     kw_alignof,
+    kw_offsetof,
     kw_typeof,
     kw_static,
     kw_cast,

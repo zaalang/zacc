@@ -4229,6 +4229,7 @@ namespace
         lower_call(ctx, expr, callee.fx, parms, namedparms, parms[0].value.loc());
       }
 
+      expr.type.flags &= ~MIR::Local::Unaligned;
       expr.type.flags &= ~MIR::Local::Const;
     }
 
@@ -4996,6 +4997,9 @@ namespace
       base.value = MIR::RValue::local((base.type.flags & MIR::Local::Reference) ? MIR::RValue::Val : MIR::RValue::Ref, arg, loc);
     }
 
+    if (base.type.type->flags & Type::Packed)
+      base.type.flags |= MIR::Local::Unaligned;
+
     auto &[op, arg, fields, lloc] = base.value.get<MIR::RValue::Variable>();
 
     fields.push_back(MIR::RValue::Field{ (base.type.flags & MIR::Local::Reference) ? op : MIR::RValue::Ref, field.index });
@@ -5613,7 +5617,7 @@ namespace
 
     if (callee.fn->flags & FunctionDecl::Const)
     {
-      if (all_of(parms.begin(), parms.end(), [](auto &k) { return k.type.flags & MIR::Local::Literal; }) && is_trivial_copy_type(result.type.type))
+      if (all_of(parms.begin(), parms.end(), [](auto &k) { return k.type.flags & MIR::Local::Literal; }) && is_literal_copy_type(result.type.type))
       {
         vector<EvalResult> arglist;
 
@@ -6235,6 +6239,9 @@ namespace
       result.type = resolve_as_value(ctx, result.type);
       result.type.defn = ctx.typetable.var_defn;
 
+      if (result.type.flags & MIR::Local::Unaligned)
+        ctx.diag.error("cannot reference unaligned field", ctx.stack.back(), loc);
+
       return true;
     }
 
@@ -6396,7 +6403,7 @@ namespace
 
         promote_type(ctx, rhs, lhs);
 
-        if (lhs == rhs)
+        if (lhs == rhs || (lhs == ctx.voidtype && !is_const_type(rhs)))
           callee.fx = Builtin::fn(ctx.translationunit->builtins, Builtin::Assign, parms[0].type.type);
       }
     }
@@ -6928,6 +6935,44 @@ namespace
     result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, alignof_type(type)), call->loc());
   }
 
+  //|///////////////////// lower_offsetof ///////////////////////////////////
+  void lower_expr(LowerContext &ctx, MIR::Fragment &result, OffsetofExpr *call)
+  {
+    Type *type = resolve_type(ctx, call->type);
+
+    if (is_unresolved_type(type))
+    {
+      ctx.diag.error("unresolved type for offsetof", ctx.stack.back(), call->loc());
+      return;
+    }
+
+    if (!is_tag_type(type))
+    {
+      ctx.diag.error("invalid type for offsetof", ctx.stack.back(), call->loc());
+      return;
+    }
+
+    size_t index = 0;
+    auto tagtype = type_cast<TagType>(type);
+
+    for(auto &decl : tagtype->fieldvars)
+    {
+      if (decl_cast<FieldVarDecl>(decl)->name == call->name)
+        break;
+
+      ++index;
+    }
+
+    if (index == tagtype->fieldvars.size())
+    {
+      ctx.diag.error("invalid field for offsetof", ctx.stack.back(), call->loc());
+      return;
+    }
+
+    result.type = MIR::Local(ctx.intliteraltype, MIR::Local::RValue);
+    result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, offsetof_field(tagtype, index)), call->loc());
+  }
+
   //|///////////////////// lower_cast ///////////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, CastExpr *cast)
   {
@@ -6945,6 +6990,9 @@ namespace
         result.type.flags = MIR::Local::Const | MIR::Local::Literal;
         return;
       }
+
+      if (is_pointer_type(result.type.type) && is_int_literal(ctx, source))
+        source.type = ctx.usizetype;
     }
 
     if (is_function_type(remove_const_type(remove_pointference_type(cast->type))) && is_lambda_type(source.type.type))
@@ -7260,6 +7308,10 @@ namespace
         lower_expr(ctx, result, expr_cast<AlignofExpr>(expr));
         break;
 
+      case Expr::Offsetof:
+        lower_expr(ctx, result, expr_cast<OffsetofExpr>(expr));
+        break;
+
       case Expr::Cast:
         lower_expr(ctx, result, expr_cast<CastExpr>(expr));
         break;
@@ -7359,6 +7411,9 @@ namespace
 
       if (!(stmtvar->flags & VarDecl::Const))
         value.type.flags &= ~MIR::Local::Const;
+
+      if (stmtvar->flags & VarDecl::ThreadLocal)
+        value.type.flags |= MIR::Local::ThreadLocal;
 
       value.type.flags &= ~MIR::Local::Literal;
     }
@@ -8558,6 +8613,50 @@ namespace
     }
   }
 
+  //|///////////////////// lower_literal_copytructor ////////////////////////
+  void lower_literal_copytructor(LowerContext &ctx)
+  {
+    auto fn = ctx.mir.fx.fn;
+    auto thistype = ctx.mir.locals[0].type;
+
+    auto val = ctx.stack.back().find_type(fn->parms[0])->second;
+    auto src = ctx.add_temporary(thistype, MIR::Local::LValue | MIR::Local::Reference);
+
+    assert(src == 1);
+
+    MIR::Fragment result;
+    result.type = MIR::Local(thistype, MIR::Local::Const | MIR::Local::Literal);
+    result.value = MIR::RValue::literal(type_cast<TypeLitType>(val)->value);
+
+    realise_as_reference(ctx, src, result);
+
+    commit_type(ctx, src, result.type.type, result.type.flags);
+
+    lower_trivial_copytructor(ctx);
+  }
+
+  //|///////////////////// lower_literal_assignment  ////////////////////////
+  void lower_literal_assignment(LowerContext &ctx)
+  {
+    auto fn = ctx.mir.fx.fn;
+    auto thistype = resolve_as_reference(ctx, ctx.mir.locals[1]).type;
+
+    auto val = ctx.stack.back().find_type(fn->parms[1])->second;
+    auto src = ctx.add_temporary(thistype, MIR::Local::LValue | MIR::Local::Reference);
+
+    assert(src == 2);
+
+    MIR::Fragment result;
+    result.type = MIR::Local(thistype, MIR::Local::Const | MIR::Local::Literal);
+    result.value = MIR::RValue::literal(type_cast<TypeLitType>(val)->value);
+
+    realise_as_reference(ctx, src, result);
+
+    commit_type(ctx, src, result.type.type, result.type.flags);
+
+    lower_trivial_assignment(ctx);
+  }
+
   //|///////////////////// lower_defaulted_body /////////////////////////////
   void lower_defaulted_body(LowerContext &ctx)
   {
@@ -8667,6 +8766,14 @@ namespace
 
       case Builtin::Tuple_Destructor:
         lower_deinitialisers(ctx);
+        break;
+
+      case Builtin::Literal_Copytructor:
+        lower_literal_copytructor(ctx);
+        break;
+
+      case Builtin::Literal_Assignment:
+        lower_literal_assignment(ctx);
         break;
 
       default:
@@ -9773,7 +9880,7 @@ namespace
       {
         auto &[op, arg, fields, loc] = result.value.get<MIR::RValue::Variable>();
 
-        if (op == MIR::RValue::Ref && ctx.mir.args_end <= arg && fields.empty())
+        if (op == MIR::RValue::Ref && ctx.mir.args_end <= arg && all_of(fields.begin(), fields.end(), [](auto k){ return k.op != MIR::RValue::Val; }))
           result.type.flags |= MIR::Local::RValue;
       }
 
@@ -9924,7 +10031,7 @@ namespace
     if (!lower_expr(ctx, result, expr))
       return;
 
-    realise_as_value(ctx, 0, result);
+    realise(ctx, 0, result);
 
     commit_type(ctx, 0, result.type.type, result.type.flags);
 

@@ -114,6 +114,9 @@ class MIR
           LValue = 0x10,
           RValue = 0x20,
           XValue = 0x40, // or XLValue if forwarded
+
+          Unaligned = 0x80,
+          ThreadLocal = 0x100,
         };
 
         long flags;

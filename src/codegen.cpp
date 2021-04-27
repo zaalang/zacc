@@ -400,7 +400,7 @@ namespace
       elements.push_back(llvm_type(ctx, field, true));
     }
 
-    strct->setBody(elements);
+    strct->setBody(elements, type->flags & Type::Packed);
 
     return strct;
   }
@@ -587,6 +587,24 @@ namespace
     return llvm_type(ctx, type, addressable);
   }
 
+  //|///////////////////// llvm_align ///////////////////////////////////////
+  llvm::Align llvm_align(GenContext &ctx, Type *type, long flags)
+  {
+    if (flags & MIR::Local::Reference)
+      return llvm::Align(alignof(void*));
+
+    if (flags & MIR::Local::Unaligned)
+      return llvm::Align(1);
+
+    return llvm::Align(alignof_type(type));
+  }
+
+  //|///////////////////// llvm_ordering ////////////////////////////////////
+  llvm::AtomicOrdering llvm_ordering(uint64_t ordering)
+  {
+    return static_cast<llvm::AtomicOrdering>(ordering);
+  }
+
   //|///////////////////// alloc ////////////////////////////////////////////
   llvm::Value *alloc(GenContext &ctx, FunctionContext &fx, Type *type, long flags = 0)
   {
@@ -594,9 +612,7 @@ namespace
 
     auto alloca = ctx.builder.CreateAlloca(alloctype);
 
-    auto align = (flags & MIR::Local::Reference) ? alignof(void*) : alignof_type(type);
-
-    alloca->setAlignment(llvm::Align(align));
+    alloca->setAlignment(llvm_align(ctx, type, flags));
 
     return alloca;
   }
@@ -606,9 +622,7 @@ namespace
   {
     assert(src);
 
-    auto align = (flags & MIR::Local::Reference) ? alignof(void*) : alignof_type(type);
-
-    llvm::Value *value = ctx.builder.CreateAlignedLoad(src->getType()->getPointerElementType(), src, llvm::Align(align));
+    llvm::Value *value = ctx.builder.CreateAlignedLoad(src->getType()->getPointerElementType(), src, llvm_align(ctx, type, flags));
 
     if (type == ctx.booltype && !value->getType()->isPointerTy())
       value = ctx.builder.CreateTrunc(value, ctx.builder.getInt1Ty());
@@ -638,9 +652,7 @@ namespace
 
     assert(dst->getType()->getPointerElementType() == src->getType());
 
-    auto align = (flags & MIR::Local::Reference) ? alignof(void*) : alignof_type(type);
-
-    ctx.builder.CreateAlignedStore(src, dst, llvm::Align(align));
+    ctx.builder.CreateAlignedStore(src, dst, llvm_align(ctx, type, flags));
   }
 
   //|///////////////////// store ////////////////////////////////////////////
@@ -1122,6 +1134,9 @@ namespace
     {
       global = new llvm::GlobalVariable(ctx.module, value->getType(), fx.locals[dst].flags & MIR::Local::Const, linkage, value);
 
+      if (fx.locals[dst].flags & MIR::Local::ThreadLocal)
+        global->setThreadLocalMode(llvm::GlobalVariable::GeneralDynamicTLSModel);
+
       global->setAlignment(llvm::Align(16));
 
       if (linkage == llvm::GlobalVariable::PrivateLinkage)
@@ -1313,11 +1328,12 @@ namespace
   }
 
   //|///////////////////// codegen_fields ///////////////////////////////////
-  llvm::Value *codegen_fields(GenContext &ctx, FunctionContext &fx, MIR::local_t arg, vector<MIR::RValue::Field> const &fields)
+  llvm::Value *codegen_fields(GenContext &ctx, FunctionContext &fx, MIR::local_t arg, vector<MIR::RValue::Field> const &fields, MIR::Local &rhs)
   {
+    rhs = fx.mir.locals[arg];
+
     auto base = fx.locals[arg].alloca;
     auto index = vector<llvm::Value*>{ ctx.builder.getInt32(0) };
-    auto rhs = fx.mir.locals[arg].type;
 
     for(auto &field : fields)
     {
@@ -1326,34 +1342,40 @@ namespace
         if (&field == &fields.front())
           base = load(ctx, fx, arg);
         else
-          base = load(ctx, fx, ctx.builder.CreateInBoundsGEP(base, index), rhs);
+          base = load(ctx, fx, ctx.builder.CreateInBoundsGEP(base, index), rhs.type, rhs.flags);
 
-        rhs = remove_pointference_type(rhs);
+        if (!(rhs.flags & MIR::Local::Reference))
+          rhs.type = remove_pointference_type(rhs.type);
+
+        rhs.flags = 0;
 
         index.resize(1);
       }
 
-      rhs = remove_const_type(rhs);
+      rhs.type = remove_const_type(rhs.type);
 
-      if (is_union_type(rhs) && field.index != 0)
+      if (is_union_type(rhs.type) && field.index != 0)
       {
         index.push_back(ctx.builder.getInt32(1));
 
-        rhs = type_cast<CompoundType>(rhs)->fields[field.index];
-        base = ctx.builder.CreatePointerCast(ctx.builder.CreateInBoundsGEP(base, index), llvm_type(ctx, rhs, true)->getPointerTo());
+        rhs = type_cast<CompoundType>(rhs.type)->fields[field.index];
+        base = ctx.builder.CreatePointerCast(ctx.builder.CreateInBoundsGEP(base, index), llvm_type(ctx, rhs.type, true)->getPointerTo());
         index.resize(1);
         continue;
       }
 
-      switch(rhs->klass())
+      if (rhs.type->flags & Type::Packed)
+        rhs.flags |= MIR::Local::Unaligned;
+
+      switch (rhs.type->klass())
       {
         case Type::Tag:
         case Type::Tuple:
-          rhs = type_cast<CompoundType>(rhs)->fields[field.index];
+          rhs.type = type_cast<CompoundType>(rhs.type)->fields[field.index];
           break;
 
         case Type::Array:
-          rhs = type_cast<ArrayType>(rhs)->type;
+          rhs.type = type_cast<ArrayType>(rhs.type)->type;
           break;
 
         default:
@@ -1373,9 +1395,10 @@ namespace
 
     if (fields.size() != 0)
     {
-      auto src = codegen_fields(ctx, fx, arg, fields);
+      MIR::Local rhs;
+      auto src = codegen_fields(ctx, fx, arg, fields, rhs);
 
-      store(ctx, fx, dst, load(ctx, fx, src, fx.mir.locals[dst].type, fx.locals[dst].flags));
+      store(ctx, fx, dst, load(ctx, fx, src, rhs.type, rhs.flags));
     }
     else
     {
@@ -1390,7 +1413,10 @@ namespace
 
     if (fields.size() != 0)
     {
-      auto src = codegen_fields(ctx, fx, arg, fields);
+      MIR::Local rhs;
+      auto src = codegen_fields(ctx, fx, arg, fields, rhs);
+
+      fx.locals[dst].flags |= rhs.flags;
 
       store(ctx, fx, dst, src);
     }
@@ -1407,8 +1433,9 @@ namespace
 
     if (fields.size() != 0)
     {
-      auto ptr = codegen_fields(ctx, fx, arg, fields);
-      auto src = load(ctx, fx, ptr, fx.mir.locals[dst].type, MIR::Local::Reference);
+      MIR::Local rhs;
+      auto ptr = codegen_fields(ctx, fx, arg, fields, rhs);
+      auto src = load(ctx, fx, ptr, rhs.type, rhs.flags);
 
       store(ctx, fx, dst, load(ctx, fx, src, fx.mir.locals[dst].type, fx.locals[dst].flags));
     }
@@ -1634,7 +1661,7 @@ namespace
 
     assert(fx.mir.locals[args[0]].flags & MIR::Local::Reference);
 
-    auto lhs = load(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type);
+    auto lhs = load(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, fx.locals[args[0]].flags & MIR::Local::Unaligned);
     auto lhscat = type_category(fx.mir.locals[args[0]].type);
 
     if (lhscat == TypeCategory::UnsignedInteger)
@@ -1661,7 +1688,7 @@ namespace
           assert(false);
       }
 
-      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result);
+      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result, fx.locals[args[0]].flags & MIR::Local::Unaligned);
     }
     else if (lhscat == TypeCategory::SignedInteger)
     {
@@ -1687,7 +1714,7 @@ namespace
           assert(false);
       }
 
-      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result);
+      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result, fx.locals[args[0]].flags & MIR::Local::Unaligned);
     }
     else if (lhscat == TypeCategory::FloatingPoint)
     {
@@ -1707,7 +1734,7 @@ namespace
           assert(false);
       }
 
-      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result);
+      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result, fx.locals[args[0]].flags & MIR::Local::Unaligned);
     }
     else if (lhscat == TypeCategory::Pointer)
     {
@@ -1727,7 +1754,7 @@ namespace
           assert(false);
       }
 
-      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result);
+      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result, fx.locals[args[0]].flags & MIR::Local::Unaligned);
     }
     else
     {
@@ -2191,7 +2218,7 @@ namespace
 
     assert(fx.mir.locals[args[0]].flags & MIR::Local::Reference);
 
-    auto lhs = load(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type);
+    auto lhs = load(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, fx.locals[args[0]].flags & MIR::Local::Unaligned);
     auto lhscat = type_category(fx.mir.locals[args[0]].type);
     auto rhs = load(ctx, fx, args[1]);
     auto rhscat = type_category(fx.mir.locals[args[1]].type);
@@ -2218,7 +2245,7 @@ namespace
           assert(false);
       }
 
-      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result);
+      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result, fx.locals[args[0]].flags & MIR::Local::Unaligned);
     }
     else if (lhscat == TypeCategory::UnsignedInteger && rhscat == TypeCategory::UnsignedInteger)
     {
@@ -2289,7 +2316,7 @@ namespace
           assert(false);
       }
 
-      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result);
+      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result, fx.locals[args[0]].flags & MIR::Local::Unaligned);
     }
     else if (lhscat == TypeCategory::UnsignedInteger && rhscat == TypeCategory::SignedInteger)
     {
@@ -2309,7 +2336,7 @@ namespace
           assert(false);
       }
 
-      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result);
+      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result, fx.locals[args[0]].flags & MIR::Local::Unaligned);
     }
     else if (lhscat == TypeCategory::SignedInteger && rhscat == TypeCategory::UnsignedInteger)
     {
@@ -2329,7 +2356,7 @@ namespace
           assert(false);
       }
 
-      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result);
+      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result, fx.locals[args[0]].flags & MIR::Local::Unaligned);
     }
     else if (lhscat == TypeCategory::SignedInteger && rhscat == TypeCategory::SignedInteger)
     {
@@ -2407,7 +2434,7 @@ namespace
           assert(false);
       }
 
-      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result);
+      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result, fx.locals[args[0]].flags & MIR::Local::Unaligned);
     }
     else if (lhscat == TypeCategory::FloatingPoint && rhscat == TypeCategory::FloatingPoint)
     {
@@ -2439,7 +2466,7 @@ namespace
           assert(false);
       }
 
-      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result);
+      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result, fx.locals[args[0]].flags & MIR::Local::Unaligned);
     }
     else if (lhscat == TypeCategory::Pointer && (rhscat == TypeCategory::SignedInteger || rhscat == TypeCategory::UnsignedInteger))
     {
@@ -2465,7 +2492,7 @@ namespace
           assert(false);
       }
 
-      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result);
+      store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, result, fx.locals[args[0]].flags & MIR::Local::Unaligned);
     }
     else
     {
@@ -2788,7 +2815,7 @@ namespace
     if (is_void_type(fx.mir.locals[args[1]].type))
       return;
 
-    store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, load(ctx, fx, args[1]));
+    store(ctx, fx, fx.locals[args[0]].value, fx.mir.locals[args[0]].type, load(ctx, fx, args[1]), fx.locals[args[0]].flags & MIR::Local::Unaligned);
 
     store(ctx, fx, dst, fx.locals[args[0]].value);
   }
@@ -3222,6 +3249,232 @@ namespace
     store(ctx, fx, dst, ctx.builder.CreateCall(memfind, { source, value, size }));
   }
 
+  //|///////////////////// symbol ///////////////////////////////////////////
+  void codegen_builtin_symbol(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto name = expr_cast<StringLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[0])->second)->value);
+
+    auto asmty = llvm::FunctionType::get(ctx.builder.getInt64Ty(), false);
+    auto asmfn = llvm::InlineAsm::get(asmty, "lea $0, [rip + " + name->value() + "]", "=r", false, false, llvm::InlineAsm::AD_Intel);
+
+    store(ctx, fx, dst, ctx.builder.CreateCall(asmfn));
+  }
+
+  //|///////////////////// atomic_load //////////////////////////////////////
+  void codegen_builtin_atomic_load(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto src = load(ctx, fx, args[0]);
+    auto ordering = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[1])->second)->value);
+
+    auto align = llvm_align(ctx, fx.mir.locals[dst].type, fx.locals[dst].flags);
+
+    auto load = ctx.builder.CreateAlignedLoad(src->getType()->getPointerElementType(), src, align, true);
+
+    load->setAtomic(llvm_ordering(ordering->value().value));
+
+    llvm::Value *value = load;
+
+    if (fx.mir.locals[dst].type == ctx.booltype)
+      value = ctx.builder.CreateTrunc(value, ctx.builder.getInt1Ty());
+
+    store(ctx, fx, dst, value);
+  }
+
+  //|///////////////////// atomic_store /////////////////////////////////////
+  void codegen_builtin_atomic_store(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto src = load(ctx, fx, args[1]);
+    auto dest = load(ctx, fx, args[0]);
+    auto ordering = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[2])->second)->value);
+
+    if (fx.mir.locals[args[1]].type == ctx.booltype)
+      src = ctx.builder.CreateZExt(src, ctx.builder.getInt8Ty());
+
+    auto align = llvm_align(ctx, fx.mir.locals[args[1]].type, fx.locals[args[1]].flags);
+
+    auto store = ctx.builder.CreateAlignedStore(src, dest, align, true);
+
+    store->setAtomic(llvm_ordering(ordering->value().value));
+  }
+
+  //|///////////////////// atomic_arithmatic ////////////////////////////////
+  void codegen_builtin_atomic_arithmatic(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto ptr = load(ctx, fx, args[0]);
+    auto val = load(ctx, fx, args[1]);
+    auto cat = type_category(fx.mir.locals[args[1]].type);
+    auto ordering = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[2])->second)->value);
+
+    if (cat == TypeCategory::Bool || cat == TypeCategory::SignedInteger || cat == TypeCategory::UnsignedInteger)
+    {
+      llvm::AtomicRMWInst *result;
+
+      if (fx.mir.locals[args[1]].type == ctx.booltype)
+        val = ctx.builder.CreateZExt(val, ctx.builder.getInt8Ty());
+
+      switch(callee.fn->builtin)
+      {
+        case Builtin::atomic_xchg:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Xchg, ptr, val, llvm_ordering(ordering->value().value));
+          break;
+
+        case Builtin::atomic_fetch_add:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Add, ptr, val, llvm_ordering(ordering->value().value));
+          break;
+
+        case Builtin::atomic_fetch_sub:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Sub, ptr, val, llvm_ordering(ordering->value().value));
+          break;
+
+        case Builtin::atomic_fetch_and:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::And, ptr, val, llvm_ordering(ordering->value().value));
+          break;
+
+        case Builtin::atomic_fetch_xor:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Xor, ptr, val, llvm_ordering(ordering->value().value));
+          break;
+
+        case Builtin::atomic_fetch_or:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Or, ptr, val, llvm_ordering(ordering->value().value));
+          break;
+
+        case Builtin::atomic_fetch_nand:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Nand, ptr, val, llvm_ordering(ordering->value().value));
+          break;
+
+        default:
+          assert(false);
+      }
+
+      result->setVolatile(true);
+
+      llvm::Value *value = result;
+
+      if (fx.mir.locals[dst].type == ctx.booltype)
+        value = ctx.builder.CreateTrunc(value, ctx.builder.getInt1Ty());
+
+      store(ctx, fx, dst, value);
+    }
+    else if (cat == TypeCategory::FloatingPoint)
+    {
+      llvm::AtomicRMWInst *result;
+
+      switch(callee.fn->builtin)
+      {
+        case Builtin::atomic_xchg:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Xchg, ptr, val, llvm_ordering(ordering->value().value));
+          break;
+
+        case Builtin::atomic_fetch_add:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::FAdd, ptr, val, llvm_ordering(ordering->value().value));
+          break;
+
+        case Builtin::atomic_fetch_sub:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::FSub, ptr, val, llvm_ordering(ordering->value().value));
+          break;
+
+        default:
+          assert(false);
+      }
+
+      result->setVolatile(true);
+
+      store(ctx, fx, dst, result);
+    }
+    else
+    {
+      ctx.diag.error("invalid atomic arithmetic arguments", fx.fn, loc);
+      ctx.diag << "  operand type: '" << *fx.mir.locals[args[0]].type << "'\n";
+    }
+  }
+
+  //|///////////////////// atomic_cmpxchg ///////////////////////////////////
+  void codegen_builtin_atomic_cmpxchg(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto ptr = load(ctx, fx, args[0]);
+    auto cmp = load(ctx, fx, args[1]);
+    auto val = load(ctx, fx, args[2]);
+    auto weak = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[3])->second)->value);
+    auto success_ordering = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[4])->second)->value);
+    auto failure_ordering = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[5])->second)->value);
+
+    auto xchg = ctx.builder.CreateAtomicCmpXchg(ptr, cmp, val, llvm_ordering(success_ordering->value().value), llvm_ordering(failure_ordering->value().value));
+
+    xchg->setWeak(weak->value().value != 0);
+    xchg->setVolatile(true);
+
+    store(ctx, fx, dst, ctx.builder.CreateExtractValue(xchg, 1));
+  }
+
+  //|///////////////////// atomic_thread_fence //////////////////////////////
+  void codegen_builtin_atomic_thread_fence(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto ordering = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[0])->second)->value);
+
+    ctx.builder.CreateFence(llvm_ordering(ordering->value().value));
+  }
+
+  //|///////////////////// rdtsc ////////////////////////////////////////////
+  void codegen_builtin_rdtsc(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    store(ctx, fx, dst, ctx.builder.CreateIntrinsic(llvm::Function::lookupIntrinsicID("llvm.x86.rdtsc"), {}, {}));
+  }
+
+  //|///////////////////// rdtscp ///////////////////////////////////////////
+  void codegen_builtin_rdtscp(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    store(ctx, fx, dst, ctx.builder.CreateIntrinsic(llvm::Function::lookupIntrinsicID("llvm.x86.rdtscp"), {}, {}));
+  }
+
+  //|///////////////////// pause ////////////////////////////////////////////
+  void codegen_builtin_pause(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto asmty = llvm::FunctionType::get(ctx.builder.getVoidTy(), false);
+    auto asmfn = llvm::InlineAsm::get(asmty, "pause", "", true, false, llvm::InlineAsm::AD_Intel);
+
+    store(ctx, fx, dst, ctx.builder.CreateCall(asmfn));
+  }
+
+  //|///////////////////// inline_asm ///////////////////////////////////////
+  void codegen_builtin_asm(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto rhs = load(ctx, fx, args[0]);
+    auto src = expr_cast<StringLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[0])->second)->value);
+    auto dsc = expr_cast<StringLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[1])->second)->value);
+
+    vector<llvm::Value*> parms;
+    vector<llvm::Type*> parmstypes;
+
+    auto paramtuple = type_cast<TupleType>(fx.mir.locals[args[0]].type);
+
+    for(size_t index = 0; index < paramtuple->fields.size(); ++index)
+    {
+      auto src = ctx.builder.CreateInBoundsGEP(rhs, { ctx.builder.getInt32(0), ctx.builder.getInt32(index) });
+
+      parms.push_back(load(ctx, fx, src, paramtuple->fields[index]));
+      parmstypes.push_back(llvm_type(ctx, paramtuple->fields[index]));
+    }
+
+    auto asmty = llvm::FunctionType::get(ctx.builder.getInt64Ty(), parmstypes, false);
+    auto asmfn = llvm::InlineAsm::get(asmty, src->value(), dsc->value(), true, false, llvm::InlineAsm::AD_Intel);
+
+    store(ctx, fx, dst, ctx.builder.CreateCall(asmfn, parms));
+  }
+
   //|///////////////////// __argc__ /////////////////////////////////////////
   void codegen_builtin_argc(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -3427,6 +3680,52 @@ namespace
 
         case Builtin::memfind:
           codegen_builtin_memfind(ctx, fx, dst, call);
+          break;
+
+        case Builtin::symbol:
+          codegen_builtin_symbol(ctx, fx, dst, call);
+          break;
+
+        case Builtin::atomic_load:
+          codegen_builtin_atomic_load(ctx, fx, dst, call);
+          break;
+
+        case Builtin::atomic_store:
+          codegen_builtin_atomic_store(ctx, fx, dst, call);
+          break;
+
+        case Builtin::atomic_cmpxchg:
+          codegen_builtin_atomic_cmpxchg(ctx, fx, dst, call);
+          break;
+
+        case Builtin::atomic_xchg:
+        case Builtin::atomic_fetch_add:
+        case Builtin::atomic_fetch_sub:
+        case Builtin::atomic_fetch_and:
+        case Builtin::atomic_fetch_xor:
+        case Builtin::atomic_fetch_or:
+        case Builtin::atomic_fetch_nand:
+          codegen_builtin_atomic_arithmatic(ctx, fx, dst, call);
+          break;
+
+        case Builtin::atomic_thread_fence:
+          codegen_builtin_atomic_thread_fence(ctx, fx, dst, call);
+          break;
+
+        case Builtin::rdtsc:
+          codegen_builtin_rdtsc(ctx, fx, dst, call);
+          break;
+
+        case Builtin::rdtscp:
+          codegen_builtin_rdtscp(ctx, fx, dst, call);
+          break;
+
+        case Builtin::pause:
+          codegen_builtin_pause(ctx, fx, dst, call);
+          break;
+
+        case Builtin::inline_asm:
+          codegen_builtin_asm(ctx, fx, dst, call);
           break;
 
         case Builtin::__argc__:
@@ -3811,7 +4110,7 @@ namespace
         codegen_assert_deref(ctx, fx, ctx.builder.CreateICmpEQ(addr, llvm_zero(addr->getType())));
     }
 
-    fx.locals[dst].flags &= ~MIR::Local::Reference;
+    fx.locals[dst].flags = fx.locals[dst-1].flags;
     fx.locals[dst].alloca = ctx.builder.CreatePointerCast(addr, llvm_type(ctx, fx.mir.locals[dst].type, true)->getPointerTo());
 
     codegen_assign_statement(ctx, fx, statement);
@@ -3910,10 +4209,6 @@ namespace
     if (sig.fn->flags & FunctionDecl::Builtin)
       return;
 
-    if (sig.fn->flags & FunctionDecl::ExternMask)
-      if (auto func = ctx.module.getFunction(sig.fn->name))
-        ctx.functions.emplace(sig, func);
-
     if (ctx.functions.find(sig) != ctx.functions.end())
       return;
 
@@ -4002,7 +4297,10 @@ namespace
       parmtypes.push_back(argtype);
     }
 
-    auto linkage = (fx.fn->flags & FunctionDecl::ExternMask) ? llvm::Function::ExternalLinkage : llvm::Function::InternalLinkage;
+    auto linkage = llvm::Function::InternalLinkage;
+
+    if (fx.fn->flags & FunctionDecl::ExternMask)
+      linkage = llvm::Function::ExternalLinkage;
 
     auto fntype = llvm::FunctionType::get(returntype, parmtypes, false);
     auto fnprot = llvm::Function::Create(fntype, linkage, name, ctx.module);
@@ -4020,7 +4318,23 @@ namespace
     if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None)
       fnprot->addFnAttr("frame-pointer", "all");
 
-    fnprot->addFnAttr(llvm::Attribute::StackProtect);
+    if (ctx.genopts.redzone == GenOpts::RedZone::None)
+      fnprot->addFnAttr(llvm::Attribute::NoRedZone);
+
+    if (ctx.genopts.stackprotect != GenOpts::StackProtect::None)
+      fnprot->addFnAttr(llvm::Attribute::StackProtect);
+
+    if (fx.fn->flags & FunctionDecl::ExternNaked)
+      fnprot->addFnAttr(llvm::Attribute::Naked);
+
+    if (fx.fn->flags & FunctionDecl::ExternWin64)
+      fnprot->setCallingConv(llvm::CallingConv::Win64);
+
+    if (fx.fn->flags & FunctionDecl::ExternSysv64)
+      fnprot->setCallingConv(llvm::CallingConv::X86_64_SysV);
+
+    if (fx.fn->flags & FunctionDecl::ExternInterrupt)
+      fnprot->setCallingConv(llvm::CallingConv::X86_INTR);
 
 #if 0
     string buf;
@@ -4042,9 +4356,23 @@ namespace
     cout << buf.c_str() << endl;
 #endif
 
+    if (fx.fn->flags & FunctionDecl::ExternMask)
+    {
+      if (auto func = ctx.module.getFunction(fx.fn->name); func && func != fnprot)
+      {
+        if (fnprot->getType() != func->getType())
+        {
+          ctx.diag.error("incompatible extern declaration", fx.fn, fx.fn->loc());
+        }
+
+        fnprot->removeFromParent();
+        fnprot = func;
+      }
+    }
+
     ctx.functions.emplace(sig, fnprot);
 
-    if (fx.fn->flags & FunctionDecl::ExternMask)
+    if (!fx.fn->body && (fx.fn->flags & FunctionDecl::ExternMask))
       return;
 
     if (!fx.fn->body && !(fx.fn->flags & FunctionDecl::Defaulted))
@@ -4308,6 +4636,9 @@ namespace
     fnprot->addFnAttr(llvm::Attribute::NoRecurse);
     fnprot->addFnAttr(llvm::Attribute::NoUnwind);
 
+    if (ctx.genopts.redzone == GenOpts::RedZone::None)
+      fnprot->addFnAttr(llvm::Attribute::NoRedZone);
+
     if (ctx.triple.getOS() == llvm::Triple::Win32)
       fnprot->addFnAttr(llvm::Attribute::UWTable);
 
@@ -4316,6 +4647,10 @@ namespace
     fnprot->setDSOLocal(true);
 
     ctx.builder.SetInsertPoint(llvm::BasicBlock::Create(ctx.context, "entry", fnprot));
+
+    ctx.argc->setInitializer(llvm_zero(ctx.builder.getInt32Ty()));
+    ctx.argv->setInitializer(llvm_zero(ctx.builder.getInt8PtrTy()->getPointerTo()));
+    ctx.envp->setInitializer(llvm_zero(ctx.builder.getInt8PtrTy()->getPointerTo()));
 
     ctx.builder.CreateStore(fnprot->getArg(0), ctx.argc);
     ctx.builder.CreateStore(fnprot->getArg(1), ctx.argv);
@@ -4461,9 +4796,9 @@ namespace
       ctx.assert_deref = fnprot;
     }
 
-    ctx.argc = new llvm::GlobalVariable(ctx.module, ctx.builder.getInt32Ty(), false, llvm::GlobalVariable::ExternalLinkage, llvm_zero(ctx.builder.getInt32Ty()), "ARGC");
-    ctx.argv = new llvm::GlobalVariable(ctx.module, ctx.builder.getInt8PtrTy()->getPointerTo(), false, llvm::GlobalVariable::ExternalLinkage, llvm_zero(ctx.builder.getInt8PtrTy()->getPointerTo()), "ARGV");
-    ctx.envp = new llvm::GlobalVariable(ctx.module, ctx.builder.getInt8PtrTy()->getPointerTo(), false, llvm::GlobalVariable::ExternalLinkage, llvm_zero(ctx.builder.getInt8PtrTy()->getPointerTo()), "ENVP");
+    ctx.argc = new llvm::GlobalVariable(ctx.module, ctx.builder.getInt32Ty(), false, llvm::GlobalVariable::ExternalLinkage, nullptr, "ARGC");
+    ctx.argv = new llvm::GlobalVariable(ctx.module, ctx.builder.getInt8PtrTy()->getPointerTo(), false, llvm::GlobalVariable::ExternalLinkage, nullptr, "ARGV");
+    ctx.envp = new llvm::GlobalVariable(ctx.module, ctx.builder.getInt8PtrTy()->getPointerTo(), false, llvm::GlobalVariable::ExternalLinkage, nullptr, "ENVP");
   }
 
   //|///////////////////// codegen_finalise /////////////////////////////////
@@ -4493,7 +4828,6 @@ namespace
 
       ctx.di.replaceArrays(ditype, ctx.di.getOrCreateArray(elements));
     }
-
 
     ctx.di.finalize();
   }
@@ -4541,6 +4875,32 @@ namespace
 
       case GenOpts::Reloc::PIC:
         relocmodel = llvm::Reloc::PIC_;
+        break;
+    }
+
+    switch (ctx.genopts.model)
+    {
+      case GenOpts::CodeModel::None:
+        break;
+
+      case GenOpts::CodeModel::Tiny:
+        codemodel = llvm::CodeModel::Tiny;
+        break;
+
+      case GenOpts::CodeModel::Small:
+        codemodel = llvm::CodeModel::Small;
+        break;
+
+      case GenOpts::CodeModel::Kernel:
+        codemodel = llvm::CodeModel::Kernel;
+        break;
+
+      case GenOpts::CodeModel::Medium:
+        codemodel = llvm::CodeModel::Medium;
+        break;
+
+      case GenOpts::CodeModel::Large:
+        codemodel = llvm::CodeModel::Large;
         break;
     }
 
@@ -4667,20 +5027,37 @@ void codegen(AST *ast, string const &target, GenOpts const &genopts, Diag &diag)
 
   auto root = decl_cast<TranslationUnitDecl>(ast->root);
 
+  for(auto &decl : root->decls)
+  {
+    if (decl->kind() == Decl::Module)
+    {
+      auto module = decl_cast<ModuleDecl>(decl);
+
+      for(auto &decl : module->decls)
+      {
+        if (decl->kind() == Decl::Function)
+        {
+          auto fn = decl_cast<FunctionDecl>(decl);
+
+          if (fn->body && (fn->flags & FunctionDecl::ExternMask))
+          {
+            codegen_function(ctx, fn);
+          }
+        }
+      }
+    }
+  }
+
   for(auto &decl : decl_cast<ModuleDecl>(root->mainmodule)->decls)
   {
     if (decl->kind() == Decl::Function)
     {
       auto fn = decl_cast<FunctionDecl>(decl);
 
-      if (/*export*/false)
-      {
-        codegen_function(ctx, fn);
-      }
-
-      if (fn->name == "main")
+      if (fn->name == "main" && !(fn->flags & FunctionDecl::ExternMask))
       {
         ctx.main = fn;
+
         codegen_function(ctx, fn);
       }
     }

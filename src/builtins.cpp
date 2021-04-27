@@ -108,6 +108,7 @@ namespace Builtin
         if (name == "#int") return &intliteraltype;
         if (name == "#float") return &floatliteraltype;
         if (name == "#string") return &stringliteraltype;
+        if (name == "##string") return &stringliteraltype;
         if (name == "#declid") return &declidliteraltype;
         if (name == "#declspan") return declidspantype;
 
@@ -130,7 +131,7 @@ namespace Builtin
           tok.text = string_view(&*beg, tok.text.end() - beg);
         }
 
-        if (tok == Token::hash)
+        if (tok == Token::hash && text[cursor.position] != '#')
         {
           auto beg = tok.text.begin();
           cursor = lex(src, cursor, tok);
@@ -292,6 +293,9 @@ namespace Builtin
         while (!try_consume(cursor, ")"))
         {
           auto parm = new ParmVarDecl(name.loc);
+
+          if (try_consume(cursor, "#"))
+            parm->flags |= ParmVarDecl::Literal;
 
           parm->type = parse_type(cursor);
 
@@ -554,6 +558,27 @@ namespace Builtin
     make_function(memcpy, "pub fn __memcpy(void mut *, void*, usize) -> void mut *", __LINE__);
     make_function(memmove, "pub fn __memmove(void mut *, void*, usize) -> void mut *", __LINE__);
     make_function(memfind, "pub fn __memfind(void*, u8, usize) -> usize", __LINE__);
+
+    make_function(symbol, "pub fn extern(##string) -> uintptr", __LINE__);
+
+    make_function(atomic_load, "pub fn __atomic_load<T>(T*, ##int) -> T", __LINE__);
+    make_function(atomic_store, "pub fn __atomic_store<T>(T mut *, T, ##int) -> void", __LINE__);
+    make_function(atomic_xchg, "pub fn __atomic_xchg<T>(T mut *, T, ##int) -> T", __LINE__);
+    make_function(atomic_cmpxchg, "pub fn __atomic_cmpxchg<T>(T mut *, T, T, ##int, ##int, ##int) -> bool", __LINE__);
+
+    make_function(atomic_fetch_add, "pub fn __atomic_fetch_add<T>(T*, T, ##int) -> T", __LINE__);
+    make_function(atomic_fetch_sub, "pub fn __atomic_fetch_sub<T>(T*, T, ##int) -> T", __LINE__);
+    make_function(atomic_fetch_and, "pub fn __atomic_fetch_and<T>(T*, T, ##int) -> T", __LINE__);
+    make_function(atomic_fetch_xor, "pub fn __atomic_fetch_xor<T>(T*, T, ##int) -> T", __LINE__);
+    make_function(atomic_fetch_or, "pub fn __atomic_fetch_or<T>(T*, T, ##int) -> T", __LINE__);
+    make_function(atomic_fetch_nand, "pub fn __atomic_fetch_nand<T>(T*, T, ##int) -> T", __LINE__);
+
+    make_function(atomic_thread_fence, "pub fn __atomic_thread_fence(##int) -> void", __LINE__);
+
+    make_function(rdtsc, "pub fn __rdtsc() -> u64", __LINE__);
+    make_function(rdtscp, "pub fn __rdtscp() -> (u64, u32)", __LINE__);
+    make_function(pause, "pub fn __pause() -> void", __LINE__);
+    make_function(inline_asm, "pub fn __asm<V>(##string, ##string, V...) -> uintptr", __LINE__);
 
     make_function(decl_kind, "pub const fn __decl_kind(#declid) -> u64", __LINE__);
     make_function(decl_name, "pub const fn __decl_name(#declid) -> #string", __LINE__);

@@ -51,6 +51,8 @@ class Type
       TrivialCopy = 0x010,
       TrivialAssign = 0x20,
       TrivialDestroy = 0x40,
+      LiteralCopy = 0x080,
+      Packed = 0x100,
     };
 
     long flags = 0;
@@ -428,6 +430,7 @@ bool is_zerosized_type(Type const *type);
 bool is_trivial_copy_type(Type const *type);
 bool is_trivial_assign_type(Type const *type);
 bool is_trivial_destroy_type(Type const *type);
+bool is_literal_copy_type(Type const *type);
 
 Type *remove_const_type(Type *type);
 Type const *remove_const_type(Type const *type);

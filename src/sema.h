@@ -67,6 +67,7 @@ class Sema
     RequiresDecl *requires_declaration(SourceLocation loc);
     EnumDecl *enum_declaration(SourceLocation loc);
     EnumConstantDecl *enum_constant_declaration(SourceLocation loc);
+    AttributeDecl *attribute_declaration(SourceLocation loc);
     RunDecl *run_declaration(SourceLocation loc);
     IfDecl *if_declaration(SourceLocation loc);
 
@@ -94,6 +95,7 @@ class Sema
     Expr *make_sizeof_expression(Expr *expr, SourceLocation loc);
     Expr *make_alignof_expression(Type *type, SourceLocation loc);
     Expr *make_alignof_expression(Expr *expr, SourceLocation loc);
+    Expr *make_offsetof_expression(Type *type, std::string_view name, SourceLocation loc);
     Expr *make_cast_expression(Type *type, Expr *expr, SourceLocation loc);
     Expr *make_new_expression(Type *type, Expr *address, SourceLocation loc);
     Expr *make_new_expression(Type *type, Expr *address, std::vector<Expr*> const &parms, std::map<std::string, Expr*> const &namedparms, SourceLocation loc);

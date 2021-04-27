@@ -238,6 +238,11 @@ bool is_trivial_destroy_type(Type const *type)
   return type->flags & Type::TrivialDestroy;
 }
 
+bool is_literal_copy_type(Type const *type)
+{
+  return (type->flags & Type::TrivialCopy) || (type->flags & Type::LiteralCopy);
+}
+
 //|///////////////////// remove_const_type //////////////////////////////////
 Type const *remove_const_type(Type const *type)
 {
@@ -624,6 +629,7 @@ ConstType::ConstType(Type *type)
   flags |= type->flags & Type::TrivialCopy;
   flags |= type->flags & Type::TrivialAssign;
   flags |= type->flags & Type::TrivialDestroy;
+  flags |= type->flags & Type::LiteralCopy;
 }
 
 //|///////////////////// ConstType::dump ////////////////////////////////////
@@ -707,6 +713,7 @@ ArrayType::ArrayType(Type *type, Type *size)
   flags |= type->flags & Type::TrivialCopy;
   flags |= type->flags & Type::TrivialAssign;
   flags |= type->flags & Type::TrivialDestroy;
+  flags |= type->flags & Type::LiteralCopy;
 
   if (size->klass() == Type::TypeLit && type_cast<TypeLitType>(size)->value->kind() == Expr::IntLiteral)
   {
@@ -720,6 +727,7 @@ ArrayType::ArrayType(Type *type, Type *size)
       flags |= Type::TrivialCopy;
       flags |= Type::TrivialAssign;
       flags |= Type::TrivialDestroy;
+      flags |= Type::LiteralCopy;
     }
   }
 
@@ -800,6 +808,9 @@ TupleType::TupleType(vector<Type*> &&resolved_defns, vector<Type*> &&resolved_fi
 
   if (all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::TrivialDestroy); }))
     flags |= Type::TrivialDestroy;
+
+  if (all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::LiteralCopy); }))
+    flags |= Type::LiteralCopy;
 }
 
 //|///////////////////// TupleType::dump ////////////////////////////////////
@@ -863,6 +874,7 @@ QualArgType::QualArgType(Type *type, long qualifiers)
   flags |= type->flags & Type::TrivialCopy;
   flags |= type->flags & Type::TrivialAssign;
   flags |= type->flags & Type::TrivialDestroy;
+  flags |= type->flags & Type::LiteralCopy;
 }
 
 //|///////////////////// QualArgType::dump //////////////////////////////////
@@ -1028,6 +1040,14 @@ TagType::TagType(Decl *decl, vector<pair<Decl*, Type*>> const &args, vector<Decl
 {
   flags |= Type::Concrete; // assume concrete until resolve (for self ref)
   flags |= Type::Resolved; // assume resolved until resolve (for self ref)
+
+  for(auto attr : decl_cast<TagDecl>(decl)->attributes)
+  {
+    auto attribute = decl_cast<AttributeDecl>(attr);
+
+    if (attribute->name == "packed")
+      flags |= Type::Packed;
+  }
 }
 
 //|///////////////////// TagType::resolve ///////////////////////////////////
@@ -1090,6 +1110,11 @@ void TagType::resolve(vector<Type*> &&resolved_fields)
       {
         if (all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::TrivialDestroy); }))
           flags |= Type::TrivialDestroy;
+      }
+
+      if ((fn->flags & FunctionDecl::Defaulted) && (fn->builtin == Builtin::Literal_Copytructor))
+      {
+        flags |= Type::LiteralCopy;
       }
     }
   }
@@ -1202,11 +1227,16 @@ size_t sizeof_type(TagType const *type)
   {
     for(auto &field : type->fields)
     {
-      auto alignment = alignof_type(field);
+      if (!(type->flags & Type::Packed))
+      {
+        auto alignment = alignof_type(field);
 
-      size = ((size + alignment - 1) & -alignment) + sizeof_type(field);
+        size = (size + alignment - 1) & -alignment;
 
-      align = max(align, alignment);
+        align = max(align, alignment);
+      }
+
+      size += sizeof_type(field);
     }
   }
 
@@ -1318,9 +1348,12 @@ size_t alignof_type(TagType const *type)
 {
   size_t align = 1;
 
-  for(auto &field : type->fields)
+  if (!(type->flags & Type::Packed))
   {
-    align = max(align, alignof_type(field));
+    for(auto &field : type->fields)
+    {
+      align = max(align, alignof_type(field));
+    }
   }
 
   return align;
@@ -1452,9 +1485,12 @@ size_t offsetof_field(CompoundType const *type, size_t index)
   {
     for(auto &field : type->fields)
     {
-      auto alignment = alignof_field(type, &field - &type->fields[0]);
+      if (!(type->flags & Type::Packed))
+      {
+        auto alignment = alignof_field(type, &field - &type->fields[0]);
 
-      offset = (offset + alignment - 1) & -alignment;
+        offset = (offset + alignment - 1) & -alignment;
+      }
 
       if (index == 0)
         break;

@@ -52,7 +52,17 @@ TranslationUnitDecl *Sema::translation_unit(string_view file)
 //|///////////////////// module_declaration /////////////////////////////////
 ModuleDecl *Sema::module_declaration(string_view name, string_view file)
 {
-  string path(file);
+  auto unit = decl_cast<TranslationUnitDecl>(ast->root);
+
+  string path = dirname(decl_cast<ModuleDecl>(unit->mainmodule)->file()) + string(file);
+
+  if (access(path.c_str(), F_OK) != 0)
+  {
+    string base = basename(file);
+
+    if (auto test = dirname(path) + base + '/' + string(file); access(test.c_str(), F_OK) == 0)
+      path = test;
+  }
 
   if (access(path.c_str(), F_OK) != 0)
   {
@@ -60,23 +70,23 @@ ModuleDecl *Sema::module_declaration(string_view name, string_view file)
 
     for(auto &includepath : m_include_paths)
     {
-      path = includepath + '/' + string(file);
-
-      if (access(path.c_str(), F_OK) == 0)
+      if (auto test = includepath + '/' + string(file); access(test.c_str(), F_OK) == 0)
+      {
+        path = test;
         break;
+      }
 
-      path = includepath + '/' + base + '/' + string(file);
-
-      if (access(path.c_str(), F_OK) == 0)
+      if (auto test = includepath + '/' + base + '/' + string(file); access(test.c_str(), F_OK) == 0)
+      {
+        path = test;
         break;
+      }
     }
   }
 
-  auto unit = decl_cast<TranslationUnitDecl>(ast->root);
-
   auto module = ast->make_decl<ModuleDecl>(name, path);
 
-  module->owner = unit;
+  module->owner = decl_cast<TranslationUnitDecl>(ast->root);
 
   unit->decls.push_back(module);
 
@@ -305,6 +315,12 @@ EnumConstantDecl *Sema::enum_constant_declaration(SourceLocation loc)
   return ast->make_decl<EnumConstantDecl>(loc);
 }
 
+//|///////////////////// attribute_declaration //////////////////////////////
+AttributeDecl *Sema::attribute_declaration(SourceLocation loc)
+{
+  return ast->make_decl<AttributeDecl>(loc);
+}
+
 //|///////////////////// run_declaration ////////////////////////////////////
 RunDecl *Sema::run_declaration(SourceLocation loc)
 {
@@ -468,6 +484,12 @@ Expr *Sema::make_alignof_expression(Type *type, SourceLocation loc)
 Expr *Sema::make_alignof_expression(Expr *expr, SourceLocation loc)
 {
   return ast->make_expr<AlignofExpr>(expr, loc);
+}
+
+//|///////////////////// make_offsetof_expression ///////////////////////////
+Expr *Sema::make_offsetof_expression(Type *type, string_view name, SourceLocation loc)
+{
+  return ast->make_expr<OffsetofExpr>(type, name, loc);
 }
 
 //|///////////////////// make_cast_expression ///////////////////////////////

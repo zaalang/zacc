@@ -115,6 +115,10 @@ std::ostream &operator <<(std::ostream &os, Expr const &expr)
       os << "alignof";
       break;
 
+    case Expr::Offsetof:
+      os << "offsetof " << static_cast<OffsetofExpr const &>(expr).name;
+      break;
+
     case Expr::Cast:
       os << "cast";
       break;
@@ -392,6 +396,7 @@ const char *UnaryOpExpr::name(UnaryOpExpr::OpCode op)
     case Fer: return "*";
     case Fwd: return "&&";
     case Literal: return "#";
+    case Extern: return "extern";
     case Unpack: return "...";
   }
 
@@ -718,6 +723,26 @@ void AlignofExpr::dump(int indent) const
   {
     expr->dump(indent + 2);
   }
+}
+
+
+//|--------------------- OffsetofExpr ---------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// OffsetofExpr::Constructor //////////////////////////
+OffsetofExpr::OffsetofExpr(Type *type, string_view name, SourceLocation loc)
+  : Expr(Offsetof, loc),
+    type(type),
+    name(name)
+{
+}
+
+//|///////////////////// OffsetofExpr::dump /////////////////////////////////
+void OffsetofExpr::dump(int indent) const
+{
+  cout << spaces(indent) << "OffsetofExpr " << this << " <" << m_loc << "> " << *this << "\n";
+
+  type->dump(indent + 2);
 }
 
 

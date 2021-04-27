@@ -301,6 +301,13 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
       }
       break;
 
+    case Decl::Attribute:
+      if (auto &attribute = static_cast<AttributeDecl const &>(decl); true)
+      {
+        os << attribute.name;
+      }
+      break;
+
     case Decl::Run:
       os << "#run";
       break;
@@ -1007,6 +1014,27 @@ void EnumConstantDecl::dump(int indent) const
   if (value)
   {
     value->dump(indent + 2);
+  }
+}
+
+
+//|--------------------- AttributeDecl --------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// AttributeDecl::Constructor /////////////////////////
+AttributeDecl::AttributeDecl(SourceLocation loc)
+  : Decl(Attribute, loc)
+{
+}
+
+//|///////////////////// AttributeDecl::dump ////////////////////////////////
+void AttributeDecl::dump(int indent) const
+{
+  cout << spaces(indent) << "AttributeDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
+
+  if (!options.empty())
+  {
+    cout << spaces(indent + 2) << options << '\n';
   }
 }
 

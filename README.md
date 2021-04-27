@@ -14,7 +14,7 @@ A fledgling new programming language in the vein of c++
 ```
 
 ## Language Overview
-see [https://zaalang.readthedocs.io](https://zaalang.readthedocs.io)
+see [https://zaalang.readthedocs.io](https://zaalang.readthedocs.io/en/latest/overview.html)
 
 ## Getting Started
 The compiler, the runtime and the standard library are all needed to get a basic toolchain up and running...

@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "ast.h"
+#include "type.h"
 #include "util.h"
 #include <string>
 #include <tuple>
@@ -17,6 +17,18 @@
 #include <variant>
 #include <algorithm>
 #include <cassert>
+
+class FunctionDecl;
+class VoidLiteralExpr;
+class BoolLiteralExpr;
+class CharLiteralExpr;
+class IntLiteralExpr;
+class FloatLiteralExpr;
+class PointerLiteralExpr;
+class FunctionPointerExpr;
+class StringLiteralExpr;
+class ArrayLiteralExpr;
+class CompoundLiteralExpr;
 
 //-------------------------- FnSig ------------------------------------------
 //---------------------------------------------------------------------------
@@ -161,7 +173,6 @@ class MIR
       {
         Empty,
         Constant,
-        Function,
         Variable,
         Call,
         Cast,
@@ -181,8 +192,7 @@ class MIR
         field_t index;
       };
 
-      using ConstantData = std::variant<VoidLiteralExpr*, BoolLiteralExpr*, CharLiteralExpr*, IntLiteralExpr*, FloatLiteralExpr*, PointerLiteralExpr*, StringLiteralExpr*, ArrayLiteralExpr*, CompoundLiteralExpr*>;
-      using FunctionData = std::tuple<FnSig, SourceLocation>;
+      using ConstantData = std::variant<VoidLiteralExpr*, BoolLiteralExpr*, CharLiteralExpr*, IntLiteralExpr*, FloatLiteralExpr*, PointerLiteralExpr*, FunctionPointerExpr*, StringLiteralExpr*, ArrayLiteralExpr*, CompoundLiteralExpr*>;
       using VariableData = std::tuple<Op, local_t, std::vector<Field>, SourceLocation>;
       using CallData = std::tuple<FnSig, std::vector<local_t>, SourceLocation>;
       using CastData = std::tuple<local_t, SourceLocation>;
@@ -205,7 +215,6 @@ class MIR
       explicit operator bool() const { return value.index() != 0; }
 
       static ConstantData literal(Expr *expr);
-      static FunctionData function(FnSig sig, SourceLocation loc) { return { sig, loc }; }
       static VariableData local(Op op, local_t arg, SourceLocation loc) { return { op, arg, {}, loc }; }
       static VariableData field(Op op, local_t arg, Field field, SourceLocation loc) { return { op, arg, { field }, loc }; }
       static VariableData field(Op op, local_t arg, std::vector<Field> fields, SourceLocation loc) { return { op, arg, std::move(fields), loc }; }
@@ -214,7 +223,7 @@ class MIR
 
       private:
 
-      std::variant<std::monostate, ConstantData, FunctionData, VariableData, CallData, CastData> value;
+      std::variant<std::monostate, ConstantData, VariableData, CallData, CastData> value;
     };
 
     //-------------------------- Statement ----------------------------------
@@ -397,6 +406,7 @@ MIR::Statement *find_assignment(MIR &mir, MIR::local_t dst, MIR::Block &block, M
 
 // misc
 
+std::ostream &operator <<(std::ostream &os, FnSig const &fn);
 std::ostream &operator <<(std::ostream &os, MIR::Local const &local);
 std::ostream &operator <<(std::ostream &os, MIR::RValue::ConstantData const &constant);
 std::ostream &operator <<(std::ostream &os, MIR::RValue::VariableData const &variable);

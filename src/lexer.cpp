@@ -713,6 +713,8 @@ namespace
           type = Token::kw_var;
         else if (identifier == "void")
           type = Token::kw_void;
+        else if (identifier == "vtable")
+          type = Token::kw_vtable;
         break;
 
       case 'w':

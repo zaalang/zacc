@@ -161,9 +161,6 @@ namespace
       case MIR::RValue::Constant:
         break;
 
-      case MIR::RValue::Function:
-        break;
-
       case MIR::RValue::Variable:
         analyse_assign_variable(ctx, mir, dst, src.get<MIR::RValue::Variable>());
         break;

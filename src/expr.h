@@ -11,6 +11,7 @@
 
 #include "lexer.h"
 #include "numeric.h"
+#include "mir.h"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -35,7 +36,8 @@ class Expr
       IntLiteral,
       FloatLiteral,
       StringLiteral,
-      PtrLiteral,
+      PointerLiteral,
+      FunctionPointer,
       ArrayLiteral,
       CompoundLiteral,
       UnaryOp,
@@ -183,6 +185,24 @@ class PointerLiteralExpr : public Expr
     const char *value() const { return "null"; }
 
     void dump(int indent) const override;
+};
+
+
+//---------------------- FunctionPointerExpr --------------------------------
+//---------------------------------------------------------------------------
+
+class FunctionPointerExpr : public Expr
+{
+  public:
+    FunctionPointerExpr(FnSig const &fn, SourceLocation loc);
+
+    FnSig const &value() const { return m_fn; }
+
+    void dump(int indent) const override;
+
+  private:
+
+    FnSig m_fn;
 };
 
 
@@ -531,7 +551,8 @@ template<> inline auto expr_cast<BoolLiteralExpr>(Expr *expr) { assert(expr && e
 template<> inline auto expr_cast<CharLiteralExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::CharLiteral); return static_cast<CharLiteralExpr*>(expr); };
 template<> inline auto expr_cast<IntLiteralExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::IntLiteral); return static_cast<IntLiteralExpr*>(expr); };
 template<> inline auto expr_cast<FloatLiteralExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::FloatLiteral); return static_cast<FloatLiteralExpr*>(expr); };
-template<> inline auto expr_cast<PointerLiteralExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::PtrLiteral); return static_cast<PointerLiteralExpr*>(expr); };
+template<> inline auto expr_cast<PointerLiteralExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::PointerLiteral); return static_cast<PointerLiteralExpr*>(expr); };
+template<> inline auto expr_cast<FunctionPointerExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::FunctionPointer); return static_cast<FunctionPointerExpr*>(expr); };
 template<> inline auto expr_cast<StringLiteralExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::StringLiteral); return static_cast<StringLiteralExpr*>(expr); };
 template<> inline auto expr_cast<ArrayLiteralExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::ArrayLiteral); return static_cast<ArrayLiteralExpr*>(expr); };
 template<> inline auto expr_cast<CompoundLiteralExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::CompoundLiteral); return static_cast<CompoundLiteralExpr*>(expr); };

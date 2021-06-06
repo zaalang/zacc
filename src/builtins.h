@@ -74,6 +74,8 @@ namespace Builtin
     Literal_Copytructor,
     Literal_Assignment,
 
+    VTable_Constructor,
+
     Builtin_Destructor,
 
     Plus,
@@ -158,6 +160,7 @@ namespace Builtin
     is_tuple,
     is_union,
     is_struct,
+    is_vtable,
     is_builtin,
     is_pointer,
     is_reference,
@@ -217,7 +220,7 @@ namespace Builtin
 
     rdtsc,
     rdtscp,
-    pause,
+    relax,
     inline_asm,
 
     decl_kind,

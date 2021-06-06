@@ -376,6 +376,32 @@ namespace
         sx.set_type(arg, ctx.typetable.find_or_create<TupleType>(std::move(defns), std::move(fields)));
       }
 
+      else if (arg->flags & TypeArgDecl::SplitFn)
+      {
+        i += 1;
+
+        if (k < args.size() && is_function_type(args[k].type))
+        {
+          sx.set_type(arg, type_cast<FunctionType>(args[k].type)->returntype);
+          sx.set_type(decl_cast<TypeArgDecl>(declargs[i]), type_cast<FunctionType>(args[k].type)->paramtuple);
+
+          k += 1;
+        }
+      }
+
+      else if (arg->flags & TypeArgDecl::SplitArray)
+      {
+        i += 1;
+
+        if (k < args.size() && is_array_type(args[k].type))
+        {
+          sx.set_type(arg, type_cast<ArrayType>(args[k].type)->type);
+          sx.set_type(decl_cast<TypeArgDecl>(declargs[i]), type_cast<ArrayType>(args[k].type)->size);
+
+          k += 1;
+        }
+      }
+
       else if (k < args.size())
       {
         sx.set_type(arg, args[k].type);
@@ -428,6 +454,7 @@ namespace
 
       case Decl::Struct:
       case Decl::Union:
+      case Decl::VTable:
       case Decl::Concept:
       case Decl::Enum:
         return child_scope(ctx, scope, decl_cast<TagDecl>(decl), k, args, namedargs);
@@ -503,11 +530,9 @@ namespace
 
     if (is_tag_scope(scope))
     {
-      auto tagdecl = decl_cast<TagDecl>(get<Decl*>(scope.owner));
-
-      if (tagdecl->kind() == Decl::Struct && decl_cast<StructDecl>(tagdecl)->basetype)
+      if (auto tagdecl = decl_cast<TagDecl>(get<Decl*>(scope.owner)); tagdecl->basetype)
       {
-        auto type = resolve_type(ctx, scope, decl_cast<StructDecl>(tagdecl)->basetype);
+        auto type = resolve_type(ctx, scope, tagdecl->basetype);
 
         if (is_tag_type(type))
           return Scope(type_cast<TagType>(type)->decl, type_cast<TagType>(type)->args);
@@ -605,7 +630,7 @@ namespace
     if (rhs == ctx.ptrliteraltype)
       return true;
 
-    if (is_pointer_type(rhs) || is_reference_type(rhs) || is_struct_type(rhs))
+    if (is_pointer_type(rhs) || is_reference_type(rhs) || is_struct_type(rhs) || is_vtable_type(rhs))
     {
       if (rhs->klass() == Type::Pointer || rhs->klass() == Type::Reference)
       {
@@ -913,6 +938,7 @@ namespace
 
           case Decl::Struct:
           case Decl::Union:
+          case Decl::VTable:
           case Decl::Concept:
           case Decl::Enum:
             if (decl_cast<TagDecl>(usein->decl)->name == name && (queryflags & QueryFlags::Types))
@@ -1810,6 +1836,7 @@ namespace
     {
       case Decl::Struct:
       case Decl::Concept:
+      case Decl::VTable:
       case Decl::Lambda:
       case Decl::Enum:
       case Decl::Union:
@@ -2177,14 +2204,14 @@ namespace
     if (rhs->klass() == Type::TypeArg)
       return true;
 
-    if (is_struct_type(rhs) && !is_const_type(lhs) && !is_typearg_type(lhs) && ((tx.pointerdepth == 0 && tx.allow_object_downcast) || (tx.pointerdepth == 1 && tx.allow_pointer_downcast)))
+    if (is_tag_type(rhs) && !is_const_type(lhs) && !is_typearg_type(lhs) && ((tx.pointerdepth == 0 && tx.allow_object_downcast) || (tx.pointerdepth == 1 && tx.allow_pointer_downcast)))
     {
-      while (is_struct_type(rhs))
+      while (is_tag_type(rhs))
       {
         if (lhs->klass() == Type::Tag && type_cast<TagType>(lhs)->decl == type_cast<TagType>(rhs)->decl)
           break;
 
-        if (!decl_cast<StructDecl>(type_cast<TagType>(rhs)->decl)->basetype)
+        if (!decl_cast<TagDecl>(type_cast<TagType>(rhs)->decl)->basetype)
           break;
 
         rhs = type_cast<TagType>(rhs)->fields[0];
@@ -2336,7 +2363,7 @@ namespace
 
             ttx.allow_const_downcast = true;
             ttx.allow_object_downcast = false;
-            ttx.allow_pointer_downcast = false;
+            ttx.allow_pointer_downcast = true;
 
             if (field->klass() == Type::Unpack)
             {
@@ -2644,6 +2671,9 @@ namespace
 
     for(size_t i = 0; i < fn->parms.size(); ++i)
     {
+      if (!deduce_type(ctx, scope, sig, params->fields[i], decl_cast<ParmVarDecl>(fn->parms[i])->type))
+        return false;
+
       if (!deduce_type(ctx, scope, sig, decl_cast<ParmVarDecl>(fn->parms[i])->type, params->fields[i]))
         return false;
     }
@@ -3155,22 +3185,7 @@ namespace
         results.push_back(Builtin::fn(ctx.translationunit->builtins, Builtin::Type_Lit, enumm, type_cast<ConstantType>(value)->expr));
       }
 
-      if (decl->kind() == Decl::Struct)
-      {
-        FindContext ttx(tx.name, QueryFlags::Functions);
-
-        size_t k = 0;
-
-        auto tagdecl = decl_cast<TagDecl>(decl);
-        auto typescope = child_scope(ctx, scope, tagdecl, k, tx.args, tx.namedargs);
-
-        if ((k & ~IllSpecified) != tx.args.size() + tx.namedargs.size())
-          continue;
-
-        find_overloads(ctx, ttx, typescope, parms, namedparms, results);
-      }
-
-      if (decl->kind() == Decl::Union)
+      if (decl->kind() == Decl::Struct || decl->kind() == Decl::Union || decl->kind() == Decl::VTable)
       {
         FindContext ttx(tx.name, QueryFlags::Functions);
 
@@ -3221,6 +3236,7 @@ namespace
 
           case Decl::Struct:
           case Decl::Union:
+          case Decl::VTable:
           case Decl::Concept:
           case Decl::Enum:
             find_overloads(ctx, ttx, parent_scope(usein->decl), parms, namedparms, results);
@@ -3375,7 +3391,7 @@ namespace
           auto lhs = remove_qualifiers_type(type);
           auto rhs = remove_qualifiers_type(src.type.type);
 
-          while (is_struct_type(rhs))
+          while (is_tag_type(rhs))
           {
             if (lhs->klass() == Type::TypeArg)
               break;
@@ -3385,13 +3401,13 @@ namespace
 
             rank += s;
 
-            if (!decl_cast<StructDecl>(type_cast<TagType>(rhs)->decl)->basetype)
+            if (!decl_cast<TagDecl>(type_cast<TagType>(rhs)->decl)->basetype)
               break;
 
             rhs = type_cast<TagType>(rhs)->fields[0];
           }
 
-          if (lhs != rhs)
+          if ((is_voidpointer_type(lhs) && !is_voidpointer_type(rhs)) || (is_builtin_type(lhs) && lhs != rhs))
             rank += s;
         };
 
@@ -3748,6 +3764,7 @@ namespace
             if (is_enum_type(j->second))
             {
               tx.name = "~#builtin";
+
               declref.scope = ctx.translationunit->builtins;
             }
           }
@@ -3759,7 +3776,7 @@ namespace
             if (is_tuple_type(j->second))
               tx.name = "~#tuple";
 
-            if (is_builtin_type(j->second) || is_pointer_type(j->second) || is_reference_type(j->second) || is_enum_type(j->second))
+            if (is_builtin_type(j->second) || is_pointer_type(j->second) || is_reference_type(j->second))
               tx.name = "~#builtin";
 
             declref.scope = ctx.translationunit->builtins;
@@ -4210,7 +4227,7 @@ namespace
 
     if (expr.value.kind() == MIR::RValue::Variable || (expr.value.kind() == MIR::RValue::Constant && !(flags & VarDecl::Const)))
     {
-      if (is_struct_type(expr.type.type) || is_union_type(expr.type.type) || is_array_type(expr.type.type) || is_tuple_type(expr.type.type) || is_lambda_type(expr.type.type) || is_function_type(expr.type.type))
+      if (is_struct_type(expr.type.type) || is_union_type(expr.type.type) || is_vtable_type(expr.type.type) || is_array_type(expr.type.type) || is_tuple_type(expr.type.type) || is_lambda_type(expr.type.type) || is_function_type(expr.type.type))
       {
         vector<MIR::Fragment> parms(1);
         map<string_view, MIR::Fragment> namedparms;
@@ -4615,6 +4632,10 @@ namespace
         match = is_struct_type(type[0]);
         break;
 
+      case Builtin::is_vtable:
+        match = is_vtable_type(type[0]);
+        break;
+
       case Builtin::is_builtin:
         match = is_builtin_type(type[0]);
         break;
@@ -4696,7 +4717,7 @@ namespace
   {
     auto type = callee.find_type(callee.fn->args[0])->second;
 
-    while (is_struct_type(type) && decl_cast<StructDecl>(type_cast<TagType>(type)->decl)->basetype)
+    while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype)
       type = type_cast<TagType>(type)->fields[0];
 
     if (type_cast<TypeLitType>(type_cast<ArrayType>(type)->size)->value->kind() != Expr::IntLiteral)
@@ -4711,7 +4732,7 @@ namespace
   {
     auto type = callee.find_type(callee.fn->args[0])->second;
 
-    while (is_struct_type(type) && decl_cast<StructDecl>(type_cast<TagType>(type)->decl)->basetype)
+    while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype)
       type = type_cast<TagType>(type)->fields[0];
 
     result.type = MIR::Local(ctx.usizetype, MIR::Local::Const | MIR::Local::Literal);
@@ -5021,7 +5042,7 @@ namespace
   //|///////////////////// lower_base_cast //////////////////////////////////
   bool lower_base_cast(LowerContext &ctx, MIR::Fragment &result, Type *type, MIR::Fragment &expr)
   {
-    while (is_struct_type(expr.type.type))
+    while (is_tag_type(expr.type.type))
     {
       if (expr.type.type == type)
         break;
@@ -5091,7 +5112,7 @@ namespace
       expr.type.flags &= ~MIR::Local::Reference;
 
     result.type = MIR::Local(type, expr.type.flags);
-    result.value = MIR::RValue::function(callop, expr.value.loc());
+    result.value = MIR::RValue::literal(ctx.mir.make_expr<FunctionPointerExpr>(callop, expr.value.loc()));
 
     return true;
   }
@@ -5230,7 +5251,7 @@ namespace
 
       if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd)
       {
-        if (field.type.flags & MIR::Local::XValue)
+        if ((field.type.flags & MIR::Local::XValue) && !(field.type.flags & MIR::Local::Const))
           field.type.flags = (field.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
       }
 
@@ -5434,7 +5455,10 @@ namespace
           MIR::Fragment expr;
 
           if (!lower_expr(ctx, expr, parm->defult))
+          {
+            swap(ctx.stack, stack);
             return false;
+          }
 
           if (expr.type.type != parmtype)
           {
@@ -5442,6 +5466,7 @@ namespace
             {
               ctx.diag.error("type mismatch", ctx.stack.back(), parm->defult->loc());
               ctx.diag << "  variable type: '" << *parm->type << "' required type: '" << *expr.type.type << "'\n";
+              swap(ctx.stack, stack);
               return false;
             }
 
@@ -5564,6 +5589,7 @@ namespace
         case Builtin::is_tuple:
         case Builtin::is_union:
         case Builtin::is_struct:
+        case Builtin::is_vtable:
         case Builtin::is_builtin:
         case Builtin::is_pointer:
         case Builtin::is_reference:
@@ -5847,6 +5873,13 @@ namespace
   {
     result.type = MIR::Local(ctx.ptrliteraltype, MIR::Local::Literal | MIR::Local::RValue);
     result.value = ptrliteral;
+  }
+
+  //|///////////////////// lower_fnptr //////////////////////////////////////
+  void lower_expr(LowerContext &ctx, MIR::Fragment &result, FunctionPointerExpr *functionpointer)
+  {
+    result.type = MIR::Local(ctx.ptrliteraltype, MIR::Local::Literal | MIR::Local::RValue);
+    result.value = functionpointer;
   }
 
   //|///////////////////// lower_string /////////////////////////////////////
@@ -6151,7 +6184,7 @@ namespace
         }
       }
 
-      if (!is_struct_type(type) || !decl_cast<StructDecl>(tagtype->decl)->basetype)
+      if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype)
         break;
 
       type = tagtype->fields[0];
@@ -6232,6 +6265,12 @@ namespace
       return false;
     }
 
+    if (unaryop == UnaryOpExpr::Ref && (parms[0].type.flags & MIR::Local::Literal))
+    {
+      if (is_array_type(parms[0].type.type) || is_compound_type(parms[0].type.type))
+        lower_ref(ctx, parms[0], parms[0]); // This really should be a LiteralPointerExpr
+    }
+
     if (unaryop == UnaryOpExpr::Ref && (parms[0].type.flags & MIR::Local::Reference))
     {
       result = std::move(parms[0]);
@@ -6272,7 +6311,7 @@ namespace
     {
       result = std::move(parms[0]);
 
-      if (result.type.flags & MIR::Local::XValue)
+      if ((result.type.flags & MIR::Local::XValue) && !(result.type.flags & MIR::Local::Const))
         result.type.flags = (result.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
 
       return true;
@@ -6382,23 +6421,29 @@ namespace
 
     if (!callee && binaryop == BinaryOpExpr::Assign)
     {
-      auto base_type = [&](Type *type) { while (is_struct_type(type) && decl_cast<StructDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
+      auto base_type = [&](Type *type) { while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
 
-      if (is_struct_type(parms[1].type.type))
+      if (is_tag_type(parms[1].type.type))
         lower_base_cast(ctx, parms[1], base_type(parms[1].type.type), parms[1]);
 
       if (!(parms[0].type.flags & MIR::Local::Const) && is_pointference_type(parms[0].type.type) && is_pointference_type(parms[1].type.type))
       {
-        auto lhs = remove_pointference_type(parms[0].type.type);
-        auto rhs = remove_pointference_type(parms[1].type.type);
+        auto lhs = parms[0].type.type;
+        auto rhs = parms[1].type.type;
 
-        if (is_const_type(lhs))
+        while (is_pointference_type(lhs) && is_pointference_type(rhs))
         {
-          lhs = remove_const_type(lhs);
-          rhs = remove_const_type(rhs);
+          lhs = remove_pointference_type(lhs);
+          rhs = remove_pointference_type(rhs);
+
+          if (is_const_type(lhs))
+          {
+            lhs = remove_const_type(lhs);
+            rhs = remove_const_type(rhs);
+          }
         }
 
-        while (lhs != rhs && is_struct_type(rhs) && decl_cast<StructDecl>(type_cast<TagType>(rhs)->decl)->basetype)
+        while (lhs != rhs && is_tag_type(rhs) && decl_cast<TagDecl>(type_cast<TagType>(rhs)->decl)->basetype)
           rhs = type_cast<TagType>(rhs)->fields[0];
 
         promote_type(ctx, rhs, lhs);
@@ -6550,12 +6595,12 @@ namespace
 
     if (!callee && (binaryop == BinaryOpExpr::LT || binaryop == BinaryOpExpr::GT || binaryop == BinaryOpExpr::LE || binaryop == BinaryOpExpr::GE || binaryop == BinaryOpExpr::EQ || binaryop == BinaryOpExpr::NE || binaryop == BinaryOpExpr::Cmp))
     {
-      auto base_type = [&](Type *type) { while (is_struct_type(type) && decl_cast<StructDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
+      auto base_type = [&](Type *type) { while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
 
-      if (is_struct_type(parms[0].type.type))
+      if (is_tag_type(parms[0].type.type))
         lower_base_cast(ctx, parms[0], base_type(parms[0].type.type), parms[0]);
 
-      if (is_struct_type(parms[1].type.type))
+      if (is_tag_type(parms[1].type.type))
         lower_base_cast(ctx, parms[1], base_type(parms[1].type.type), parms[1]);
 
       if (is_pointference_type(parms[0].type.type) && is_pointference_type(parms[1].type.type))
@@ -6576,9 +6621,9 @@ namespace
 
     if (!callee && (binaryop == BinaryOpExpr::Add || binaryop == BinaryOpExpr::Sub))
     {
-      auto base_type = [&](Type *type) { while (is_struct_type(type) && decl_cast<StructDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
+      auto base_type = [&](Type *type) { while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
 
-      if (is_struct_type(parms[0].type.type))
+      if (is_tag_type(parms[0].type.type))
         lower_base_cast(ctx, parms[0], base_type(parms[0].type.type), parms[0]);
 
       if (is_reference_type(parms[0].type.type))
@@ -7011,7 +7056,7 @@ namespace
           return;
         }
 
-        if (!is_struct_type(type) || !decl_cast<StructDecl>(type_cast<TagType>(type)->decl)->basetype)
+        if (!is_tag_type(type) || !decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype)
           break;
 
         type = type_cast<TagType>(type)->fields[0];
@@ -7132,7 +7177,7 @@ namespace
             }
           }
 
-          if (!is_struct_type(type) || !decl_cast<StructDecl>(tagtype->decl)->basetype)
+          if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype)
             break;
 
           type = tagtype->fields[0];
@@ -7260,8 +7305,12 @@ namespace
         lower_expr(ctx, result, expr_cast<FloatLiteralExpr>(expr));
         break;
 
-      case Expr::PtrLiteral:
+      case Expr::PointerLiteral:
         lower_expr(ctx, result, expr_cast<PointerLiteralExpr>(expr));
+        break;
+
+      case Expr::FunctionPointer:
+        lower_expr(ctx, result, expr_cast<FunctionPointerExpr>(expr));
         break;
 
       case Expr::StringLiteral:
@@ -7857,7 +7906,7 @@ namespace
         if (fn->builtin == Builtin::Tuple_Copytructor || fn->builtin == Builtin::Tuple_CopytructorEx)
           lower_expr_deref(ctx, parms[0]);
 
-        if (parms[0].type.flags & MIR::Local::XValue)
+        if ((parms[0].type.flags & MIR::Local::XValue) && !(rhsfield.flags & MIR::Local::Const))
           parms[0].type.flags = (parms[0].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
 
         if (allocator)
@@ -7972,7 +8021,7 @@ namespace
         if (fn->builtin == Builtin::Tuple_Assignment || fn->builtin == Builtin::Tuple_AssignmentEx)
           lower_expr_deref(ctx, parms[1]);
 
-        if (parms[1].type.flags & MIR::Local::XValue)
+        if ((parms[1].type.flags & MIR::Local::XValue) && !(rhsfield.flags & MIR::Local::Const))
           parms[1].type.flags = (parms[1].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
 
         if (!lower_expr(ctx, result, BinaryOpExpr::Assign, parms, namedparms, fn->loc()))
@@ -8635,7 +8684,7 @@ namespace
     lower_trivial_copytructor(ctx);
   }
 
-  //|///////////////////// lower_literal_assignment  ////////////////////////
+  //|///////////////////// lower_literal_assignment /////////////////////////
   void lower_literal_assignment(LowerContext &ctx)
   {
     auto fn = ctx.mir.fx.fn;
@@ -8655,6 +8704,112 @@ namespace
     commit_type(ctx, src, result.type.type, result.type.flags);
 
     lower_trivial_assignment(ctx);
+  }
+
+  //|///////////////////// lower_vtable_constructor /////////////////////////
+  void lower_vtable_constructor(LowerContext &ctx)
+  {
+    auto fn = ctx.mir.fx.fn;
+    auto thistype = type_cast<TagType>(ctx.mir.locals[0].type);
+    auto scopetype = ctx.mir.fx.find_type(fn->args[0])->second;
+
+    size_t index = 0;
+
+    if (decl_cast<TagDecl>(thistype->decl)->basetype)
+    {
+      MIR::Fragment result;
+
+      vector<MIR::Fragment> parms;
+      map<string_view, MIR::Fragment> namedparms;
+
+      auto type = thistype->fields[index];
+
+      auto callee = find_callee(ctx, type, parms, namedparms);
+
+      if (!callee || !is_vtable_type(thistype->fields[0]))
+      {
+        ctx.diag.error("vtable base must be a vtable", thistype->fieldvars[index], fn->loc());
+        return;
+      }
+
+      callee.fx.set_type(callee.fx.fn->args[0], scopetype);
+
+      if (!lower_call(ctx, result, callee.fx, parms, namedparms, fn->loc()))
+        return;
+
+      auto dst = ctx.add_temporary();
+      auto res = ctx.add_temporary();
+
+      MIR::Fragment address;
+      address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(type), MIR::Local::LValue);
+      address.value = MIR::RValue::field(MIR::RValue::Ref, 0, MIR::RValue::Field{ MIR::RValue::Ref, index }, fn->loc());
+
+      realise_as_value(ctx, dst, address);
+
+      commit_type(ctx, dst, address.type.type, address.type.flags);
+
+      realise_as_value(ctx, Place(Place::Fer, res), result);
+
+      commit_type(ctx, res, result.type.type, result.type.flags);
+
+      index += 1;
+    }
+
+    for( ; index < thistype->fields.size(); ++index)
+    {
+      MIR::Fragment result;
+
+      auto type = thistype->fields[index];
+      auto fntype = type_cast<FunctionType>(remove_qualifiers_type(type));
+      auto var = decl_cast<FieldVarDecl>(thistype->fieldvars[index]);
+
+      vector<MIR::Fragment> parms;
+      map<string_view, MIR::Fragment> namedparms;
+
+      for(auto &parm : type_cast<TupleType>(fntype->paramtuple)->fields)
+      {
+        MIR::Fragment value = { parm };
+
+        if (is_reference_type(parm))
+          value.type = resolve_as_reference(ctx, value.type);
+
+        parms.push_back(value);
+      }
+
+      auto callee = find_callee(ctx, scopetype, var->name, parms, namedparms);
+
+      if (!callee)
+      {
+        ctx.diag.error("cannot resolve vtable function", thistype->fieldvars[index], var->loc());
+        diag_callee(ctx, callee, parms, namedparms);
+        continue;
+      }
+
+      if (find_returntype(ctx, callee.fx).type != fntype->returntype)
+      {
+        ctx.diag.error("return type mismatch on vtable function", thistype->fieldvars[index], var->loc());
+        diag_callee(ctx, callee, parms, namedparms);
+        continue;
+      }
+
+      result.type = type;
+      result.value = MIR::RValue::literal(ctx.mir.make_expr<FunctionPointerExpr>(callee.fx, var->loc()));
+
+      auto dst = ctx.add_temporary();
+      auto res = ctx.add_temporary();
+
+      MIR::Fragment address;
+      address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(type), MIR::Local::LValue);
+      address.value = MIR::RValue::field(MIR::RValue::Ref, 0, MIR::RValue::Field{ MIR::RValue::Ref, index }, var->loc());
+
+      realise_as_value(ctx, dst, address);
+
+      commit_type(ctx, dst, address.type.type, address.type.flags);
+
+      realise_as_value(ctx, Place(Place::Fer, res), result);
+
+      commit_type(ctx, res, result.type.type, result.type.flags);
+    }
   }
 
   //|///////////////////// lower_defaulted_body /////////////////////////////
@@ -8776,6 +8931,10 @@ namespace
         lower_literal_assignment(ctx);
         break;
 
+      case Builtin::VTable_Constructor:
+        lower_vtable_constructor(ctx);
+        break;
+
       default:
         ctx.diag.error("invalid defaulted function", ctx.stack.back(), ctx.mir.fx.fn->loc());
     }
@@ -8807,6 +8966,7 @@ namespace
       case Decl::TypeAlias:
       case Decl::Struct:
       case Decl::Union:
+      case Decl::VTable:
       case Decl::Concept:
       case Decl::Enum:
       case Decl::Import:

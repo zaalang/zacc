@@ -87,6 +87,19 @@ namespace
 }
 
 //|///////////////////// print //////////////////////////////////////////////
+std::ostream &operator <<(std::ostream &os, FnSig const &fn)
+{
+  os << "&fn ";
+
+  if (fn.fn)
+    os << fn.fn->name;
+
+  os << "()";
+
+  return os;
+}
+
+//|///////////////////// print //////////////////////////////////////////////
 std::ostream &operator <<(std::ostream &os, MIR::Local const &local)
 {
   if (local.type)
@@ -131,16 +144,6 @@ std::ostream &operator <<(std::ostream &os, MIR::RValue::ConstantData const &con
 
   else
     std::visit([&](auto &v) { os << v->value(); }, constant);
-
-  return os;
-}
-
-//|///////////////////// print //////////////////////////////////////////////
-std::ostream &operator <<(std::ostream &os, MIR::RValue::FunctionData const &constant)
-{
-  auto &[pointee, loc] = constant;
-
-  os << "const &fn" << pointee.fn->name;
 
   return os;
 }
@@ -255,10 +258,6 @@ std::ostream &operator <<(std::ostream &os, MIR::RValue const &rvalue)
 
     case MIR::RValue::Constant:
       os << rvalue.get<MIR::RValue::Constant>();
-      break;
-
-    case MIR::RValue::Function:
-      os << rvalue.get<MIR::RValue::Function>();
       break;
 
     case MIR::RValue::Variable:
@@ -416,9 +415,6 @@ SourceLocation MIR::RValue::loc() const
     case MIR::RValue::Constant:
       return std::visit([&](auto &v) { return static_cast<Expr*>(v); }, get<MIR::RValue::Constant>())->loc();
 
-    case MIR::RValue::Function:
-      return std::get<1>(get<MIR::RValue::Function>());
-
     case MIR::RValue::Variable:
       return std::get<3>(get<MIR::RValue::Variable>());
 
@@ -453,8 +449,11 @@ MIR::RValue::ConstantData MIR::RValue::literal(Expr *expr)
     case Expr::FloatLiteral:
       return expr_cast<FloatLiteralExpr>(expr);
 
-    case Expr::PtrLiteral:
+    case Expr::PointerLiteral:
       return expr_cast<PointerLiteralExpr>(expr);
+
+    case Expr::FunctionPointer:
+      return expr_cast<FunctionPointerExpr>(expr);
 
     case Expr::StringLiteral:
       return expr_cast<StringLiteralExpr>(expr);

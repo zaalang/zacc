@@ -225,6 +225,12 @@ LambdaDecl *Sema::lambda_declaration(SourceLocation loc)
   return ast->make_decl<LambdaDecl>(loc);
 }
 
+//|///////////////////// vtable_declaration /////////////////////////////////
+VTableDecl *Sema::vtable_declaration(SourceLocation loc)
+{
+  return ast->make_decl<VTableDecl>(loc);
+}
+
 //|///////////////////// var_declaration ////////////////////////////////////
 StmtVarDecl *Sema::var_declaration(SourceLocation loc)
 {

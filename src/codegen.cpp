@@ -229,6 +229,7 @@ namespace
         {
           case Decl::Struct:
           case Decl::Union:
+          case Decl::VTable:
           case Decl::Lambda:
             return TypeCategory::Struct;
 
@@ -415,7 +416,10 @@ namespace
 
     for(auto &field: type->fields)
     {
-      elements.push_back(llvm_type(ctx, field, true));
+      if (is_pointference_type(field))
+        elements.push_back(ctx.builder.getInt8Ty()->getPointerTo());
+      else
+        elements.push_back(llvm_type(ctx, field, true));
     }
 
     auto strct = llvm::StructType::get(ctx.context, elements);
@@ -555,6 +559,7 @@ namespace
         switch (type_cast<TagType>(type)->decl->kind())
         {
           case Decl::Struct:
+          case Decl::VTable:
           case Decl::Lambda:
             return llvm_struct(ctx, type_cast<TagType>(type));
 
@@ -785,7 +790,7 @@ namespace
       ditype = ctx.di.createArrayType(sizeof_type(local.type) * 8, alignof_type(local.type) * 8, llvm_ditype(ctx, type->type), ctx.di.getOrCreateArray(subscripts));
     }
 
-    if (is_struct_type(local.type) || is_union_type(local.type) || is_lambda_type(local.type))
+    if (is_struct_type(local.type) || is_union_type(local.type) || is_vtable_type(local.type) || is_lambda_type(local.type))
     {
       auto type = type_cast<TagType>(local.type);
       auto name = llvm_identifier("struct", type);
@@ -977,9 +982,19 @@ namespace
     else
     {
       ctx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
-      ctx.diag << "  literal type: '#ptr' required type: '" << *type << "'\n";
+      ctx.diag << "  literal type: 'null' required type: '" << *type << "'\n";
       return nullptr;
     }
+  }
+
+  //|///////////////////// llvm_constant ////////////////////////////////////
+  llvm::Constant *llvm_constant(GenContext &ctx, FunctionContext &fx, Type *type, FunctionPointerExpr *literal)
+  {
+    auto &pointee = literal->value();
+
+    assert(ctx.functions.find(pointee) != ctx.functions.end());
+
+    return ctx.functions[pointee];
   }
 
   //|///////////////////// llvm_constant ////////////////////////////////////
@@ -1098,8 +1113,11 @@ namespace
       case Expr::FloatLiteral:
         return llvm_constant(ctx, fx, type, expr_cast<FloatLiteralExpr>(literal));
 
-      case Expr::PtrLiteral:
+      case Expr::PointerLiteral:
         return llvm_constant(ctx, fx, type, expr_cast<PointerLiteralExpr>(literal));
+
+      case Expr::FunctionPointer:
+        return llvm_constant(ctx, fx, type, expr_cast<FunctionPointerExpr>(literal));
 
       case Expr::StringLiteral:
         return llvm_constant(ctx, fx, type, expr_cast<StringLiteralExpr>(literal));
@@ -1263,6 +1281,21 @@ namespace
   }
 
   //|///////////////////// codegen_assign_constant //////////////////////////
+  void codegen_assign_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, FunctionPointerExpr *literal)
+  {
+    if (!is_concrete_type(fx.mir.locals[dst].type))
+    {
+      ctx.diag.error("unresolved literal type", fx.fn, literal->loc());
+      return;
+    }
+
+    if (auto value = llvm_constant(ctx, fx, fx.mir.locals[dst].type, literal))
+    {
+      store(ctx, fx, dst, value);
+    }
+  }
+
+  //|///////////////////// codegen_assign_constant //////////////////////////
   void codegen_assign_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, StringLiteralExpr *literal)
   {
     if (!is_concrete_type(fx.mir.locals[dst].type))
@@ -1317,16 +1350,6 @@ namespace
     std::visit([&](auto &v) { codegen_assign_constant(ctx, fx, dst, v); }, constant);
   }
 
-  //|///////////////////// codegen_assign_constant //////////////////////////
-  void codegen_assign_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::FunctionData const &constant)
-  {
-    auto &[pointee, loc] = constant;
-
-    assert(ctx.functions.find(pointee) != ctx.functions.end());
-
-    store(ctx, fx, dst, ctx.functions[pointee]);
-  }
-
   //|///////////////////// codegen_fields ///////////////////////////////////
   llvm::Value *codegen_fields(GenContext &ctx, FunctionContext &fx, MIR::local_t arg, vector<MIR::RValue::Field> const &fields, MIR::Local &rhs)
   {
@@ -1357,6 +1380,16 @@ namespace
       if (is_union_type(rhs.type) && field.index != 0)
       {
         index.push_back(ctx.builder.getInt32(1));
+
+        rhs = type_cast<CompoundType>(rhs.type)->fields[field.index];
+        base = ctx.builder.CreatePointerCast(ctx.builder.CreateInBoundsGEP(base, index), llvm_type(ctx, rhs.type, true)->getPointerTo());
+        index.resize(1);
+        continue;
+      }
+
+      if (is_tuple_type(rhs.type) && is_pointference_type(type_cast<CompoundType>(rhs.type)->fields[field.index]))
+      {
+        index.push_back(ctx.builder.getInt32(field.index));
 
         rhs = type_cast<CompoundType>(rhs.type)->fields[field.index];
         base = ctx.builder.CreatePointerCast(ctx.builder.CreateInBoundsGEP(base, index), llvm_type(ctx, rhs.type, true)->getPointerTo());
@@ -1396,9 +1429,9 @@ namespace
     if (fields.size() != 0)
     {
       MIR::Local rhs;
-      auto src = codegen_fields(ctx, fx, arg, fields, rhs);
+      auto ptr = codegen_fields(ctx, fx, arg, fields, rhs);
 
-      store(ctx, fx, dst, load(ctx, fx, src, rhs.type, rhs.flags));
+      store(ctx, fx, dst, load(ctx, fx, ptr, rhs.type, rhs.flags));
     }
     else
     {
@@ -1414,11 +1447,11 @@ namespace
     if (fields.size() != 0)
     {
       MIR::Local rhs;
-      auto src = codegen_fields(ctx, fx, arg, fields, rhs);
+      auto ptr = codegen_fields(ctx, fx, arg, fields, rhs);
 
       fx.locals[dst].flags |= rhs.flags;
 
-      store(ctx, fx, dst, src);
+      store(ctx, fx, dst, ptr);
     }
     else
     {
@@ -1435,9 +1468,8 @@ namespace
     {
       MIR::Local rhs;
       auto ptr = codegen_fields(ctx, fx, arg, fields, rhs);
-      auto src = load(ctx, fx, ptr, rhs.type, rhs.flags);
 
-      store(ctx, fx, dst, load(ctx, fx, src, fx.mir.locals[dst].type, fx.locals[dst].flags));
+      store(ctx, fx, dst, load(ctx, fx, load(ctx, fx, ptr, rhs.type, rhs.flags), fx.mir.locals[dst].type, fx.locals[dst].flags));
     }
     else
     {
@@ -2930,7 +2962,6 @@ namespace
     auto &[callee, args, loc] = call;
 
     auto fn = load(ctx, fx, args[0]);
-    auto rhs = load(ctx, fx, args[1]);
 
     vector<llvm::Value*> parms;
 
@@ -2938,10 +2969,10 @@ namespace
 
     for(size_t index = 0; index < paramtuple->fields.size(); ++index)
     {
-      auto ptr = ctx.builder.CreateInBoundsGEP(rhs, { ctx.builder.getInt32(0), ctx.builder.getInt32(index) });
-      auto src = load(ctx, fx, ptr, paramtuple->fields[index], MIR::Local::Reference);
+      MIR::Local rhs;
+      auto ptr = codegen_fields(ctx, fx, args[1], { MIR::RValue::Field{ MIR::RValue::Val, index } }, rhs);
 
-      parms.push_back(load(ctx, fx, src, paramtuple->fields[index]));
+      parms.push_back(load(ctx, fx, load(ctx, fx, ptr, rhs.type, rhs.flags), paramtuple->fields[index]));
     }
 
     store(ctx, fx, dst, ctx.builder.CreateCall(llvm::cast<llvm::FunctionType>(fn->getType()->getPointerElementType()), fn, parms));
@@ -3438,8 +3469,8 @@ namespace
     store(ctx, fx, dst, ctx.builder.CreateIntrinsic(llvm::Function::lookupIntrinsicID("llvm.x86.rdtscp"), {}, {}));
   }
 
-  //|///////////////////// pause ////////////////////////////////////////////
-  void codegen_builtin_pause(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  //|///////////////////// relax ////////////////////////////////////////////
+  void codegen_builtin_relax(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
     auto asmty = llvm::FunctionType::get(ctx.builder.getVoidTy(), false);
     auto asmfn = llvm::InlineAsm::get(asmty, "pause", "", true, false, llvm::InlineAsm::AD_Intel);
@@ -3452,7 +3483,6 @@ namespace
   {
     auto &[callee, args, loc] = call;
 
-    auto rhs = load(ctx, fx, args[0]);
     auto src = expr_cast<StringLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[0])->second)->value);
     auto dsc = expr_cast<StringLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[1])->second)->value);
 
@@ -3463,9 +3493,10 @@ namespace
 
     for(size_t index = 0; index < paramtuple->fields.size(); ++index)
     {
-      auto src = ctx.builder.CreateInBoundsGEP(rhs, { ctx.builder.getInt32(0), ctx.builder.getInt32(index) });
+      MIR::Local rhs;
+      auto ptr = codegen_fields(ctx, fx, args[0], { MIR::RValue::Field{ MIR::RValue::Val, index } }, rhs);
 
-      parms.push_back(load(ctx, fx, src, paramtuple->fields[index]));
+      parms.push_back(load(ctx, fx, ptr, rhs.type, rhs.flags));
       parmstypes.push_back(llvm_type(ctx, paramtuple->fields[index]));
     }
 
@@ -3720,8 +3751,8 @@ namespace
           codegen_builtin_rdtscp(ctx, fx, dst, call);
           break;
 
-        case Builtin::pause:
-          codegen_builtin_pause(ctx, fx, dst, call);
+        case Builtin::relax:
+          codegen_builtin_relax(ctx, fx, dst, call);
           break;
 
         case Builtin::inline_asm:
@@ -4079,10 +4110,6 @@ namespace
         codegen_assign_constant(ctx, fx, dst, src.get<MIR::RValue::Constant>());
         break;
 
-      case MIR::RValue::Function:
-        codegen_assign_constant(ctx, fx, dst, src.get<MIR::RValue::Function>());
-        break;
-
       case MIR::RValue::Variable:
         codegen_assign_variable(ctx, fx, dst, src.get<MIR::RValue::Variable>());
         break;
@@ -4399,16 +4426,33 @@ namespace
 
         if (statement.src.kind() == MIR::RValue::Constant)
         {
+          auto constant = statement.src.get<MIR::RValue::Constant>();
+
+          if (auto pointee = get_if<FunctionPointerExpr*>(&constant))
+          {
+            codegen_function(ctx, (*pointee)->value());
+          }
+
+          if (auto compound = get_if<CompoundLiteralExpr*>(&constant))
+          {
+            auto stack = vector<CompoundLiteralExpr*>{ *compound };
+
+            while (!stack.empty())
+            {
+              for(auto &field : stack.front()->fields)
+              {
+                if (field->kind() == Expr::CompoundLiteral)
+                  stack.push_back(expr_cast<CompoundLiteralExpr>(field));
+
+                if (field->kind() == Expr::FunctionPointer)
+                  codegen_function(ctx, expr_cast<FunctionPointerExpr>(field)->value());
+              }
+
+              stack.erase(stack.begin());
+            }
+          }
+
           fx.locals[statement.dst].writes += 1;
-        }
-
-        if (statement.src.kind() == MIR::RValue::Function)
-        {
-          auto &[pointee, loc] = statement.src.get<MIR::RValue::Function>();
-
-          fx.locals[statement.dst].writes += 1;
-
-          codegen_function(ctx, pointee);
         }
 
         if (statement.src.kind() == MIR::RValue::Variable)

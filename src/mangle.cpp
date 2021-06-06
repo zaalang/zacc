@@ -119,6 +119,7 @@ namespace
 
       case Decl::Struct:
       case Decl::Union:
+      case Decl::VTable:
       case Decl::Lambda:
       case Decl::Concept:
       case Decl::Enum:

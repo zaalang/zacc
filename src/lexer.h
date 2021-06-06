@@ -141,6 +141,7 @@ struct Token
     kw_class,
     kw_struct,
     kw_union,
+    kw_vtable,
     kw_sizeof,
     kw_alignof,
     kw_offsetof,

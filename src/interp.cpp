@@ -33,6 +33,7 @@ namespace
     vector<vector<uint8_t>> memory;
 
     map<tuple<Type*, ArrayLiteralExpr const *>, void*> arrayliterals;
+    map<tuple<Type*, CompoundLiteralExpr const *>, void*> compoundliterals;
 
     bool exception;
 
@@ -565,7 +566,7 @@ namespace
   //|///////////////////// store ////////////////////////////////////////////
   void store(EvalContext &ctx, void *alloc, Type *type, Expr *value)
   {
-    switch(value->kind())
+    switch (value->kind())
     {
       case Expr::VoidLiteral:
         break;
@@ -586,8 +587,12 @@ namespace
         store(ctx, alloc, type, expr_cast<FloatLiteralExpr>(value)->value());
         break;
 
-      case Expr::PtrLiteral:
+      case Expr::PointerLiteral:
         store(ctx, alloc, type, (void*)nullptr);
+        break;
+
+      case Expr::FunctionPointer:
+        store(ctx, alloc, type, (void*)value);
         break;
 
       case Expr::StringLiteral:
@@ -775,6 +780,23 @@ namespace
   }
 
   //|///////////////////// eval_assign_constant /////////////////////////////
+  bool eval_assign_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, FunctionPointerExpr const *literal)
+  {
+    auto type = fx.locals[dst].type;
+
+    if (!is_pointference_type(type))
+    {
+      ctx.diag.error("literal type incompatible with required type", fx.scope, literal->loc());
+      ctx.diag << "  literal type: 'fn' required type: '" << *type << "'\n";
+      return false;
+    }
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, (void*)literal);
+
+    return true;
+  }
+
+  //|///////////////////// eval_assign_constant /////////////////////////////
   bool eval_assign_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, StringLiteralExpr const *literal)
   {
     auto type = fx.locals[dst].type;
@@ -829,7 +851,16 @@ namespace
       return false;
     }
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal);
+    auto j = ctx.compoundliterals.find(make_tuple(fx.locals[dst].type, literal));
+
+    if (j == ctx.compoundliterals.end())
+    {
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal);
+
+      j = ctx.compoundliterals.emplace(make_tuple(fx.locals[dst].type, literal), fx.locals[dst].alloc).first;
+    }
+
+    fx.locals[dst].alloc = j->second;
 
     return true;
   }
@@ -2400,6 +2431,7 @@ namespace
 
       case Decl::Struct:
       case Decl::Union:
+      case Decl::VTable:
       case Decl::Concept:
       case Decl::Enum:
         result = decl_cast<TagDecl>(decl)->name;
@@ -2510,6 +2542,7 @@ namespace
 
       case Decl::Struct:
       case Decl::Union:
+      case Decl::VTable:
       case Decl::Concept:
       case Decl::Enum:
         result = decl_cast<TagDecl>(decl)->decls;
@@ -2571,7 +2604,7 @@ namespace
     size_t size = 0;
     Numeric::Int *data = nullptr;
 
-    if (auto type = callee.find_type(callee.fn->args[0])->second; is_struct_type(type) || is_union_type(type))
+    if (auto type = callee.find_type(callee.fn->args[0])->second; is_struct_type(type) || is_union_type(type) || is_vtable_type(type))
     {
       auto tagtype = type_cast<TagType>(type);
 
@@ -3426,10 +3459,24 @@ namespace
     }
     else if (is_pointer_type(type))
     {
-      if (load_ptr(ctx, alloc, type) != 0)
-        ctx.diag.error("invalid literal pointer", ctx.dx, loc);
+      auto ptr = load_ptr(ctx, alloc, type);
 
-      return ctx.make_expr<PointerLiteralExpr>(loc);
+      if (ptr == 0)
+        return ctx.make_expr<PointerLiteralExpr>(loc);
+
+      if (is_function_type(remove_const_type(remove_pointer_type(type))))
+        return static_cast<FunctionPointerExpr*>(ptr);
+
+      ctx.diag.error("invalid literal pointer", ctx.dx, loc);
+    }
+    else if (is_reference_type(type))
+    {
+      auto ptr = load_ptr(ctx, alloc, type);
+
+      if (is_function_type(remove_const_type(remove_reference_type(type))))
+        return static_cast<FunctionPointerExpr*>(ptr);
+
+      ctx.diag.error("invalid literal pointer", ctx.dx, loc);
     }
     else if (is_string_type(type))
     {

@@ -50,7 +50,7 @@ bool is_var_decl(Decl const *decl)
 //|///////////////////// is_tag_decl ////////////////////////////////////////
 bool is_tag_decl(Decl const *decl)
 {
-  return decl->kind() == Decl::Struct || decl->kind() == Decl::Concept || decl->kind() == Decl::Lambda || decl->kind() == Decl::Enum || decl->kind() == Decl::Union;
+  return decl->kind() == Decl::Struct || decl->kind() == Decl::Concept || decl->kind() == Decl::Lambda || decl->kind() == Decl::VTable || decl->kind() == Decl::Enum || decl->kind() == Decl::Union;
 }
 
 //|///////////////////// is_module_decl /////////////////////////////////////
@@ -175,6 +175,7 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
 
     case Decl::Struct:
     case Decl::Union:
+    case Decl::VTable:
     case Decl::Lambda:
     case Decl::Concept:
     case Decl::Enum:
@@ -704,6 +705,32 @@ void UnionDecl::dump(int indent) const
 }
 
 
+//|--------------------- VTableDecl -----------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// VTableDecl::Constructor ////////////////////////////
+VTableDecl::VTableDecl(SourceLocation loc)
+  : TagDecl(VTable, loc)
+{
+}
+
+//|///////////////////// VTableDecl::dump ///////////////////////////////////
+void VTableDecl::dump(int indent) const
+{
+  cout << spaces(indent) << "VTableDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
+
+  if (basetype)
+  {
+    basetype->dump(indent + 2);
+  }
+
+  for(auto &decl : decls)
+  {
+    decl->dump(indent + 2);
+  }
+}
+
+
 //|--------------------- LambdaDecl -----------------------------------------
 //|--------------------------------------------------------------------------
 
@@ -985,9 +1012,9 @@ void EnumDecl::dump(int indent) const
 {
   cout << spaces(indent) << "EnumDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 
-  if (basetype)
+  if (representation)
   {
-    basetype->dump(indent + 2);
+    representation->dump(indent + 2);
   }
 
   for(auto &decl : decls)

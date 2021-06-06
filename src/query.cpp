@@ -216,6 +216,7 @@ void find_decl(Decl *decl, string_view name, long flags, vector<Decl*> &results)
 
     case Decl::Struct:
     case Decl::Union:
+    case Decl::VTable:
     case Decl::Enum:
       if (decl_cast<TagDecl>(decl)->name == name && (flags & Types))
         results.push_back(decl);
@@ -288,6 +289,7 @@ void find_decls(Scope const &scope, string_view name, long flags, vector<Decl*> 
 
       case Decl::Struct:
       case Decl::Union:
+      case Decl::VTable:
       case Decl::Lambda:
       case Decl::Concept:
       case Decl::Enum:
@@ -402,6 +404,7 @@ void find_decls(Scope const &scope, string_view name, long flags, vector<Decl*> 
             {
               case Decl::Struct:
               case Decl::Union:
+              case Decl::VTable:
               case Decl::Concept:
               case Decl::Enum:
                 find_decl(decl, name, flags, results);

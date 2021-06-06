@@ -291,7 +291,8 @@ namespace
       case Expr::IntLiteral:
       case Expr::FloatLiteral:
       case Expr::StringLiteral:
-      case Expr::PtrLiteral:
+      case Expr::PointerLiteral:
+      case Expr::FunctionPointer:
         break;
 
       case Expr::ArrayLiteral:
@@ -475,6 +476,11 @@ namespace
       tagdecl->decls.insert(tagdecl->decls.begin(), selfalias);
     }
 
+    if (tagdecl->basetype)
+    {
+      semantic_type(ctx, tagdecl->basetype, sema);
+    }
+
     for(auto &decl : tagdecl->decls)
     {
       semantic_decl(ctx, decl, sema);
@@ -558,6 +564,149 @@ namespace
     ctx.stack.pop_back();
   }
 
+  //|///////////////////// vtable ///////////////////////////////////////////
+  void semantic_decl(SemanticContext &ctx, VTableDecl *vtable, Sema &sema)
+  {
+    ctx.stack.emplace_back(vtable);
+
+    auto vtabletype = sema.make_typeref(vtable);
+
+    if (vtable->basetype)
+    {
+      // base as first field
+
+      auto basefield = sema.field_declaration(vtable->loc());
+
+      basefield->name = "super";
+      basefield->flags = VarDecl::Public;
+      basefield->type = vtable->basetype;
+
+      vtable->decls.insert(vtable->decls.begin(), basefield);
+    }
+
+    for(auto &decl : vtable->decls)
+    {
+      if (decl->kind() == Decl::Function)
+      {
+        auto fn = decl_cast<FunctionDecl>(decl);
+
+        auto field = sema.field_declaration(fn->loc());
+
+        field->name = fn->name;
+        field->flags |= fn->flags & FunctionDecl::Public;
+
+        vector<Type*> params;
+        for(auto &parm : fn->parms)
+          params.push_back(decl_cast<ParmVarDecl>(parm)->type);
+
+        field->type = sema.make_reference(sema.make_const(sema.make_fntype(fn->returntype, sema.make_tuple(params))));
+
+        decl = field;
+      }
+    }
+
+    {
+      auto ctor = sema.function_declaration(vtable->loc());
+
+      ctor->name = vtable->name;
+      ctor->flags |= FunctionDecl::Public;
+      ctor->flags |= FunctionDecl::Const;
+      ctor->flags |= FunctionDecl::Constructor;
+      ctor->flags |= FunctionDecl::Defaulted;
+      ctor->builtin = Builtin::VTable_Constructor;
+
+      ctor->args.push_back(sema.typearg_declaration(vtable->loc()));
+
+      vtable->decls.push_back(ctor);
+    }
+
+    {
+      auto ctor = sema.function_declaration(vtable->loc());
+
+      ctor->name = vtable->name;
+      ctor->flags |= FunctionDecl::Public;
+      ctor->flags |= FunctionDecl::Constructor;
+      ctor->flags |= FunctionDecl::Defaulted;
+      ctor->builtin = Builtin::Default_Copytructor;
+
+      auto thatvar = sema.parm_declaration(vtable->loc());
+      thatvar->type = sema.make_reference(sema.make_qualarg(vtabletype));
+
+      ctor->parms.push_back(thatvar);
+
+      vtable->decls.push_back(ctor);
+    }
+
+    {
+      auto copy = sema.function_declaration(vtable->loc());
+
+      copy->name = "=";
+      copy->flags |= FunctionDecl::Public;
+      copy->flags |= FunctionDecl::Defaulted;
+      copy->builtin = Builtin::Default_Assignment;
+
+      auto thisvar = sema.parm_declaration(vtable->loc());
+      thisvar->type = sema.make_reference(vtabletype);
+
+      copy->parms.push_back(thisvar);
+
+      auto thatvar = sema.parm_declaration(vtable->loc());
+      thatvar->type = sema.make_reference(sema.make_qualarg(vtabletype));
+
+      copy->parms.push_back(thatvar);
+
+      copy->returntype = sema.make_reference(vtabletype);
+
+      vtable->decls.push_back(copy);
+    }
+
+    {
+      auto dtor = sema.function_declaration(vtable->loc());
+
+      dtor->name = "~" + vtable->name;
+      dtor->flags |= FunctionDecl::Public;
+      dtor->flags |= FunctionDecl::Destructor;
+      dtor->flags |= FunctionDecl::Defaulted;
+      dtor->builtin = Builtin::Default_Destructor;
+
+      vtable->decls.push_back(dtor);
+    }
+
+    if (auto owner = get_if<Decl*>(&vtable->owner))
+    {
+      auto ctor = sema.function_declaration(vtable->loc());
+
+      ctor->name = vtable->name;
+      ctor->flags |= FunctionDecl::Public;
+      ctor->flags |= FunctionDecl::Const;
+      ctor->flags |= FunctionDecl::Defaulted;
+      ctor->builtin = Builtin::VTable_Constructor;
+
+      ctor->args.push_back(sema.typearg_declaration(vtable->loc()));
+
+      ctor->returntype = vtabletype;
+
+      switch((*owner)->kind())
+      {
+        case Decl::Module:
+          decl_cast<ModuleDecl>(*owner)->decls.push_back(ctor);
+          break;
+
+        case Decl::Struct:
+        case Decl::Union:
+          decl_cast<TagDecl>(*owner)->decls.push_back(ctor);
+          break;
+
+        default:
+          assert(false);
+      }
+    }
+
+    semantic_decl(ctx, decl_cast<TagDecl>(vtable), sema);
+
+    ctx.stack.pop_back();
+  }
+
   //|///////////////////// concept //////////////////////////////////////////
   void semantic_decl(SemanticContext &ctx, ConceptDecl *concep, Sema &sema)
   {
@@ -607,6 +756,7 @@ namespace
       ctor->name = lambda->name;
       ctor->flags |= FunctionDecl::Public;
       ctor->flags |= FunctionDecl::Constructor;
+      ctor->flags |= FunctionDecl::Defaulted;
       ctor->builtin = Builtin::Default_Constructor;
 
       for(auto &capture : lambda->captures)
@@ -627,6 +777,7 @@ namespace
       ctor->name = lambda->name;
       ctor->flags |= FunctionDecl::Public;
       ctor->flags |= FunctionDecl::Constructor;
+      ctor->flags |= FunctionDecl::Defaulted;
       ctor->builtin = Builtin::Default_Copytructor;
 
       auto thatvar = sema.parm_declaration(fn->loc());
@@ -645,6 +796,7 @@ namespace
       copy->name = "=";
       copy->flags |= FunctionDecl::Public;
       copy->flags |= FunctionDecl::Defaulted;
+      copy->builtin = Builtin::Default_Assignment;
 
       auto thisvar = sema.parm_declaration(fn->loc());
       thisvar->type = sema.make_reference(lambdatype);
@@ -656,9 +808,8 @@ namespace
 
       copy->parms.push_back(thatvar);
 
-      copy->returntype = sema.make_reference(lambdatype);
-
       copy->args = lambda->args;
+      copy->returntype = sema.make_reference(lambdatype);
 
       lambda->decls.push_back(copy);
     }
@@ -670,6 +821,7 @@ namespace
       dtor->flags |= FunctionDecl::Public;
       dtor->flags |= FunctionDecl::Destructor;
       dtor->flags |= FunctionDecl::Defaulted;
+      dtor->builtin = Builtin::Default_Destructor;
 
       lambda->decls.push_back(dtor);
     }
@@ -709,7 +861,7 @@ namespace
     {
       auto basefield = sema.field_declaration(enumm->loc());
 
-      basefield->type = enumm->basetype;
+      basefield->type = enumm->representation;
 
       if (!basefield->type)
         basefield->type = type(Builtin::Type_ISize);
@@ -916,32 +1068,30 @@ namespace
 
         fn->returntype = sema.make_typeref(*owner);
 
-        if (fn->flags & FunctionDecl::Defaulted)
+        if ((*owner)->kind() == Decl::Struct || (*owner)->kind() == Decl::Union)
         {
-          if (fn->parms.size() == 0 || (fn->parms.size() == 1 && decl_cast<ParmVarDecl>(fn->parms[0])->name == "allocator"))
+          if (fn->flags & FunctionDecl::Defaulted)
           {
-            fn->builtin = Builtin::Default_Constructor;
-          }
+            if (fn->parms.size() == 0 || (fn->parms.size() == 1 && decl_cast<ParmVarDecl>(fn->parms[0])->name == "allocator"))
+            {
+              fn->builtin = Builtin::Default_Constructor;
+            }
 
-          else if (fn->parms.size() == 1 || (fn->parms.size() == 2 && decl_cast<ParmVarDecl>(fn->parms[1])->name == "allocator"))
-          {
-            if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[0])->type))
-              ctx.diag.error("non-reference first parameter", ctx.file, fn->loc());
+            else if (fn->parms.size() == 1 || (fn->parms.size() == 2 && decl_cast<ParmVarDecl>(fn->parms[1])->name == "allocator"))
+            {
+              if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[0])->type))
+                ctx.diag.error("non-reference first parameter", ctx.file, fn->loc());
 
-            if (fn->parms[0]->flags & ParmVarDecl::Literal)
-              fn->builtin = Builtin::Literal_Copytructor;
+              if (fn->parms[0]->flags & ParmVarDecl::Literal)
+                fn->builtin = Builtin::Literal_Copytructor;
+              else
+                fn->builtin = Builtin::Default_Copytructor;
+            }
             else
-              fn->builtin = Builtin::Default_Copytructor;
+            {
+              ctx.diag.error("invalid defaulted constructor parameters", ctx.file, fn->loc());
+            }
           }
-          else
-          {
-            ctx.diag.error("invalid defaulted constructor parameters", ctx.file, fn->loc());
-          }
-        }
-
-        if ((*owner)->kind() == Decl::Lambda)
-        {
-          fn->flags |= FunctionDecl::Defaulted;
         }
       }
 
@@ -1142,6 +1292,10 @@ namespace
         semantic_decl(ctx, decl_cast<UnionDecl>(decl), sema);
         break;
 
+      case Decl::VTable:
+        semantic_decl(ctx, decl_cast<VTableDecl>(decl), sema);
+        break;
+
       case Decl::Concept:
         semantic_decl(ctx, decl_cast<ConceptDecl>(decl), sema);
         break;
@@ -1206,12 +1360,10 @@ namespace
     {
       if (auto var = decl_cast<StmtVarDecl>(stmt->decl); var->value->kind() == Expr::Call)
       {
-        if (auto call = expr_cast<CallExpr>(var->value); call->callee->kind() == Decl::DeclRef && call->parms.size() == 1 && call->parms[0]->kind() == Expr::DeclRef)
+        if (auto call = expr_cast<CallExpr>(var->value); call->parms.size() == 1 && call->parms[0]->kind() == Expr::DeclRef)
         {
           if (auto declref = expr_cast<DeclRefExpr>(call->parms[0]); declref->decl->kind() == Decl::DeclRef && decl_cast<DeclRefDecl>(declref->decl)->name == "void")
           {
-            auto callee = decl_cast<DeclRefDecl>(call->callee);
-
             if (var->flags & VarDecl::Const)
             {
               ctx.diag.error("void var cannot be const");
@@ -1220,7 +1372,7 @@ namespace
             auto voidvar = sema.voidvar_declaration(var->loc());
 
             voidvar->name = var->name;
-            voidvar->type = sema.make_typeref(callee);
+            voidvar->type = sema.make_typeref(call->callee);
 
             stmt->decl = voidvar;
           }

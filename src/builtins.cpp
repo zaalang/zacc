@@ -519,6 +519,7 @@ namespace Builtin
     make_function(is_tuple, "pub const fn __is_tuple<T>() -> bool", __LINE__);
     make_function(is_union, "pub const fn __is_union<T>() -> bool", __LINE__);
     make_function(is_struct, "pub const fn __is_struct<T>() -> bool", __LINE__);
+    make_function(is_vtable, "pub const fn __is_vtable<T>() -> bool", __LINE__);
     make_function(is_builtin, "pub const fn __is_builtin<T>() -> bool", __LINE__);
     make_function(is_pointer, "pub const fn __is_pointer<T>() -> bool", __LINE__);
     make_function(is_reference, "pub const fn __is_reference<T>() -> bool", __LINE__);
@@ -577,7 +578,7 @@ namespace Builtin
 
     make_function(rdtsc, "pub fn __rdtsc() -> u64", __LINE__);
     make_function(rdtscp, "pub fn __rdtscp() -> (u64, u32)", __LINE__);
-    make_function(pause, "pub fn __pause() -> void", __LINE__);
+    make_function(relax, "pub fn __relax() -> void", __LINE__);
     make_function(inline_asm, "pub fn __asm<V>(##string, ##string, V...) -> uintptr", __LINE__);
 
     make_function(decl_kind, "pub const fn __decl_kind(#declid) -> u64", __LINE__);
@@ -715,7 +716,7 @@ namespace Builtin
     auto is_char = [&](Type *type) { return is_char_type(type); };
     auto is_pointer = [&](Type *type) { return is_pointer_type(type); };
     auto is_reference = [&](Type *type) { return is_reference_type(type); };
-    auto base_type = [&](Type *type) { while (is_struct_type(type) && decl_cast<StructDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
+    auto base_type = [&](Type *type) { while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
 
     auto find_type = [&](Decl *decl) { return std::find_if(typeargs.begin(), typeargs.end(), [&](auto &k) { return k.first == decl; }); };
 

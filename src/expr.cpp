@@ -39,7 +39,7 @@ namespace
 //|///////////////////// is_literal_expr ////////////////////////////////////
 bool is_literal_expr(Expr const *expr)
 {
-  return expr->kind() == Expr::VoidLiteral || expr->kind() == Expr::BoolLiteral || expr->kind() == Expr::CharLiteral || expr->kind() == Expr::IntLiteral || expr->kind() == Expr::FloatLiteral || expr->kind() == Expr::StringLiteral || expr->kind() == Expr::PtrLiteral || expr->kind() == Expr::ArrayLiteral || expr->kind() == Expr::CompoundLiteral;
+  return expr->kind() == Expr::VoidLiteral || expr->kind() == Expr::BoolLiteral || expr->kind() == Expr::CharLiteral || expr->kind() == Expr::IntLiteral || expr->kind() == Expr::FloatLiteral || expr->kind() == Expr::StringLiteral || expr->kind() == Expr::PointerLiteral || expr->kind() == Expr::FunctionPointer || expr->kind() == Expr::ArrayLiteral || expr->kind() == Expr::CompoundLiteral;
 }
 
 //|///////////////////// print //////////////////////////////////////////////
@@ -71,8 +71,12 @@ std::ostream &operator <<(std::ostream &os, Expr const &expr)
       os << '"' << escape(static_cast<StringLiteralExpr const &>(expr).value()) << '"';
       break;
 
-    case Expr::PtrLiteral:
+    case Expr::PointerLiteral:
       os << "null";
+      break;
+
+    case Expr::FunctionPointer:
+      os << static_cast<FunctionPointerExpr const &>(expr).value();
       break;
 
     case Expr::ArrayLiteral:
@@ -256,19 +260,36 @@ void StringLiteralExpr::dump(int indent) const
 }
 
 
-//|--------------------- PtrLiteralExpr -------------------------------------
+//|--------------------- PointerLiteralExpr ---------------------------------
 //|--------------------------------------------------------------------------
 
-//|///////////////////// PtrLiteralExpr::Constructor ////////////////////////
+//|///////////////////// PointerLiteralExpr::Constructor ////////////////////
 PointerLiteralExpr::PointerLiteralExpr(SourceLocation loc)
-  : Expr(PtrLiteral, loc)
+  : Expr(PointerLiteral, loc)
 {
 }
 
-//|///////////////////// PtrLiteralExpr::dump ///////////////////////////////
+//|///////////////////// PointerLiteralExpr::dump ///////////////////////////
 void PointerLiteralExpr::dump(int indent) const
 {
-  cout << spaces(indent) << "PtrLiteralExpr " << this << " <" << m_loc << "> " << *this << '\n';
+  cout << spaces(indent) << "PointerLiteralExpr " << this << " <" << m_loc << "> " << *this << '\n';
+}
+
+
+//|--------------------- FunctionPointerExpr --------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// FunctionPointerExpr::Constructor ///////////////////
+FunctionPointerExpr::FunctionPointerExpr(FnSig const &fn, SourceLocation loc)
+  : Expr(FunctionPointer, loc),
+    m_fn(fn)
+{
+}
+
+//|///////////////////// FunctionPointerExpr::dump //////////////////////////
+void FunctionPointerExpr::dump(int indent) const
+{
+  cout << spaces(indent) << "FunctionPointerExpr " << this << " <" << m_loc << "> " << *this << '\n';
 }
 
 

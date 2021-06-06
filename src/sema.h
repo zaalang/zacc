@@ -52,6 +52,7 @@ class Sema
     StructDecl *struct_declaration(SourceLocation loc);
     UnionDecl *union_declaration(SourceLocation loc);
     LambdaDecl *lambda_declaration(SourceLocation loc);
+    VTableDecl *vtable_declaration(SourceLocation loc);
     StmtVarDecl *var_declaration(SourceLocation loc);
     ParmVarDecl *parm_declaration(SourceLocation loc);
     FieldVarDecl *field_declaration(SourceLocation loc);

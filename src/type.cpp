@@ -179,6 +179,12 @@ bool is_union_type(Type const *type)
   return is_tag_type(type) && type_cast<TagType>(type)->decl->kind() == Decl::Union;
 }
 
+//|///////////////////// is_vtable_type /////////////////////////////////////
+bool is_vtable_type(Type const *type)
+{
+  return is_tag_type(type) && type_cast<TagType>(type)->decl->kind() == Decl::VTable;
+}
+
 //|///////////////////// is_lambda_type /////////////////////////////////////
 bool is_lambda_type(Type const *type)
 {
@@ -194,7 +200,7 @@ bool is_enum_type(Type const *type)
 //|///////////////////// is_compound_type ///////////////////////////////////
 bool is_compound_type(Type const *type)
 {
-  return is_tuple_type(type) || is_struct_type(type) || is_union_type(type) || is_lambda_type(type);
+  return is_tuple_type(type) || is_struct_type(type) || is_union_type(type) || is_vtable_type(type) || is_lambda_type(type);
 }
 
 //|///////////////////// is_concrete_type ///////////////////////////////////
@@ -684,8 +690,10 @@ ReferenceType::ReferenceType(Type *type)
   flags |= type->flags & Type::Resolved;
   flags |= type->flags & Type::Unresolved;
   flags |= Type::TrivialCopy;
-//  flags |= Type::TrivialAssign;
   flags |= Type::TrivialDestroy;
+
+  if (is_function_type(remove_qualifiers_type(type)))
+    flags |= Type::TrivialAssign;
 }
 
 //|///////////////////// ReferenceType::dump ////////////////////////////////
@@ -1059,7 +1067,7 @@ void TagType::resolve(vector<Type*> &&resolved_fields)
 
   fields = std::move(resolved_fields);
 
-  if (decl->kind() == Decl::Struct || decl->kind() == Decl::Union || decl->kind() == Decl::Lambda)
+  if (decl->kind() == Decl::Struct || decl->kind() == Decl::Union || decl->kind() == Decl::VTable || decl->kind() == Decl::Lambda)
   {
     if (any_of(fields.begin(), fields.end(), [](auto k) { return !is_concrete_type(k); }))
       flags &= ~Type::Concrete;

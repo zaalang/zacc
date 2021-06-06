@@ -76,6 +76,32 @@ namespace
         sx.set_type(arg, sema.make_tuple(fields));
       }
 
+      else if (arg->flags & TypeArgDecl::SplitFn)
+      {
+        i += 1;
+
+        if (k < args.size() && is_function_type(args[k]))
+        {
+          sx.set_type(arg, type_cast<FunctionType>(args[k])->returntype);
+          sx.set_type(decl_cast<TypeArgDecl>(declargs[i]), type_cast<FunctionType>(args[k])->paramtuple);
+
+          k += 1;
+        }
+      }
+
+      else if (arg->flags & TypeArgDecl::SplitArray)
+      {
+        i += 1;
+
+        if (k < args.size() && is_array_type(args[k]))
+        {
+          sx.set_type(arg, type_cast<ArrayType>(args[k])->type);
+          sx.set_type(decl_cast<TypeArgDecl>(declargs[i]), type_cast<ArrayType>(args[k])->size);
+
+          k += 1;
+        }
+      }
+
       else if (k < args.size())
       {
         sx.set_type(arg, args[k]);
@@ -131,6 +157,7 @@ namespace
 
       case Decl::Struct:
       case Decl::Union:
+      case Decl::VTable:
       case Decl::Lambda:
       case Decl::Concept:
       case Decl::Enum:
@@ -175,6 +202,7 @@ namespace
 
       case Decl::Struct:
       case Decl::Union:
+      case Decl::VTable:
         declargs = &decl_cast<TagDecl>(decl)->args;
         break;
 
@@ -282,6 +310,7 @@ namespace
 
           case Decl::Struct:
           case Decl::Union:
+          case Decl::VTable:
           case Decl::Concept:
           case Decl::Enum:
             if (decl_cast<TagDecl>(usein->decl)->name == name && (queryflags & QueryFlags::Types))
@@ -387,6 +416,12 @@ namespace
       case Type::TypeRef:
         return true;
 
+      case Type::Pack:
+        return is_dependant_type(ctx, type_cast<PackType>(type)->type);
+
+      case Type::Unpack:
+        return is_dependant_type(ctx, type_cast<UnpackType>(type)->type);
+
       default:
         assert(false);
     }
@@ -444,6 +479,12 @@ namespace
 
       case Type::TypeRef:
         return type;
+
+      case Type::Pack:
+        return sema.make_pack(substitute_type(ctx, typeargs, type_cast<PackType>(type)->type, sema));
+
+      case Type::Unpack:
+        return sema.make_unpack(substitute_type(ctx, typeargs, type_cast<UnpackType>(type)->type, sema));
 
       default:
         assert(false);
@@ -795,6 +836,7 @@ namespace
         case Decl::TypeAlias:
         case Decl::Struct:
         case Decl::Union:
+        case Decl::VTable:
         case Decl::Concept:
         case Decl::Enum:
           usein->decl = decl;
@@ -898,6 +940,7 @@ namespace
 
       case Decl::Struct:
       case Decl::Union:
+      case Decl::VTable:
       case Decl::Concept:
       case Decl::Enum:
         typeref->decl = decl;
@@ -961,6 +1004,7 @@ namespace
 
           case Decl::Struct:
           case Decl::Union:
+          case Decl::VTable:
           case Decl::Concept:
           case Decl::Lambda:
           case Decl::Enum:
@@ -1255,6 +1299,7 @@ namespace
 
       case Decl::Struct:
       case Decl::Union:
+      case Decl::VTable:
       case Decl::Lambda:
       case Decl::Enum:
         resolve_type(ctx, scope, decl_cast<TagDecl>(typeref->decl), typeref, dst, sema);
@@ -1498,7 +1543,8 @@ namespace
       case Expr::IntLiteral:
       case Expr::FloatLiteral:
       case Expr::StringLiteral:
-      case Expr::PtrLiteral:
+      case Expr::PointerLiteral:
+      case Expr::FunctionPointer:
         break;
 
       case Expr::ArrayLiteral:
@@ -1659,6 +1705,11 @@ namespace
       typer_decl(ctx, arg, sema);
     }
 
+    if (tagdecl->basetype)
+    {
+      resolve_type(ctx, ctx.stack.back(), tagdecl->basetype, sema);
+    }
+
     for(auto &decl : tagdecl->decls)
     {
       typer_decl(ctx, decl, sema);
@@ -1669,11 +1720,6 @@ namespace
   void typer_decl(TyperContext &ctx, StructDecl *strct, Sema &sema)
   {
     ctx.stack.emplace_back(strct);
-
-    if (strct->basetype)
-    {
-      resolve_type(ctx, ctx.stack.back(), strct->basetype, sema);
-    }
 
     typer_decl(ctx, decl_cast<TagDecl>(strct), sema);
 
@@ -1686,6 +1732,16 @@ namespace
     ctx.stack.emplace_back(unnion);
 
     typer_decl(ctx, decl_cast<TagDecl>(unnion), sema);
+
+    ctx.stack.pop_back();
+  }
+
+  //|///////////////////// vtable ///////////////////////////////////////////
+  void typer_decl(TyperContext &ctx, VTableDecl *vtable, Sema &sema)
+  {
+    ctx.stack.emplace_back(vtable);
+
+    typer_decl(ctx, decl_cast<TagDecl>(vtable), sema);
 
     ctx.stack.pop_back();
   }
@@ -1926,6 +1982,10 @@ namespace
 
       case Decl::Union:
         typer_decl(ctx, decl_cast<UnionDecl>(decl), sema);
+        break;
+
+      case Decl::VTable:
+        typer_decl(ctx, decl_cast<VTableDecl>(decl), sema);
         break;
 
       case Decl::Concept:
@@ -2252,6 +2312,7 @@ namespace
 
       case Decl::Struct:
       case Decl::Union:
+      case Decl::VTable:
       case Decl::Concept:
       case Decl::Enum:
         module->index.emplace(decl_cast<TagDecl>(decl)->name, decl);
@@ -2273,6 +2334,7 @@ namespace
 
           case Decl::Struct:
           case Decl::Union:
+          case Decl::VTable:
           case Decl::Concept:
           case Decl::Enum:
             module->index.emplace(decl_cast<TagDecl>(usein->decl)->name, decl);

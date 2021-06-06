@@ -46,6 +46,7 @@ class Decl
       ParmVar,
       Struct,
       Union,
+      VTable,
       Lambda,
       ThisVar,
       FieldVar,
@@ -327,6 +328,8 @@ class TypeArgDecl : public Decl
     enum Flags
     {
       Pack = 0x20,
+      SplitFn = 0x40,
+      SplitArray = 0x80,
     };
 
   public:
@@ -424,6 +427,8 @@ class TagDecl : public Decl
     std::vector<Decl*> args;
     std::vector<Decl*> decls;
 
+    Type *basetype = nullptr;
+
     std::vector<Decl*> attributes;
 };
 
@@ -436,8 +441,6 @@ class StructDecl : public TagDecl
   public:
     StructDecl(SourceLocation loc);
 
-    Type *basetype = nullptr;
-
     void dump(int indent) const override;
 };
 
@@ -449,6 +452,18 @@ class UnionDecl : public TagDecl
 {
   public:
     UnionDecl(SourceLocation loc);
+
+    void dump(int indent) const override;
+};
+
+
+//---------------------- VTableDecl -----------------------------------------
+//---------------------------------------------------------------------------
+
+class VTableDecl : public TagDecl
+{
+  public:
+    VTableDecl(SourceLocation loc);
 
     void dump(int indent) const override;
 };
@@ -629,7 +644,7 @@ class EnumDecl : public TagDecl
   public:
     EnumDecl(SourceLocation loc);
 
-    Type *basetype = nullptr;
+    Type *representation = nullptr;
 
     void dump(int indent) const override;
 };
@@ -733,6 +748,7 @@ template<> inline auto decl_cast<VoidVarDecl>(Decl *decl) { assert(decl && decl-
 template<> inline auto decl_cast<StmtVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::StmtVar); return static_cast<StmtVarDecl*>(decl); };
 template<> inline auto decl_cast<ParmVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::ParmVar); return static_cast<ParmVarDecl*>(decl); };
 template<> inline auto decl_cast<StructDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Struct); return static_cast<StructDecl*>(decl); };
+template<> inline auto decl_cast<VTableDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::VTable); return static_cast<VTableDecl*>(decl); };
 template<> inline auto decl_cast<LambdaDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Lambda); return static_cast<LambdaDecl*>(decl); };
 template<> inline auto decl_cast<ThisVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::ThisVar); return static_cast<ThisVarDecl*>(decl); };
 template<> inline auto decl_cast<FieldVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::FieldVar); return static_cast<FieldVarDecl*>(decl); };

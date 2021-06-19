@@ -653,7 +653,7 @@ namespace
   {
     usein->flags |= UsingDecl::Resolving;
 
-    long queryflags = 0;
+    long querymask = 0;
     Scope declscope = ctx.stack.front();
 
     vector<Decl*> decls;
@@ -669,11 +669,11 @@ namespace
       }
 
       if (auto owner = get_if<Decl*>(&usein->owner); owner && (*owner)->kind() == Decl::Import)
-        queryflags |= QueryFlags::Public;
+        querymask |= QueryFlags::Public;
 
       for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
       {
-        find_decls(ctx, sx, declref->name, QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Functions | QueryFlags::Usings | queryflags, decls, sema);
+        find_decls(ctx, sx, declref->name, QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Functions | QueryFlags::Usings | querymask, decls, sema);
 
         if (decls.empty())
           continue;
@@ -730,7 +730,7 @@ namespace
 
         for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
         {
-          find_decls(ctx, sx, declref->name, QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Usings | queryflags, decls, sema);
+          find_decls(ctx, sx, declref->name, QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Usings | querymask, decls, sema);
 
           if (decls.empty())
             continue;
@@ -749,7 +749,7 @@ namespace
         }
 
         if (decls[0]->kind() == Decl::Import || decls[0]->kind() == Decl::Module)
-          queryflags |= QueryFlags::Public;
+          querymask |= QueryFlags::Public;
 
         decls.clear();
       }
@@ -764,7 +764,7 @@ namespace
           return;
         }
 
-        find_decls(ctx, declscope, declref->name, QueryFlags::Modules | QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Usings | queryflags, decls, sema);
+        find_decls(ctx, declscope, declref->name, QueryFlags::Modules | QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Usings | querymask, decls, sema);
 
         if (decls.size() != 1)
         {
@@ -777,7 +777,7 @@ namespace
         declscope = decl_scope(ctx, super_scope(declscope, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
 
         if (decls[0]->kind() == Decl::Import || decls[0]->kind() == Decl::Module)
-          queryflags |= QueryFlags::Public;
+          querymask |= QueryFlags::Public;
 
         decls.clear();
       }
@@ -790,7 +790,7 @@ namespace
           return;
         }
 
-        find_decls(ctx, declscope, declref->name, QueryFlags::Modules | QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Functions | QueryFlags::Usings | queryflags, decls, sema);
+        find_decls(ctx, declscope, declref->name, QueryFlags::Modules | QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Functions | QueryFlags::Usings | querymask, decls, sema);
 
         if (decls.size() == 0)
         {
@@ -1528,6 +1528,17 @@ namespace
     if (declexpr->base)
     {
       resolve_expr(ctx, scope, declexpr->base, sema);
+    }
+
+    if (declexpr->decl->kind() == Decl::DeclRef)
+    {
+      auto declref = decl_cast<DeclRefDecl>(declexpr->decl);
+
+      if (!declexpr->base && declref->name == "void" && declref->argless)
+        dst = sema.make_void_literal(declexpr->loc());
+
+      if (!declexpr->base && declref->name == "null" && declref->argless)
+        dst = sema.make_pointer_literal(declexpr->loc());
     }
 
     resolve_decl(ctx, scope, declexpr->decl, sema);

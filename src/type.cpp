@@ -9,7 +9,7 @@
 
 #include "ast.h"
 #include <iostream>
-#include <climits>
+#include <limits>
 #include <cassert>
 
 using namespace std;

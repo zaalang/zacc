@@ -3344,12 +3344,18 @@ namespace
     auto cat = type_category(fx.mir.locals[args[1]].type);
     auto ordering = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[2])->second)->value);
 
-    if (cat == TypeCategory::Bool || cat == TypeCategory::SignedInteger || cat == TypeCategory::UnsignedInteger)
+    if (cat == TypeCategory::Bool || cat == TypeCategory::SignedInteger || cat == TypeCategory::UnsignedInteger || cat == TypeCategory::Pointer)
     {
       llvm::AtomicRMWInst *result;
 
       if (fx.mir.locals[args[1]].type == ctx.booltype)
         val = ctx.builder.CreateZExt(val, ctx.builder.getInt8Ty());
+
+      if (is_pointer_type(fx.mir.locals[args[1]].type))
+      {
+        ptr = ctx.builder.CreatePointerCast(ptr, ctx.builder.getInt64Ty()->getPointerTo());
+        val = ctx.builder.CreatePtrToInt(val, ctx.builder.getInt64Ty());
+      }
 
       switch(callee.fn->builtin)
       {
@@ -3388,6 +3394,9 @@ namespace
       result->setVolatile(true);
 
       llvm::Value *value = result;
+
+      if (is_pointer_type(fx.mir.locals[args[1]].type))
+        value = ctx.builder.CreateIntToPtr(value, llvm_type(ctx, fx.mir.locals[dst].type));
 
       if (fx.mir.locals[dst].type == ctx.booltype)
         value = ctx.builder.CreateTrunc(value, ctx.builder.getInt1Ty());
@@ -4280,29 +4289,56 @@ namespace
 
     vector<llvm::Type*> parmtypes;
 
+    llvm::AttrBuilder attrbuilder;
+    vector<llvm::AttrBuilder> parmattrs;
+
     if (is_firstarg_return(ctx, sig, fx.mir.locals[0]))
     {
       firstarg += 1;
-      parmtypes.push_back(llvm_type(ctx, fx.mir.locals[0].type, fx.mir.locals[0].flags, true)->getPointerTo());
-      returntype = ctx.builder.getVoidTy();
       fx.firstarg_return = true;
+
+      auto argtype = llvm_type(ctx, fx.mir.locals[0].type, fx.mir.locals[0].flags, true);
+
+      attrbuilder.clear();
+
+#if LLVM_VERSION_MAJOR >= 12
+      attrbuilder.addByRefAttr(argtype);
+#endif
+
+      parmtypes.push_back(argtype->getPointerTo());
+      parmattrs.push_back(attrbuilder);
+
+      returntype = ctx.builder.getVoidTy();
 
       if (fx.mir.throws)
       {
+        firstarg += 1;
+
         if (!is_concrete_type(fx.mir.locals[1].type))
         {
           ctx.diag.error("unresolved exception type", fx.fn, fx.fn->loc());
           return;
         }
 
-        firstarg += 1;
-        parmtypes.push_back(llvm_type(ctx, fx.mir.locals[1].type, true)->getPointerTo());
+        auto argtype = llvm_type(ctx, fx.mir.locals[1].type, true);
+
+        attrbuilder.clear();
+
+#if LLVM_VERSION_MAJOR >= 12
+        attrbuilder.addByRefAttr(argtype);
+#endif
+
+        parmtypes.push_back(argtype->getPointerTo());
+        parmattrs.push_back(attrbuilder);
+
         returntype = ctx.builder.getInt1Ty();
       }
     }
 
     for(size_t i = fx.mir.args_beg, end = fx.mir.args_end; i != end; ++i)
     {
+      attrbuilder.clear();
+
       if (!is_concrete_type(fx.mir.locals[i].type))
       {
         ctx.diag.error("unresolved parameter type", fx.fn, fx.fn->loc());
@@ -4316,12 +4352,20 @@ namespace
 
       if (is_passarg_pointer(ctx, sig, fx.mir.locals[i]))
       {
+        attrbuilder.addByValAttr(argtype);
+
         argtype = argtype->getPointerTo();
 
         fx.locals[i].passarg_pointer = true;
       }
 
+#if LLVM_VERSION_MAJOR >= 12
+      if (fx.mir.locals[i].flags & MIR::Local::Reference)
+        attrbuilder.addByRefAttr(argtype);
+#endif
+
       parmtypes.push_back(argtype);
+      parmattrs.push_back(attrbuilder);
     }
 
     auto linkage = llvm::Function::InternalLinkage;
@@ -4362,6 +4406,9 @@ namespace
 
     if (fx.fn->flags & FunctionDecl::ExternInterrupt)
       fnprot->setCallingConv(llvm::CallingConv::X86_INTR);
+
+    for(size_t i = 0; i < parmattrs.size(); ++i)
+      fnprot->addParamAttrs(i, parmattrs[i]);
 
 #if 0
     string buf;
@@ -4907,6 +4954,10 @@ namespace
     options.FloatABIType = llvm::FloatABI::Default;
     options.AllowFPOpFusion = llvm::FPOpFusion::Standard;
     options.ExceptionModel = llvm::ExceptionHandling::None;
+
+#if LLVM_VERSION_MAJOR == 12 && LLVM_VERSION_MINOR == 0
+    options.StackProtectorGuardOffset = (unsigned)-1;
+#endif
 
     auto relocmodel = llvm::Optional<llvm::Reloc::Model>();
     auto codemodel = llvm::Optional<llvm::CodeModel::Model>();

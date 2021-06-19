@@ -228,7 +228,7 @@ void find_decl(Decl *decl, string_view name, long flags, vector<Decl*> &results)
       break;
 
     case Decl::EnumConstant:
-      if (decl_cast<EnumConstantDecl>(decl)->name == name && (flags & Types))
+      if (decl_cast<EnumConstantDecl>(decl)->name == name && (flags & Enums))
         results.push_back(decl);
       break;
 

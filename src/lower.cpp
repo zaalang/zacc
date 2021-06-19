@@ -11,6 +11,7 @@
 #include "interp.h"
 #include "diag.h"
 #include "lifetime.h"
+#include <limits>
 #include <variant>
 #include <algorithm>
 #include <charconv>
@@ -1051,7 +1052,7 @@ namespace
     return typeargs;
   }
 
-  Scoped find_scoped(LowerContext &ctx, vector<Scope> const &stack, DeclScopedDecl *scoped, long &queryflags)
+  Scoped find_scoped(LowerContext &ctx, vector<Scope> const &stack, DeclScopedDecl *scoped, long &querymask)
   {
     vector<Decl*> decls;
 
@@ -1062,7 +1063,7 @@ namespace
       declscope = type_scope(ctx, resolve_type(ctx, stack.back(), decl_cast<TypeOfDecl>(scoped->decls[0])));
 
       if (get_module(declscope) != ctx.module)
-        queryflags |= QueryFlags::Public;
+        querymask |= QueryFlags::Public;
     }
 
     if (scoped->decls[0]->kind() == Decl::DeclRef && decl_cast<DeclRefDecl>(scoped->decls[0])->name != "::")
@@ -1074,7 +1075,7 @@ namespace
 
       for(auto sx = stack.rbegin(); sx != stack.rend(); ++sx)
       {
-        find_decls(ctx, *sx, declref->name, QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Usings | queryflags, ResolveUsings, decls);
+        find_decls(ctx, *sx, declref->name, QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Usings | querymask, ResolveUsings, decls);
 
         if (decls.empty())
           continue;
@@ -1093,7 +1094,7 @@ namespace
         return nullptr;
 
       if (decls[0]->kind() == Decl::Import || decls[0]->kind() == Decl::Module)
-        queryflags |= QueryFlags::Public;
+        querymask |= QueryFlags::Public;
 
       decls.clear();
     }
@@ -1105,7 +1106,7 @@ namespace
       auto args = typeargs(ctx, stack.back(), declref->args);
       auto namedargs = typeargs(ctx, stack.back(), declref->namedargs);
 
-      find_decls(ctx, declscope, declref->name, QueryFlags::Modules | QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Usings | queryflags, ResolveUsings, decls);
+      find_decls(ctx, declscope, declref->name, QueryFlags::Modules | QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Usings | querymask, ResolveUsings, decls);
 
       if (decls.size() != 1)
         return nullptr;
@@ -1118,7 +1119,7 @@ namespace
         return nullptr;
 
       if (decls[0]->kind() == Decl::Import || decls[0]->kind() == Decl::Module)
-        queryflags |= QueryFlags::Public;
+        querymask |= QueryFlags::Public;
 
       decls.clear();
     }
@@ -2750,19 +2751,19 @@ namespace
 
     long queryflags;
 
-    FindContext(Type *type, long queryflags = QueryFlags::All);
-    FindContext(string_view name, long queryflags = QueryFlags::All);
+    FindContext(LowerContext &ctx, Type *type, long queryflags = QueryFlags::All);
+    FindContext(LowerContext &ctx, string_view name, long queryflags = QueryFlags::All);
 
     FindContext(FindContext const &tx, long queryflags) : name(tx.name), args(tx.args), namedargs(tx.namedargs), queryflags(tx.queryflags | queryflags) { }
     FindContext& operator=(FindContext &&tx) { this->name = tx.name; this->args = std::move(tx.args); this->namedargs = std::move(tx.namedargs); this->queryflags = tx.queryflags; return *this; }
   };
 
-  FindContext::FindContext(string_view name, long queryflags)
+  FindContext::FindContext(LowerContext &ctx, string_view name, long queryflags)
     : name(name), queryflags(queryflags)
   {
   }
 
-  FindContext::FindContext(Type *type, long queryflags)
+  FindContext::FindContext(LowerContext &ctx, Type *type, long queryflags)
     : queryflags(queryflags)
   {
     switch(type = remove_const_type(type); type->klass())
@@ -2841,8 +2842,10 @@ namespace
 
         if (auto tagtype = type_cast<TagType>(type))
         {
-          for(auto &arg : decl_cast<TagDecl>(tagtype->decl)->args)
+          for(size_t i = 0; i < decl_cast<TagDecl>(tagtype->decl)->args.size(); ++i)
           {
+            auto arg = decl_cast<TagDecl>(tagtype->decl)->args[i];
+
             auto j = find_if(tagtype->args.begin(), tagtype->args.end(), [&](auto &k) { return k.first == arg; });
 
             if (decl_cast<TypeArgDecl>(arg)->flags & TypeArgDecl::Pack)
@@ -2850,6 +2853,26 @@ namespace
               for(auto &field : type_cast<TupleType>(j->second)->fields)
                 args.push_back(field);
 
+              continue;
+            }
+
+            if (decl_cast<TypeArgDecl>(arg)->flags & TypeArgDecl::SplitFn)
+            {
+              auto k = find_if(tagtype->args.begin(), tagtype->args.end(), [&](auto &k) { return k.first == decl_cast<TagDecl>(tagtype->decl)->args[i+1]; });
+
+              args.push_back(ctx.typetable.find_or_create<FunctionType>(j->second, k->second));
+
+              i += 1;
+              continue;
+            }
+
+            if (decl_cast<TypeArgDecl>(arg)->flags & TypeArgDecl::SplitArray)
+            {
+              auto k = find_if(tagtype->args.begin(), tagtype->args.end(), [&](auto &k) { return k.first == decl_cast<TagDecl>(tagtype->decl)->args[i+1]; });
+
+              args.push_back(ctx.typetable.find_or_create<ArrayType>(j->second, k->second));
+
+              i += 1;
               continue;
             }
 
@@ -3158,7 +3181,7 @@ namespace
 
         if (auto enumm = resolve_type(ctx, typescope, decl_cast<EnumDecl>(decl)))
         {
-          FindContext ttx("#enum", QueryFlags::All);
+          FindContext ttx(ctx, "#enum", QueryFlags::All);
 
           ttx.args.push_back(enumm);
 
@@ -3187,7 +3210,7 @@ namespace
 
       if (decl->kind() == Decl::Struct || decl->kind() == Decl::Union || decl->kind() == Decl::VTable)
       {
-        FindContext ttx(tx.name, QueryFlags::Functions);
+        FindContext ttx(ctx, tx.name, QueryFlags::Functions);
 
         size_t k = 0;
 
@@ -3215,7 +3238,7 @@ namespace
 
         if (auto aliastype = resolve_type(ctx, aliasscope, alias->type))
         {
-          FindContext ttx(aliastype, QueryFlags::All);
+          FindContext ttx(ctx, aliastype, QueryFlags::All);
 
           find_overloads(ctx, ttx, scopeof_type(ctx, aliastype), parms, namedparms, results);
         }
@@ -3293,7 +3316,7 @@ namespace
 
           if (auto j = sx->find_type(decl); j != sx->typeargs.end())
           {
-            tx = FindContext(j->second, tx.queryflags);
+            tx = FindContext(ctx, j->second, tx.queryflags);
 
             find_overloads(ctx, tx, scopeof_type(ctx, j->second), parms, namedparms, results);
           }
@@ -3486,7 +3509,7 @@ namespace
 
     auto typearg = type_cast<TypeArgType>(remove_const_type(remove_reference_type(parm->type)));
 
-    FindContext tx(decl_cast<ConceptDecl>(typearg->koncept)->name, QueryFlags::Functions | QueryFlags::Public);
+    FindContext tx(ctx, decl_cast<ConceptDecl>(typearg->koncept)->name, QueryFlags::Functions | QueryFlags::Public);
 
     for(auto &arg : decl_cast<ConceptDecl>(typearg->koncept)->args)
     {
@@ -3598,7 +3621,7 @@ namespace
   {
     Callee callee;
 
-    FindContext tx(type);
+    FindContext tx(ctx, type);
 
     find_overloads(ctx, tx, scopeof_type(ctx, type), parms, namedparms, callee.overloads);
 
@@ -3611,7 +3634,7 @@ namespace
   {
     Callee callee;
 
-    FindContext tx(name);
+    FindContext tx(ctx, name);
 
     if (is_tag_type(type))
     {
@@ -3635,7 +3658,7 @@ namespace
   {
     Callee callee;
 
-    FindContext tx(UnaryOpExpr::name(op));
+    FindContext tx(ctx, UnaryOpExpr::name(op));
 
     if (is_tag_type(parms[0].type.type))
     {
@@ -3664,7 +3687,7 @@ namespace
   {
     Callee callee;
 
-    FindContext tx(BinaryOpExpr::name(op));
+    FindContext tx(ctx, BinaryOpExpr::name(op));
 
     if (is_tag_type(parms[0].type.type))
     {
@@ -3700,11 +3723,11 @@ namespace
     return callee;
   }
 
-  Callee find_callee(LowerContext &ctx, vector<Scope> const &stack, Scope const &basescope, DeclRefDecl *declref, vector<MIR::Fragment> const &parms = {}, map<string_view, MIR::Fragment> const &namedparms = {}, bool is_callop = false)
+  Callee find_callee(LowerContext &ctx, vector<Scope> const &stack, Scope const &basescope, DeclRefDecl *declref, vector<MIR::Fragment> const &parms = {}, map<string_view, MIR::Fragment> const &namedparms = {}, long queryflags = QueryFlags::All, bool is_callop = false)
   {
     Callee callee;
 
-    FindContext tx(declref->name);
+    FindContext tx(ctx, declref->name, queryflags);
 
     if (is_callop)
       tx.name = "()";
@@ -3735,15 +3758,15 @@ namespace
     return callee;
   }
 
-  Callee find_callee(LowerContext &ctx, vector<Scope> const &stack, Scope const &basescope, DeclScopedDecl *scoped, vector<MIR::Fragment> const &parms = {}, map<string_view, MIR::Fragment> const &namedparms = {}, bool is_callop = false)
+  Callee find_callee(LowerContext &ctx, vector<Scope> const &stack, Scope const &basescope, DeclScopedDecl *scoped, vector<MIR::Fragment> const &parms = {}, map<string_view, MIR::Fragment> const &namedparms = {}, long queryflags = QueryFlags::All, bool is_callop = false)
   {
     Callee callee;
 
-    long queryflags = 0;
+    long querymask = 0;
 
-    if (Scoped declref = find_scoped(ctx, stack, scoped, queryflags))
+    if (Scoped declref = find_scoped(ctx, stack, scoped, querymask))
     {
-      FindContext tx(declref.decl->name, QueryFlags::Functions | QueryFlags::Types | QueryFlags::Usings | queryflags);
+      FindContext tx(ctx, declref.decl->name, QueryFlags::Functions | QueryFlags::Types | QueryFlags::Usings | querymask);
 
       if (tx.name.substr(0, 1) == "~" && tx.name.size() != 1)
       {
@@ -3851,6 +3874,8 @@ namespace
         }
       }
 
+      tx.queryflags = queryflags | querymask;
+
       tx.args = typeargs(ctx, ctx.stack.back(), declref.decl->args);
       tx.namedargs = typeargs(ctx, ctx.stack.back(), declref.decl->namedargs);
 
@@ -3862,15 +3887,15 @@ namespace
     return callee;
   }
 
-  Callee find_callee(LowerContext &ctx, vector<Scope> const &stack, Scope const &basescope, Decl *callee, vector<MIR::Fragment> const &parms = {}, map<string_view, MIR::Fragment> const &namedparms = {}, bool is_callop = false)
+  Callee find_callee(LowerContext &ctx, vector<Scope> const &stack, Scope const &basescope, Decl *callee, vector<MIR::Fragment> const &parms = {}, map<string_view, MIR::Fragment> const &namedparms = {}, long queryflags = QueryFlags::All, bool is_callop = false)
   {
     switch(callee->kind())
     {
       case Decl::DeclRef:
-        return find_callee(ctx, stack, basescope, decl_cast<DeclRefDecl>(callee), parms, namedparms, is_callop);
+        return find_callee(ctx, stack, basescope, decl_cast<DeclRefDecl>(callee), parms, namedparms, queryflags, is_callop);
 
       case Decl::DeclScoped:
-        return find_callee(ctx, stack, basescope, decl_cast<DeclScopedDecl>(callee), parms, namedparms, is_callop);
+        return find_callee(ctx, stack, basescope, decl_cast<DeclScopedDecl>(callee), parms, namedparms, queryflags, is_callop);
 
       case Decl::TypeOf:
         ctx.diag.error("typeof in value context", ctx.stack.back(), callee->loc());
@@ -6190,7 +6215,7 @@ namespace
       type = tagtype->fields[0];
     }
 
-    auto callee = find_callee(ctx, ctx.stack, basescope, declref->decl, parms, namedparms);
+    auto callee = find_callee(ctx, ctx.stack, basescope, declref->decl, parms, namedparms, QueryFlags::Functions | QueryFlags::Usings);
 
     if (!callee)
     {
@@ -6243,7 +6268,7 @@ namespace
       }
     }
 
-    auto callee = find_callee(ctx, ctx.stack, basescope, declref->decl, parms, namedparms);
+    auto callee = find_callee(ctx, ctx.stack, basescope, declref->decl, parms, namedparms, QueryFlags::Functions | QueryFlags::Usings | QueryFlags::Enums);
 
     if (!callee)
     {
@@ -7226,7 +7251,7 @@ namespace
       }
     }
 
-    auto callee = find_callee(ctx, ctx.stack, basescope, call->callee, parms, namedparms, is_callop);
+    auto callee = find_callee(ctx, ctx.stack, basescope, call->callee, parms, namedparms, QueryFlags::Functions | QueryFlags::Usings | QueryFlags::Types | QueryFlags::Enums, is_callop);
 
     if (!callee)
     {
@@ -7269,7 +7294,7 @@ namespace
 
     Callee callee;
 
-    FindContext tx(decl_cast<LambdaDecl>(lambda->decl)->name, QueryFlags::Functions);
+    FindContext tx(ctx, decl_cast<LambdaDecl>(lambda->decl)->name, QueryFlags::Functions);
 
     find_overloads(ctx, tx, child_scope(ctx.stack.back(), lambda->decl), parms, namedparms, callee.overloads);
 

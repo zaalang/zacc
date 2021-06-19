@@ -414,6 +414,18 @@ Expr *Sema::make_array_literal(vector<Expr*> const &elements, Type *size, Source
   return ast->make_expr<ArrayLiteralExpr>(elements, size, loc);
 }
 
+//|///////////////////// make_void_literal //////////////////////////////////
+Expr *Sema::make_void_literal(SourceLocation loc)
+{
+  return ast->make_expr<VoidLiteralExpr>(loc);
+}
+
+//|///////////////////// make_pointer_literal ///////////////////////////////
+Expr *Sema::make_pointer_literal(SourceLocation loc)
+{
+  return ast->make_expr<PointerLiteralExpr>(loc);
+}
+
 //|///////////////////// make_paren_expression //////////////////////////////
 Expr *Sema::make_paren_expression(Expr *subexpr, SourceLocation loc)
 {

@@ -310,5 +310,8 @@ void lifetime(MIR const &mir, TypeTable &typetable, Diag &diag)
   dump_mir(mir);
 #endif
 
+  if (ctx.diag.has_errored())
+    return;
+
   analyse(ctx, mir);
 }

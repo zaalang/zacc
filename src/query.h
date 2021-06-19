@@ -22,10 +22,11 @@ namespace QueryFlags
     Functions = 0x2, // include function decls
     Variables = 0x4, // include variable decls
     Types = 0x8,     // include type decls
-    Fields = 0x10,   // include field decls
-    Concepts = 0x20, // include concept decls
-    Imports = 0x40,  // include import decls
-    Usings = 0x80,   // include using decls
+    Enums = 0x10,    // include enum constants
+    Fields = 0x20,   // include field decls
+    Concepts = 0x40, // include concept decls
+    Imports = 0x80,  // include import decls
+    Usings = 0x100,  // include using decls
 
     All = 0x7FFF,
 

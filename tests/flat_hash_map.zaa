@@ -1,0 +1,38 @@
+import std.stdio;
+import std.flat_hash_map;
+
+using std;
+
+fn test_empty()
+{
+  var c = std::flat_hash_map<int, bool>();
+  assert(c.empty());
+  c.insert(1, true);
+  assert(!c.empty());
+  c.clear();
+  assert(c.empty());
+}
+
+fn test_len()
+{
+  var c = std::flat_hash_map<int, bool>();
+  assert(c.len == 0);
+  c.insert(1, true);
+  assert(c.len == 1);
+  c.insert(2, true);
+  assert(c.len == 2);
+  c.insert(3, true);
+  assert(c.len == 3);
+  c.erase(c.begin());
+  assert(c.len == 2);
+  c.erase(c.begin());
+  assert(c.len == 1);
+  c.erase(c.begin());
+  assert(c.len == 0);
+}
+
+fn main()
+{
+  #test_empty();
+  #test_len();
+}

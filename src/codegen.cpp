@@ -472,16 +472,7 @@ namespace
   //|///////////////////// llvm_fntype //////////////////////////////////////
   llvm::Type *llvm_fntype(GenContext &ctx, FunctionType *type)
   {
-    auto returntype = llvm_type(ctx, type->returntype, false);
-
-    vector<llvm::Type*> params;
-
-    for(auto &parm : type_cast<TupleType>(type->paramtuple)->fields)
-    {
-      params.push_back(llvm_type(ctx, parm, false));
-    }
-
-    return llvm::FunctionType::get(returntype, params, false);
+    return ctx.builder.getInt64Ty();
   }
 
   //|///////////////////// llvm_type ////////////////////////////////////////
@@ -994,7 +985,7 @@ namespace
 
     assert(ctx.functions.find(pointee) != ctx.functions.end());
 
-    return ctx.functions[pointee];
+    return llvm::ConstantExpr::getBitCast(ctx.functions[pointee], ctx.builder.getInt64Ty()->getPointerTo());
   }
 
   //|///////////////////// llvm_constant ////////////////////////////////////
@@ -2709,6 +2700,50 @@ namespace
           assert(false);
       }
     }
+    else if (is_string_type(fx.mir.locals[args[0]].type) && is_string_type(fx.mir.locals[args[1]].type))
+    {
+      llvm::Function *stringcmp = nullptr;
+
+      if (!(stringcmp = ctx.module.getFunction("stringcmp")))
+      {
+        auto fntype = llvm::FunctionType::get(ctx.builder.getInt32Ty(), { ctx.builder.getInt8Ty()->getPointerTo(), ctx.builder.getInt64Ty(), ctx.builder.getInt8Ty()->getPointerTo(), ctx.builder.getInt64Ty() }, false);
+        auto fnprot = llvm::Function::Create(fntype, llvm::Function::ExternalLinkage, "stringcmp", ctx.module);
+
+        stringcmp = fnprot;
+      }
+
+      llvm::Value *args[] = { ctx.builder.CreateExtractValue(lhs, 1), ctx.builder.CreateExtractValue(lhs, 0), ctx.builder.CreateExtractValue(rhs, 1), ctx.builder.CreateExtractValue(rhs, 0) };
+
+      switch(callee.fn->builtin)
+      {
+        case Builtin::LT:
+          store(ctx, fx, dst, ctx.builder.CreateICmpSLT(ctx.builder.CreateCall(stringcmp, args), ctx.builder.getInt32(0)));
+          break;
+
+        case Builtin::GT:
+          store(ctx, fx, dst, ctx.builder.CreateICmpSGT(ctx.builder.CreateCall(stringcmp, args), ctx.builder.getInt32(0)));
+          break;
+
+        case Builtin::LE:
+          store(ctx, fx, dst, ctx.builder.CreateICmpSLE(ctx.builder.CreateCall(stringcmp, args), ctx.builder.getInt32(0)));
+          break;
+
+        case Builtin::GE:
+          store(ctx, fx, dst, ctx.builder.CreateICmpSGE(ctx.builder.CreateCall(stringcmp, args), ctx.builder.getInt32(0)));
+          break;
+
+        case Builtin::EQ:
+          store(ctx, fx, dst, ctx.builder.CreateICmpEQ(args[0], args[2]));
+          break;
+
+        case Builtin::NE:
+          store(ctx, fx, dst, ctx.builder.CreateICmpNE(args[0], args[2]));
+          break;
+
+        default:
+          assert(false);
+      }
+    }
     else if (lhscat == TypeCategory::Pointer && rhscat == TypeCategory::Pointer)
     {
       switch(callee.fn->builtin)
@@ -2791,6 +2826,22 @@ namespace
       auto eq = ctx.builder.CreateFCmpOEQ(lhs, rhs);
       auto lt = ctx.builder.CreateFCmpOLT(lhs, rhs);
       auto result = ctx.builder.CreateSelect(eq, ctx.builder.getInt32(0), ctx.builder.CreateSelect(lt, ctx.builder.getInt32(-1), ctx.builder.getInt32(1)));
+
+      store(ctx, fx, dst, result);
+    }
+    else if (is_string_type(fx.mir.locals[args[0]].type) && is_string_type(fx.mir.locals[args[1]].type))
+    {
+      llvm::Function *stringcmp = nullptr;
+
+      if (!(stringcmp = ctx.module.getFunction("stringcmp")))
+      {
+        auto fntype = llvm::FunctionType::get(ctx.builder.getInt32Ty(), { ctx.builder.getInt8Ty()->getPointerTo(), ctx.builder.getInt64Ty(), ctx.builder.getInt8Ty()->getPointerTo(), ctx.builder.getInt64Ty() }, false);
+        auto fnprot = llvm::Function::Create(fntype, llvm::Function::ExternalLinkage, "stringcmp", ctx.module);
+
+        stringcmp = fnprot;
+      }
+
+      auto result = ctx.builder.CreateCall(stringcmp, { ctx.builder.CreateExtractValue(lhs, 1), ctx.builder.CreateExtractValue(lhs, 0), ctx.builder.CreateExtractValue(rhs, 1), ctx.builder.CreateExtractValue(rhs, 0) } );
 
       store(ctx, fx, dst, result);
     }
@@ -2957,25 +3008,56 @@ namespace
   }
 
   //|///////////////////// callop ///////////////////////////////////////////
-  void codegen_builtin_callop(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  void codegen_builtin_callop(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &callop)
   {
-    auto &[callee, args, loc] = call;
+    auto &[callee, args, loc] = callop;
 
-    auto fn = load(ctx, fx, args[0]);
+    auto returntype = llvm_type(ctx, fx.mir.locals[dst].type, true);
+    auto paramtuple = type_cast<TupleType>(fx.mir.locals[args[1]].type);
 
     vector<llvm::Value*> parms;
+    vector<llvm::Type*> parmtypes;
 
-    auto paramtuple = type_cast<TupleType>(fx.mir.locals[args[1]].type);
+    if (is_firstarg_return(ctx, callee, fx.mir.locals[dst]))
+    {
+      fx.locals[dst].firstarg_return = true;
+
+      parms.push_back(fx.locals[dst].alloca);
+      parmtypes.push_back(returntype->getPointerTo());
+
+      returntype = ctx.builder.getVoidTy();
+    }
 
     for(size_t index = 0; index < paramtuple->fields.size(); ++index)
     {
+      auto argtype = remove_const_type(remove_reference_type(paramtuple->fields[index]));
+
+      if (is_zerosized_type(argtype))
+        continue;
+
       MIR::Local rhs;
       auto ptr = codegen_fields(ctx, fx, args[1], { MIR::RValue::Field{ MIR::RValue::Val, index } }, rhs);
 
-      parms.push_back(load(ctx, fx, load(ctx, fx, ptr, rhs.type, rhs.flags), paramtuple->fields[index]));
+      if (is_passarg_pointer(ctx, callee, argtype))
+      {
+        parms.push_back(load(ctx, fx, ptr, rhs.type, rhs.flags));
+        parmtypes.push_back(llvm_type(ctx, argtype, false)->getPointerTo());
+      }
+      else
+      {
+        parms.push_back(load(ctx, fx, load(ctx, fx, ptr, rhs.type, rhs.flags), argtype));
+        parmtypes.push_back(llvm_type(ctx, argtype, false));
+      }
     }
 
-    store(ctx, fx, dst, ctx.builder.CreateCall(llvm::cast<llvm::FunctionType>(fn->getType()->getPointerElementType()), fn, parms));
+    auto fn = load(ctx, fx, args[0]);
+
+    auto fntype = llvm::FunctionType::get(returntype, parmtypes, false);
+
+    auto call = ctx.builder.CreateCall(fntype, ctx.builder.CreatePointerCast(fn, fntype->getPointerTo()), parms);
+
+    if (!fx.locals[dst].firstarg_return && !fx.mir.locals[dst].zerosized())
+      store(ctx, fx, dst, call);
   }
 
   //|///////////////////// classify /////////////////////////////////////////
@@ -4406,6 +4488,9 @@ namespace
 
     if (fx.fn->flags & FunctionDecl::ExternInterrupt)
       fnprot->setCallingConv(llvm::CallingConv::X86_INTR);
+
+    if (fx.fn->flags & FunctionDecl::NoReturn)
+      fnprot->addFnAttr(llvm::Attribute::NoReturn);
 
     for(size_t i = 0; i < parmattrs.size(); ++i)
       fnprot->addParamAttrs(i, parmattrs[i]);

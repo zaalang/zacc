@@ -226,6 +226,8 @@ namespace
 
     vector<Scope> stack;
 
+    Scope inducedscope;
+
     bool is_expression = false;
     size_t pack_expansion = size_t(-1);
 
@@ -680,6 +682,26 @@ namespace
   bool is_int_literal(LowerContext &ctx, MIR::Fragment const &value)
   {
     return is_constant(ctx, value) && get_if<IntLiteralExpr*>(&value.value.get<MIR::RValue::Constant>());
+  }
+
+  //|///////////////////// is_return_reference //////////////////////////////
+  bool is_return_reference(LowerContext &ctx, Expr *expr)
+  {
+    if (expr->kind() == Expr::UnaryOp)
+    {
+      return expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Ref;
+    }
+
+    if (expr->kind() == Expr::TernaryOp)
+    {
+      auto ternaryop = expr_cast<TernaryOpExpr>(expr);
+      auto lhs = ternaryop->lhs->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(ternaryop->lhs)->op() == UnaryOpExpr::Ref;
+      auto rhs = ternaryop->rhs->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(ternaryop->rhs)->op() == UnaryOpExpr::Ref;
+
+      return lhs && rhs;
+    }
+
+    return false;
   }
 
   //|///////////////////// resolve_defn /////////////////////////////////////
@@ -3244,6 +3266,40 @@ namespace
         }
       }
 
+      if (decl->kind() == Decl::FieldVar)
+      {
+        if (auto owner = get<Decl*>(scope.owner); owner->kind() == Decl::Union)
+        {
+          auto typescope = type_scope(ctx, scope, get<Decl*>(scope.owner));
+
+          if (!(decl->flags & Decl::Public) && get_module(decl) != ctx.module)
+            continue;
+
+          vector<FnSig> ctors;
+
+          auto field = resolve_type(ctx, typescope, decl_cast<FieldVarDecl>(decl));
+          auto uniun = resolve_type(ctx, typescope, decl_cast<UnionDecl>(get<Decl*>(scope.owner)));
+
+          FindContext ttx(ctx, field, QueryFlags::All);
+
+          find_overloads(ctx, ttx, scopeof_type(ctx, field), parms, namedparms, ctors);
+
+          for(auto &fx : ctors)
+          {
+            auto fn = ctx.mir.make_decl<FunctionDecl>(decl->loc());
+
+            fn->name = "#union";
+            fn->returntype = uniun;
+            fn->parms = fx.fn->parms;
+            fn->args.push_back(decl);
+            fn->args.push_back(fx.fn);
+            fn->owner = fx.fn->owner;
+
+            results.push_back(FnSig(fn, std::move(fx.typeargs)));
+          }
+        }
+      }
+
       if (decl->kind() == Decl::Using)
       {
         FindContext ttx(tx, QueryFlags::All);
@@ -3753,6 +3809,11 @@ namespace
       find_overloads(ctx, tx, stack, parms, namedparms, callee.overloads);
     }
 
+    if (callee.overloads.empty() && ctx.inducedscope)
+    {
+      find_overloads(ctx, tx, ctx.inducedscope, parms, namedparms, callee.overloads);
+    }
+
     resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
 
     return callee;
@@ -3845,33 +3906,6 @@ namespace
         }
 
         tx.name = "";
-      }
-
-      if (auto owner = get_if<Decl*>(&declref.scope.owner); owner && *owner && (*owner)->kind() == Decl::Union)
-      {
-        auto type = resolve_type(ctx, type_scope(ctx, declref.scope, *owner), *owner);
-
-        if (auto field = find_field(ctx, type_cast<TagType>(type), tx.name))
-        {
-          if ((field.flags & Decl::Public) || get_module(*owner) == ctx.module)
-          {
-            if (auto ctor = find_callee(ctx, field.type, parms, namedparms))
-            {
-              auto fn = ctx.mir.make_decl<FunctionDecl>(scoped->loc());
-
-              fn->name = "#union";
-              fn->returntype = type;
-              fn->parms = ctor.fx.fn->parms;
-              fn->args.push_back(type_cast<TagType>(type)->fieldvars[field.index]);
-              fn->args.push_back(ctor.fx.fn);
-              fn->owner = ctor.fx.fn->owner;
-
-              callee.fx = FnSig(fn, std::move(ctor.fx.typeargs));
-
-              return callee;
-            }
-          }
-        }
       }
 
       tx.queryflags = queryflags | querymask;
@@ -5147,17 +5181,17 @@ namespace
   {
     MIR::Fragment value;
 
-    ctx.stack.insert(ctx.stack.begin() + 2, type_scope(ctx, type));
+    ctx.inducedscope = type_scope(ctx, type);
 
     lower_expr(ctx, value, label);
-
-    ctx.stack.erase(ctx.stack.begin() + 2);
 
     if (value.type.type != type && !is_int_type(type) && !is_char_type(type))
     {
       ctx.diag.error("type mismatch on case label", ctx.stack.back(), label->loc());
       return false;
     }
+
+    ctx.inducedscope = {};
 
     if (is_constant(ctx, value) && get_if<CharLiteralExpr*>(&value.value.get<MIR::RValue::Constant>()))
     {
@@ -5722,6 +5756,9 @@ namespace
     if (!lower_expr_deref(ctx, result))
       return false;
 
+    if (callee.fn->flags & FunctionDecl::NoReturn)
+      ctx.unreachable = true;
+
     return true;
   }
 
@@ -6268,7 +6305,7 @@ namespace
       }
     }
 
-    auto callee = find_callee(ctx, ctx.stack, basescope, declref->decl, parms, namedparms, QueryFlags::Functions | QueryFlags::Usings | QueryFlags::Enums);
+    auto callee = find_callee(ctx, ctx.stack, basescope, declref->decl, parms, namedparms, QueryFlags::Functions | QueryFlags::Usings | QueryFlags::Fields | QueryFlags::Enums);
 
     if (!callee)
     {
@@ -6482,13 +6519,14 @@ namespace
     {
       auto op = static_cast<BinaryOpExpr::OpCode>(binaryop - BinaryOpExpr::AddAssign); // TODO: fragile!
 
-      auto origtype = parms[0].type;
+      auto lhs = parms[0];
 
       if (!lower_expr(ctx, result, op, parms, namedparms, loc))
         return false;
 
-      if (result.type.type == origtype.type && !(origtype.flags & MIR::Local::Const))
+      if (result.type.type == lhs.type.type && !(lhs.type.flags & MIR::Local::Const))
       {
+        parms[0] = std::move(lhs);
         parms[1] = std::move(result);
 
         callee = find_callee(ctx, ctx.stack, BinaryOpExpr::Assign, parms, namedparms);
@@ -6945,6 +6983,7 @@ namespace
       realise_destructor(ctx, dst, ternaryop->loc());
 
     result.type = ctx.mir.locals[dst];
+    result.type.defn = ctx.typetable.var_defn;
     result.type.flags |= MIR::Local::Reference;
     result.value = MIR::RValue::local((ctx.mir.locals[dst].flags & MIR::Local::Reference) ? MIR::RValue::Val : MIR::RValue::Ref, dst, ternaryop->loc());
   }
@@ -6973,7 +7012,7 @@ namespace
       return;
     }
 
-    result.type = MIR::Local(ctx.intliteraltype, MIR::Local::RValue);
+    result.type = MIR::Local(ctx.intliteraltype, MIR::Local::Const | MIR::Local::Literal);
     result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, sizeof_type(type)), call->loc());
   }
 
@@ -7001,7 +7040,7 @@ namespace
       return;
     }
 
-    result.type = MIR::Local(ctx.intliteraltype, MIR::Local::RValue);
+    result.type = MIR::Local(ctx.intliteraltype, MIR::Local::Const | MIR::Local::Literal);
     result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, alignof_type(type)), call->loc());
   }
 
@@ -7251,7 +7290,7 @@ namespace
       }
     }
 
-    auto callee = find_callee(ctx, ctx.stack, basescope, call->callee, parms, namedparms, QueryFlags::Functions | QueryFlags::Usings | QueryFlags::Types | QueryFlags::Enums, is_callop);
+    auto callee = find_callee(ctx, ctx.stack, basescope, call->callee, parms, namedparms, QueryFlags::Functions | QueryFlags::Usings | QueryFlags::Types | QueryFlags::Fields | QueryFlags::Enums, is_callop);
 
     if (!callee)
     {
@@ -8810,6 +8849,12 @@ namespace
         continue;
       }
 
+      if (is_throws(ctx, callee.fx.fn))
+      {
+        ctx.diag.error("invalid throws vtable function", thistype->fieldvars[index], var->loc());
+        continue;
+      }
+
       if (find_returntype(ctx, callee.fx).type != fntype->returntype)
       {
         ctx.diag.error("return type mismatch on vtable function", thistype->fieldvars[index], var->loc());
@@ -9825,11 +9870,11 @@ namespace
 
     if (is_union_type(condition.type.type))
     {
-      base = std::move(condition);
+      base = condition;
 
-      auto field = find_field(ctx, type_cast<CompoundType>(base.type.type), 0);
+      auto field = find_field(ctx, type_cast<CompoundType>(condition.type.type), 0);
 
-      if (!lower_field(ctx, condition, base, field, swtch->cond->loc()))
+      if (!lower_field(ctx, condition, condition, field, swtch->cond->loc()))
         return;
     }
 
@@ -10029,13 +10074,18 @@ namespace
     {
       MIR::Fragment result;
 
+      if (ctx.mir.locals[0])
+        ctx.inducedscope = type_scope(ctx, ctx.mir.locals[0].type);
+
       if (!lower_expr(ctx, result, retrn->expr))
         return;
+
+      ctx.inducedscope = {};
 
       if (is_reference_type(result.type.defn))
         result.type = resolve_as_value(ctx, result.type);
 
-      if (retrn->expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(retrn->expr)->op() == UnaryOpExpr::Ref)
+      if (is_return_reference(ctx, retrn->expr))
         result.type.defn = ctx.typetable.find_or_create<ReferenceType>(result.type.defn);
 
       if (ctx.mir.locals[0])

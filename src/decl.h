@@ -160,6 +160,8 @@ class FunctionDecl : public Decl
       Defaulted = 0x40,
       Deleted = 0x80,
 
+      NoReturn = 0x100,
+
       ExternC = 0x1000,
       ExternWin64 = 0x2000,
       ExternSysv64 = 0x4000,

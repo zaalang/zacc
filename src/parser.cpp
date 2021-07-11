@@ -647,7 +647,7 @@ namespace
 
         auto name = ctx.tok.text;
 
-        if (!ctx.try_consume_token(Token::identifier))
+        if (!ctx.try_consume_token(Token::identifier) && !ctx.try_consume_token(Token::kw_this))
         {
           ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
           ctx.comsume_til_resumable();
@@ -2443,7 +2443,7 @@ namespace
 
     var->name = ctx.tok.text;
 
-    if (!ctx.try_consume_token(Token::identifier))
+    if (!ctx.try_consume_token(Token::identifier) && !ctx.try_consume_token(Token::kw_this))
     {
       ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
       goto resume;

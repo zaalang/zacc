@@ -1760,6 +1760,45 @@ namespace
     {
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, callee.fn->builtin == Builtin::EQ);
     }
+    else if (is_string_type(fx.locals[args[0]].type) && is_string_type(fx.locals[args[1]].type))
+    {
+      bool result;
+
+      auto lhs = load_string(ctx, fx, args[0]);
+      auto rhs = load_string(ctx, fx, args[1]);
+
+      switch(callee.fn->builtin)
+      {
+        case Builtin::LT:
+          result = lhs < rhs;
+          break;
+
+        case Builtin::GT:
+          result = lhs > rhs;
+          break;
+
+        case Builtin::LE:
+          result = lhs <= rhs;
+          break;
+
+        case Builtin::GE:
+          result = lhs >= rhs;
+          break;
+
+        case Builtin::EQ:
+          result = lhs == rhs;
+          break;
+
+        case Builtin::NE:
+          result = lhs != rhs;
+          break;
+
+        default:
+          assert(false);
+      }
+
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
+    }
     else if (is_pointference_type(fx.locals[args[0]].type) && is_pointference_type(fx.locals[args[1]].type))
     {
       bool result;
@@ -1827,6 +1866,13 @@ namespace
     {
       auto lhs = load_float(ctx, fx, args[0]);
       auto rhs = load_float(ctx, fx, args[1]);
+
+      result = (lhs == rhs) ? 0 : (lhs < rhs) ? -1 : +1;
+    }
+    else if (is_string_type(fx.locals[args[0]].type) && is_string_type(fx.locals[args[1]].type))
+    {
+      auto lhs = load_string(ctx, fx, args[0]);
+      auto rhs = load_string(ctx, fx, args[1]);
 
       result = (lhs == rhs) ? 0 : (lhs < rhs) ? -1 : +1;
     }

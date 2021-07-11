@@ -605,20 +605,20 @@ namespace
       }
     }
 
-    {
-      auto ctor = sema.function_declaration(vtable->loc());
-
-      ctor->name = vtable->name;
-      ctor->flags |= FunctionDecl::Public;
-      ctor->flags |= FunctionDecl::Const;
-      ctor->flags |= FunctionDecl::Constructor;
-      ctor->flags |= FunctionDecl::Defaulted;
-      ctor->builtin = Builtin::VTable_Constructor;
-
-      ctor->args.push_back(sema.typearg_declaration(vtable->loc()));
-
-      vtable->decls.push_back(ctor);
-    }
+    //{
+    //  auto ctor = sema.function_declaration(vtable->loc());
+    //
+    //  ctor->name = vtable->name;
+    //  ctor->flags |= FunctionDecl::Public;
+    //  ctor->flags |= FunctionDecl::Const;
+    //  ctor->flags |= FunctionDecl::Constructor;
+    //  ctor->flags |= FunctionDecl::Defaulted;
+    //  ctor->builtin = Builtin::VTable_Constructor;
+    //
+    //  ctor->args.push_back(sema.typearg_declaration(vtable->loc()));
+    //
+    //  vtable->decls.push_back(ctor);
+    //}
 
     {
       auto ctor = sema.function_declaration(vtable->loc());
@@ -1178,6 +1178,14 @@ namespace
 
         fn->builtin = Builtin::Default_Compare;
       }
+    }
+
+    for(auto attr : fn->attributes)
+    {
+      auto attribute = decl_cast<AttributeDecl>(attr);
+
+      if (attribute->name == "noreturn")
+        fn->flags |= FunctionDecl::NoReturn;
     }
 
     for(auto &parm : fn->parms)

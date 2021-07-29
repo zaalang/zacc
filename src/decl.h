@@ -108,6 +108,7 @@ class TranslationUnitDecl : public Decl
     Decl *mainmodule;
 
     std::vector<Decl*> decls;
+    std::vector<std::string> cfgs;
 
     void dump(int indent) const override;
 };
@@ -161,6 +162,7 @@ class FunctionDecl : public Decl
       Deleted = 0x80,
 
       NoReturn = 0x100,
+      Inhibited = 0x200,
 
       ExternC = 0x1000,
       ExternWin64 = 0x2000,
@@ -198,7 +200,6 @@ class FunctionDecl : public Decl
 
     void dump(int indent) const override;
 };
-
 
 //---------------------- DeclScopedDecl -------------------------------------
 //---------------------------------------------------------------------------
@@ -720,7 +721,6 @@ class IfDecl : public Decl
     void dump(int indent) const override;
 };
 
-
 //
 // misc functions
 //
@@ -731,7 +731,6 @@ bool is_tag_decl(Decl const *decl);
 bool is_module_decl(Decl const *decl);
 
 std::ostream &operator <<(std::ostream &os, Decl const &decl);
-
 
 // checked casts
 

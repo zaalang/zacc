@@ -65,12 +65,90 @@ int main(int argc, char *argv[])
   try
   {
     Sema sema;
+    GenOpts opts;
 
     for(int i = 0; i < argc; ++i)
     {
       if (strncmp(argv[i], "-I", 2) == 0)
         sema.add_include_path(argv[i][2] != 0 ? argv[i] + 2 : argv[++i]);
+
+      if (strncmp(argv[i], "-D", 2) == 0)
+        sema.add_cfg(argv[i][2] != 0 ? argv[i] + 2 : argv[++i]);
+
+      if (strncmp(argv[i], "--cfg", 5) == 0)
+        sema.add_cfg(argv[i][5] != 0 ? argv[i] + 6 : argv[++i]);
+
+      if (strcmp(argv[i], "--emit-asm") == 0)
+        opts.outputtype = GenOpts::OutputType::EmitAsm;
+
+      if (strcmp(argv[i], "--emit-ll") == 0)
+        opts.outputtype = GenOpts::OutputType::EmitLL;
+
+      if (strcmp(argv[i], "-g") == 0)
+        opts.debuginfo = (opts.triple.find("msvc") != std::string::npos) ? GenOpts::DebugInfo::CodeView : GenOpts::DebugInfo::Dwarf;
+
+      if (strcmp(argv[i], "-O1") == 0)
+        opts.optlevel = GenOpts::OptLevel::Less;
+
+      if (strcmp(argv[i], "-O2") == 0)
+        opts.optlevel = GenOpts::OptLevel::Default;
+
+      if (strcmp(argv[i], "-O3") == 0)
+        opts.optlevel = GenOpts::OptLevel::Aggressive;
+
+      if (strcmp(argv[i], "-fpic") == 0)
+        opts.reloc = GenOpts::Reloc::PIC;
+
+      if (strcmp(argv[i], "-funchecked") == 0)
+        opts.checkmode = GenOpts::CheckedMode::Unchecked;
+
+      if (strcmp(argv[i], "-fstack-protect") == 0)
+        opts.stackprotect = GenOpts::StackProtect::Yes;
+
+      if (strcmp(argv[i], "-fno-stack-protect") == 0)
+        opts.stackprotect = GenOpts::StackProtect::None;
+
+      if (strcmp(argv[i], "-mred-zone") == 0)
+        opts.redzone = GenOpts::RedZone::Yes;
+
+      if (strcmp(argv[i], "-mno-red-zone") == 0)
+        opts.redzone = GenOpts::RedZone::None;
+
+      if (strcmp(argv[i], "-mcmodel=kernel") == 0)
+        opts.model = GenOpts::CodeModel::Kernel;
+
+      if (strcmp(argv[i], "-mcmodel=large") == 0)
+        opts.model = GenOpts::CodeModel::Large;
+
+      if (strcmp(argv[i], "-c") == 0)
+        opts.linker = false;
+
+      if (strcmp(argv[i], "--dump-mir") == 0)
+        opts.dump_mir = true;
+
+      if (strncmp(argv[i], "--target", 8) == 0)
+        opts.triple = argv[i][8] != 0 ? argv[i] + 9 : argv[++i];
+
+      if (strncmp(argv[i], "--features", 10) == 0)
+        opts.features = argv[i][10] != 0 ? argv[i] + 11 : argv[++i];
+
+      if (strcmp(argv[i], "-mllvm") == 0)
+        opts.llvmargs.push_back(argv[++i]);
     }
+
+    if (opts.triple.find("linux") != std::string::npos)
+      sema.add_cfg("os.linux");
+
+    if (opts.triple.find("windows") != std::string::npos)
+      sema.add_cfg("os.windows");
+
+    if (opts.checkmode == GenOpts::CheckedMode::Checked)
+      sema.add_cfg("zaa.build.checked");
+
+    if (opts.outputtype != GenOpts::OutputType::EmitObj)
+      opts.linker = false;
+
+    opts.modulename = input;
 
     parse(input, sema, diag);
 
@@ -99,69 +177,6 @@ int main(int argc, char *argv[])
 
       exit(1);
     }
-
-    GenOpts opts;
-    opts.modulename = input;
-
-    for(int i = 0; i < argc; ++i)
-    {
-      if (strcmp(argv[i], "--emit-asm") == 0)
-        opts.outputtype = GenOpts::OutputType::EmitAsm;
-
-      if (strcmp(argv[i], "--emit-ll") == 0)
-        opts.outputtype = GenOpts::OutputType::EmitLL;
-
-      if (strcmp(argv[i], "-g") == 0)
-        opts.debuginfo = (opts.triple.find("msvc") != std::string::npos) ? GenOpts::DebugInfo::CodeView : GenOpts::DebugInfo::Dwarf;
-
-      if (strcmp(argv[i], "-O1") == 0)
-        opts.optlevel = GenOpts::OptLevel::Less;
-
-      if (strcmp(argv[i], "-O2") == 0)
-        opts.optlevel = GenOpts::OptLevel::Default;
-
-      if (strcmp(argv[i], "-O3") == 0)
-        opts.optlevel = GenOpts::OptLevel::Aggressive;
-
-      if (strcmp(argv[i], "-fpic") == 0)
-        opts.reloc = GenOpts::Reloc::PIC;
-
-      if (strcmp(argv[i], "-fstack-protect") == 0)
-        opts.stackprotect = GenOpts::StackProtect::Yes;
-
-      if (strcmp(argv[i], "-fno-stack-protect") == 0)
-        opts.stackprotect = GenOpts::StackProtect::None;
-
-      if (strcmp(argv[i], "-mred-zone") == 0)
-        opts.redzone = GenOpts::RedZone::Yes;
-
-      if (strcmp(argv[i], "-mno-red-zone") == 0)
-        opts.redzone = GenOpts::RedZone::None;
-
-      if (strcmp(argv[i], "-mcmodel=kernel") == 0)
-        opts.model = GenOpts::CodeModel::Kernel;
-
-      if (strcmp(argv[i], "-mcmodel=large") == 0)
-        opts.model = GenOpts::CodeModel::Large;
-
-      if (strcmp(argv[i], "-c") == 0)
-        opts.linker = false;
-
-      if (strcmp(argv[i], "--dump-mir") == 0)
-        opts.dump_mir = true;
-
-      if (strncmp(argv[i], "--target=", 9) == 0)
-        opts.triple = argv[i] + 9;
-
-      if (strncmp(argv[i], "--features=", 11) == 0)
-        opts.features = argv[i] + 11;
-
-      if (strcmp(argv[i], "-mllvm") == 0)
-        opts.llvmargs.push_back(argv[++i]);
-    }
-
-    if (opts.outputtype != GenOpts::OutputType::EmitObj)
-      opts.linker = false;
 
     ToolChain toolchain(opts.triple);
 

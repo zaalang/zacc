@@ -684,6 +684,12 @@ namespace
     return is_constant(ctx, value) && get_if<IntLiteralExpr*>(&value.value.get<MIR::RValue::Constant>());
   }
 
+  //|///////////////////// is_call_inhibited ////////////////////////////////
+  bool is_call_inhibited(LowerContext &ctx, MIR::Fragment const &value)
+  {
+    return get<0>(value.value.get<MIR::RValue::Call>()).fn->flags & FunctionDecl::Inhibited;
+  }
+
   //|///////////////////// is_return_reference //////////////////////////////
   bool is_return_reference(LowerContext &ctx, Expr *expr)
   {
@@ -3779,11 +3785,11 @@ namespace
     return callee;
   }
 
-  Callee find_callee(LowerContext &ctx, vector<Scope> const &stack, Scope const &basescope, DeclRefDecl *declref, vector<MIR::Fragment> const &parms = {}, map<string_view, MIR::Fragment> const &namedparms = {}, long queryflags = QueryFlags::All, bool is_callop = false)
+  Callee find_callee(LowerContext &ctx, vector<Scope> const &stack, Scope const &basescope, DeclRefDecl *declref, vector<MIR::Fragment> const &parms = {}, map<string_view, MIR::Fragment> const &namedparms = {}, bool is_callop = false)
   {
     Callee callee;
 
-    FindContext tx(ctx, declref->name, queryflags);
+    FindContext tx(ctx, declref->name);
 
     if (is_callop)
       tx.name = "()";
@@ -3819,7 +3825,7 @@ namespace
     return callee;
   }
 
-  Callee find_callee(LowerContext &ctx, vector<Scope> const &stack, Scope const &basescope, DeclScopedDecl *scoped, vector<MIR::Fragment> const &parms = {}, map<string_view, MIR::Fragment> const &namedparms = {}, long queryflags = QueryFlags::All, bool is_callop = false)
+  Callee find_callee(LowerContext &ctx, vector<Scope> const &stack, Scope const &basescope, DeclScopedDecl *scoped, vector<MIR::Fragment> const &parms = {}, map<string_view, MIR::Fragment> const &namedparms = {}, bool is_callop = false)
   {
     Callee callee;
 
@@ -3827,7 +3833,7 @@ namespace
 
     if (Scoped declref = find_scoped(ctx, stack, scoped, querymask))
     {
-      FindContext tx(ctx, declref.decl->name, QueryFlags::Functions | QueryFlags::Types | QueryFlags::Usings | querymask);
+      FindContext tx(ctx, declref.decl->name, QueryFlags::All | querymask);
 
       if (tx.name.substr(0, 1) == "~" && tx.name.size() != 1)
       {
@@ -3908,8 +3914,6 @@ namespace
         tx.name = "";
       }
 
-      tx.queryflags = queryflags | querymask;
-
       tx.args = typeargs(ctx, ctx.stack.back(), declref.decl->args);
       tx.namedargs = typeargs(ctx, ctx.stack.back(), declref.decl->namedargs);
 
@@ -3921,15 +3925,15 @@ namespace
     return callee;
   }
 
-  Callee find_callee(LowerContext &ctx, vector<Scope> const &stack, Scope const &basescope, Decl *callee, vector<MIR::Fragment> const &parms = {}, map<string_view, MIR::Fragment> const &namedparms = {}, long queryflags = QueryFlags::All, bool is_callop = false)
+  Callee find_callee(LowerContext &ctx, vector<Scope> const &stack, Scope const &basescope, Decl *callee, vector<MIR::Fragment> const &parms = {}, map<string_view, MIR::Fragment> const &namedparms = {}, bool is_callop = false)
   {
     switch(callee->kind())
     {
       case Decl::DeclRef:
-        return find_callee(ctx, stack, basescope, decl_cast<DeclRefDecl>(callee), parms, namedparms, queryflags, is_callop);
+        return find_callee(ctx, stack, basescope, decl_cast<DeclRefDecl>(callee), parms, namedparms, is_callop);
 
       case Decl::DeclScoped:
-        return find_callee(ctx, stack, basescope, decl_cast<DeclScopedDecl>(callee), parms, namedparms, queryflags, is_callop);
+        return find_callee(ctx, stack, basescope, decl_cast<DeclScopedDecl>(callee), parms, namedparms, is_callop);
 
       case Decl::TypeOf:
         ctx.diag.error("typeof in value context", ctx.stack.back(), callee->loc());
@@ -4963,13 +4967,13 @@ namespace
   }
 
   //|///////////////////// lower_deref //////////////////////////////////////
-  bool lower_base_deref(LowerContext &ctx, MIR::Fragment &base)
+  bool lower_base_deref(LowerContext &ctx, MIR::Fragment &base, SourceLocation loc)
   {
     while (is_pointference_type(base.type.type))
     {
       if (is_pointer_type(base.type.type))
       {
-        if (!lower_deref(ctx, base, base, base.value.loc()))
+        if (!lower_deref(ctx, base, base, loc))
           return false;
       }
 
@@ -4987,7 +4991,7 @@ namespace
   }
 
   //|///////////////////// lower_deref //////////////////////////////////////
-  bool lower_expr_deref(LowerContext &ctx, MIR::Fragment &expr)
+  bool lower_expr_deref(LowerContext &ctx, MIR::Fragment &expr, SourceLocation loc)
   {
     while (is_reference_type(expr.type.defn))
     {
@@ -5092,14 +5096,14 @@ namespace
     result.type.flags |= MIR::Local::Reference;
     result.value = MIR::RValue::field(MIR::RValue::Ref, arg, std::move(fields), loc);
 
-    if (!lower_expr_deref(ctx, result))
+    if (!lower_expr_deref(ctx, result, loc))
       return false;
 
     return true;
   }
 
   //|///////////////////// lower_base_cast //////////////////////////////////
-  bool lower_base_cast(LowerContext &ctx, MIR::Fragment &result, Type *type, MIR::Fragment &expr)
+  bool lower_base_cast(LowerContext &ctx, MIR::Fragment &result, MIR::Fragment &expr, Type *type, SourceLocation loc)
   {
     while (is_tag_type(expr.type.type))
     {
@@ -5108,7 +5112,7 @@ namespace
 
       if (auto field = find_field(ctx, type_cast<TagType>(expr.type.type), "super"))
       {
-        lower_field(ctx, expr, expr, field, expr.value.loc());
+        lower_field(ctx, expr, expr, field, loc);
 
         continue;
       }
@@ -5127,7 +5131,7 @@ namespace
         commit_type(ctx, arg, expr.type.type, expr.type.flags);
       }
 
-      lower_expr(ctx, expr, ctx.mir.make_expr<PointerLiteralExpr>(expr.value.loc()));
+      lower_expr(ctx, expr, ctx.mir.make_expr<PointerLiteralExpr>(loc));
 
       expr.type.type = type;
     }
@@ -5141,7 +5145,7 @@ namespace
       commit_type(ctx, arg, expr.type.type, expr.type.flags);
 
       expr.type = MIR::Local(type, (expr.type.flags & ~MIR::Local::LValue) | MIR::Local::RValue);
-      expr.value = MIR::RValue::cast(arg, expr.value.loc());
+      expr.value = MIR::RValue::cast(arg, loc);
     }
 
     result.type = expr.type;
@@ -5151,7 +5155,7 @@ namespace
   }
 
   //|///////////////////// lower_lambda_decay ///////////////////////////////
-  bool lower_lambda_decay(LowerContext &ctx, MIR::Fragment &result, Scope const &scope, Type *type, MIR::Fragment &expr)
+  bool lower_lambda_decay(LowerContext &ctx, MIR::Fragment &result, MIR::Fragment &expr, Scope const &scope, Type *type, SourceLocation loc)
   {
     FnSig callop;
 
@@ -5160,7 +5164,7 @@ namespace
 
     if (!deduce_calltype(ctx, scope, callop, type_cast<FunctionType>(lhs), rhs))
     {
-      ctx.diag.error("type mismatch", ctx.stack.back(), expr.value.loc());
+      ctx.diag.error("type mismatch", ctx.stack.back(), loc);
       ctx.diag << "  function type: '" << *rhs << "' required type: '" << *lhs << "'\n";
       return false;
     }
@@ -5171,7 +5175,7 @@ namespace
       expr.type.flags &= ~MIR::Local::Reference;
 
     result.type = MIR::Local(type, expr.type.flags);
-    result.value = MIR::RValue::literal(ctx.mir.make_expr<FunctionPointerExpr>(callop, expr.value.loc()));
+    result.value = MIR::RValue::literal(ctx.mir.make_expr<FunctionPointerExpr>(callop, loc));
 
     return true;
   }
@@ -5254,7 +5258,7 @@ namespace
 #endif
 
       if (is_base_cast(ctx, type, exprs[i].type.type))
-        lower_base_cast(ctx, exprs[i], type, exprs[i]);
+        lower_base_cast(ctx, exprs[i], exprs[i], type, loc);
 
       exprs[i].type.type = type;
 
@@ -5305,7 +5309,7 @@ namespace
       field.type = MIR::Local(pack->fields[index], pack->defns[index], result.type.flags);
       field.value = MIR::RValue::field(MIR::RValue::Ref, arg, MIR::RValue::Field{ MIR::RValue::Val, index }, loc);
 
-      if (!lower_expr_deref(ctx, field))
+      if (!lower_expr_deref(ctx, field, loc))
         return false;
 
       if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd)
@@ -5562,13 +5566,13 @@ namespace
 
       if (is_lambda_decay(ctx, parmtype, parms[k].type.type))
       {
-        if (!lower_lambda_decay(ctx, parms[k], scope, parmtype, parms[k]))
+        if (!lower_lambda_decay(ctx, parms[k], parms[k], scope, parmtype, parms[k].value.loc()))
           return false;
       }
 
       if (is_base_cast(ctx, parmtype, parms[k].type.type))
       {
-        if (!lower_base_cast(ctx, parms[k], parmtype, parms[k]))
+        if (!lower_base_cast(ctx, parms[k], parms[k], parmtype, parms[k].value.loc()))
           return false;
       }
 
@@ -5753,7 +5757,7 @@ namespace
 
     result.value = MIR::RValue::call(callee, arglist, loc);
 
-    if (!lower_expr_deref(ctx, result))
+    if (!lower_expr_deref(ctx, result, loc))
       return false;
 
     if (callee.fn->flags & FunctionDecl::NoReturn)
@@ -6180,7 +6184,7 @@ namespace
       }
     }
 
-    if (!lower_expr_deref(ctx, result))
+    if (!lower_expr_deref(ctx, result, loc))
       return false;
 
     return true;
@@ -6252,7 +6256,7 @@ namespace
       type = tagtype->fields[0];
     }
 
-    auto callee = find_callee(ctx, ctx.stack, basescope, declref->decl, parms, namedparms, QueryFlags::Functions | QueryFlags::Usings);
+    auto callee = find_callee(ctx, ctx.stack, basescope, declref->decl, parms, namedparms);
 
     if (!callee)
     {
@@ -6277,7 +6281,7 @@ namespace
       if (!lower_expr(ctx, base, declref->base))
         return;
 
-      if (!lower_base_deref(ctx, base))
+      if (!lower_base_deref(ctx, base, declref->base->loc()))
         return;
 
       if (is_tag_type(base.type.type))
@@ -6305,7 +6309,7 @@ namespace
       }
     }
 
-    auto callee = find_callee(ctx, ctx.stack, basescope, declref->decl, parms, namedparms, QueryFlags::Functions | QueryFlags::Usings | QueryFlags::Fields | QueryFlags::Enums);
+    auto callee = find_callee(ctx, ctx.stack, basescope, declref->decl, parms, namedparms);
 
     if (!callee)
     {
@@ -6313,6 +6317,9 @@ namespace
       diag_callee(ctx, callee, parms, namedparms);
       return;
     }
+
+    if (callee.fx.fn->flags & FunctionDecl::Constructor)
+      ctx.diag.error("cannot call constructor without parenthesis", ctx.stack.back(), declref->loc());
 
     lower_call(ctx, result, callee.fx, parms, namedparms, declref->loc());
   }
@@ -6486,7 +6493,7 @@ namespace
       auto base_type = [&](Type *type) { while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
 
       if (is_tag_type(parms[1].type.type))
-        lower_base_cast(ctx, parms[1], base_type(parms[1].type.type), parms[1]);
+        lower_base_cast(ctx, parms[1], parms[1], base_type(parms[1].type.type), loc);
 
       if (!(parms[0].type.flags & MIR::Local::Const) && is_pointference_type(parms[0].type.type) && is_pointference_type(parms[1].type.type))
       {
@@ -6661,10 +6668,10 @@ namespace
       auto base_type = [&](Type *type) { while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
 
       if (is_tag_type(parms[0].type.type))
-        lower_base_cast(ctx, parms[0], base_type(parms[0].type.type), parms[0]);
+        lower_base_cast(ctx, parms[0], parms[0], base_type(parms[0].type.type), loc);
 
       if (is_tag_type(parms[1].type.type))
-        lower_base_cast(ctx, parms[1], base_type(parms[1].type.type), parms[1]);
+        lower_base_cast(ctx, parms[1], parms[1], base_type(parms[1].type.type), loc);
 
       if (is_pointference_type(parms[0].type.type) && is_pointference_type(parms[1].type.type))
       {
@@ -6687,7 +6694,7 @@ namespace
       auto base_type = [&](Type *type) { while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
 
       if (is_tag_type(parms[0].type.type))
-        lower_base_cast(ctx, parms[0], base_type(parms[0].type.type), parms[0]);
+        lower_base_cast(ctx, parms[0], parms[0], base_type(parms[0].type.type), loc);
 
       if (is_reference_type(parms[0].type.type))
         parms[0].type.type = ctx.typetable.find_or_create<PointerType>(remove_reference_type(parms[0].type.type));
@@ -6724,7 +6731,7 @@ namespace
         if (!lower_expr(ctx, parms[0], expr_cast<DeclRefExpr>(binaryop->lhs)->base))
           return;
 
-        if (!lower_base_deref(ctx, parms[0]))
+        if (!lower_base_deref(ctx, parms[0], binaryop->lhs->loc()))
           return;
 
         if (!lower_expr(ctx, parms[1], binaryop->rhs))
@@ -7106,7 +7113,7 @@ namespace
 
     if (is_function_type(remove_const_type(remove_pointference_type(cast->type))) && is_lambda_type(source.type.type))
     {
-      lower_lambda_decay(ctx, result, ctx.stack.back(), result.type.type, source);
+      lower_lambda_decay(ctx, result, source, ctx.stack.back(), result.type.type, cast->loc());
       return;
     }
 
@@ -7116,7 +7123,7 @@ namespace
       {
         if (type == result.type.type)
         {
-          lower_base_cast(ctx, result, type, source);
+          lower_base_cast(ctx, result, source, type, cast->loc());
           return;
         }
 
@@ -7196,7 +7203,7 @@ namespace
       if (!lower_expr(ctx, base, call->base))
         return;
 
-      if (!lower_base_deref(ctx, base))
+      if (!lower_base_deref(ctx, base, call->loc()))
         return;
 
       if (is_tag_type(base.type.type))
@@ -7269,7 +7276,7 @@ namespace
 
     if (is_callop)
     {
-      if (!lower_base_deref(ctx, parms[0]))
+      if (!lower_base_deref(ctx, parms[0], call->loc()))
         return;
 
       if (is_tag_type(parms[0].type.type))
@@ -7290,7 +7297,7 @@ namespace
       }
     }
 
-    auto callee = find_callee(ctx, ctx.stack, basescope, call->callee, parms, namedparms, QueryFlags::Functions | QueryFlags::Usings | QueryFlags::Types | QueryFlags::Fields | QueryFlags::Enums, is_callop);
+    auto callee = find_callee(ctx, ctx.stack, basescope, call->callee, parms, namedparms, is_callop);
 
     if (!callee)
     {
@@ -7968,7 +7975,7 @@ namespace
         parms[0].value = MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
 
         if (fn->builtin == Builtin::Tuple_Copytructor || fn->builtin == Builtin::Tuple_CopytructorEx)
-          lower_expr_deref(ctx, parms[0]);
+          lower_expr_deref(ctx, parms[0], fn->loc());
 
         if ((parms[0].type.flags & MIR::Local::XValue) && !(rhsfield.flags & MIR::Local::Const))
           parms[0].type.flags = (parms[0].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
@@ -8075,7 +8082,7 @@ namespace
         parms[0].value = MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
 
         if (fn->builtin == Builtin::Tuple_Assignment || fn->builtin == Builtin::Tuple_AssignmentEx)
-          lower_expr_deref(ctx, parms[0]);
+          lower_expr_deref(ctx, parms[0], fn->loc());
 
         auto rhsfield = find_field(ctx, type_cast<CompoundType>(thattype.type), index);
 
@@ -8083,7 +8090,7 @@ namespace
         parms[1].value = MIR::RValue::field(MIR::RValue::Ref, 2, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
 
         if (fn->builtin == Builtin::Tuple_Assignment || fn->builtin == Builtin::Tuple_AssignmentEx)
-          lower_expr_deref(ctx, parms[1]);
+          lower_expr_deref(ctx, parms[1], fn->loc());
 
         if ((parms[1].type.flags & MIR::Local::XValue) && !(rhsfield.flags & MIR::Local::Const))
           parms[1].type.flags = (parms[1].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
@@ -8178,14 +8185,14 @@ namespace
         parms[0].type = MIR::Local(lhsfield.type, lhsfield.defn, MIR::Local::LValue | MIR::Local::Const | MIR::Local::Reference);
         parms[0].value = MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
 
-        lower_expr_deref(ctx, parms[0]);
+        lower_expr_deref(ctx, parms[0], fn->loc());
 
         auto rhsfield = find_field(ctx, thattype, index);
 
         parms[1].type = MIR::Local(rhsfield.type, rhsfield.defn, MIR::Local::LValue | MIR::Local::Const | MIR::Local::Reference);
         parms[1].value = MIR::RValue::field(MIR::RValue::Ref, 2, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
 
-        lower_expr_deref(ctx, parms[1]);
+        lower_expr_deref(ctx, parms[1], fn->loc());
 
         if (!lower_expr(ctx, result, BinaryOpExpr::EQ, parms, namedparms, fn->loc()))
           return;
@@ -8230,14 +8237,14 @@ namespace
         parms[0].type = MIR::Local(lhsfield.type, lhsfield.defn, MIR::Local::LValue | MIR::Local::Const | MIR::Local::Reference);
         parms[0].value = MIR::RValue::field(MIR::RValue::Ref, 1, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
 
-        lower_expr_deref(ctx, parms[0]);
+        lower_expr_deref(ctx, parms[0], fn->loc());
 
         auto rhsfield = find_field(ctx, thattype, index);
 
         parms[1].type = MIR::Local(rhsfield.type, rhsfield.defn, MIR::Local::LValue | MIR::Local::Const | MIR::Local::Reference);
         parms[1].value = MIR::RValue::field(MIR::RValue::Ref, 2, MIR::RValue::Field{ MIR::RValue::Val, index }, fn->loc());
 
-        lower_expr_deref(ctx, parms[1]);
+        lower_expr_deref(ctx, parms[1], fn->loc());
 
         if (!lower_expr(ctx, result, BinaryOpExpr::Cmp, parms, namedparms, fn->loc()))
           return;
@@ -9060,6 +9067,12 @@ namespace
       if (!lower_expr(ctx, result, stmt->expr))
         return;
 
+      if (result.value.kind() == MIR::RValue::Call && is_call_inhibited(ctx, result))
+      {
+        ctx.rollback_barrier(sm);
+        return;
+      }
+
       auto arg = ctx.add_variable();
 
       realise(ctx, arg, result);
@@ -9865,14 +9878,26 @@ namespace
     if (!lower_expr(ctx, condition, swtch->cond))
       return;
 
-    if (!lower_base_deref(ctx, condition))
+    if (!lower_base_deref(ctx, condition, swtch->cond->loc()))
       return;
 
     if (is_union_type(condition.type.type))
     {
-      base = condition;
+      auto arg = ctx.add_variable();
 
-      auto field = find_field(ctx, type_cast<CompoundType>(condition.type.type), 0);
+      realise(ctx, arg, condition);
+
+      commit_type(ctx, arg, condition.type.type, condition.type.flags);
+
+      if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
+        realise_destructor(ctx, arg, swtch->cond->loc());
+
+      base.type = ctx.mir.locals[arg];
+      base.value = MIR::RValue::local(MIR::RValue::Val, arg, swtch->cond->loc());
+
+      condition = base;
+
+      auto field = find_field(ctx, type_cast<CompoundType>(base.type.type), 0);
 
       if (!lower_field(ctx, condition, condition, field, swtch->cond->loc()))
         return;
@@ -10099,13 +10124,13 @@ namespace
 
         if (is_lambda_decay(ctx, ctx.mir.locals[0].type, result.type.type))
         {
-          if (!lower_lambda_decay(ctx, result, ctx.stack.back(), ctx.mir.locals[0].type, result))
+          if (!lower_lambda_decay(ctx, result, result, ctx.stack.back(), ctx.mir.locals[0].type, retrn->expr->loc()))
             return;
         }
 
         if (is_base_cast(ctx, ctx.mir.locals[0].type, result.type.type))
         {
-          if (!lower_base_cast(ctx, result, ctx.mir.locals[0].type, result))
+          if (!lower_base_cast(ctx, result, result, ctx.mir.locals[0].type, retrn->expr->loc()))
             return;
         }
       }

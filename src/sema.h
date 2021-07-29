@@ -124,11 +124,13 @@ class Sema
 
     ModuleDecl *lookup_module(std::string_view name);
 
+    void add_cfg(std::string_view str);
     void add_include_path(std::string_view path);
 
     void end();
 
     AST *ast = nullptr;
 
+    std::vector<std::string> m_cfgs;
     std::vector<std::string> m_include_paths;
 };

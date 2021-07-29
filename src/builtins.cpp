@@ -598,6 +598,8 @@ namespace Builtin
     make_function(__decl__, "pub const fn __decl__() -> #declid", __LINE__);
     make_function(__function__, "pub const fn __function__() -> #declid", __LINE__);
     make_function(__module__, "pub const fn __module__() -> #declid", __LINE__);
+
+    make_function(__cfg, "pub const fn __cfg(##string) -> bool", __LINE__);
   }
 
   //|///////////////////// type /////////////////////////////////////////////

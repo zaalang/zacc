@@ -2429,6 +2429,121 @@ namespace
     return true;
   }
 
+  //|///////////////////// atomic_load //////////////////////////////////////
+  bool eval_builtin_atomic_load(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto src = load_ptr(ctx, fx, args[0]);
+
+    memcpy(fx.locals[dst].alloc, src, fx.locals[dst].size);
+
+    return true;
+  }
+
+  //|///////////////////// atomic_store /////////////////////////////////////
+  bool eval_builtin_atomic_store(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto ptr = load_ptr(ctx, fx, args[0]);
+
+    memcpy(ptr, fx.locals[args[1]].alloc, fx.locals[args[1]].size);
+
+    return true;
+  }
+
+  //|///////////////////// atomic_arithmatic ////////////////////////////////
+  bool eval_builtin_atomic_arithmatic(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    if (is_int(fx.locals[args[1]].type))
+    {
+      Numeric::Int result;
+
+      auto ptr = load_ptr(ctx, fx, args[0]);
+      auto lhs = load_int(ctx, ptr, fx.locals[args[1]].type);
+      auto rhs = load_int(ctx, fx, args[1]);
+
+      switch(callee.fn->builtin)
+      {
+        case Builtin::atomic_xchg:
+          result = rhs;
+          break;
+
+        case Builtin::atomic_fetch_add:
+          result = lhs + rhs;
+          break;
+
+        case Builtin::atomic_fetch_sub:
+          result = lhs - rhs;
+          break;
+
+        case Builtin::atomic_fetch_and:
+          result = lhs & rhs;
+          break;
+
+        case Builtin::atomic_fetch_xor:
+          result = lhs ^ rhs;
+          break;
+
+        case Builtin::atomic_fetch_or:
+          result = lhs | rhs;
+          break;
+
+        case Builtin::atomic_fetch_nand:
+          result = ~(lhs & rhs);
+          break;
+
+        default:
+          assert(false);
+      }
+
+      store(ctx, ptr, fx.locals[dst].type, result);
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, lhs);
+    }
+    else
+    {
+      ctx.diag.error("invalid atomic arithmetic arguments", fx.scope, loc);
+      ctx.diag << "  operand type: '" << *fx.locals[args[0]].type << "'\n";
+      return false;
+    }
+
+    return true;
+  }
+
+  //|///////////////////// atomic_cmpxchg ///////////////////////////////////
+  bool eval_builtin_atomic_cmpxchg(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    bool result = false;
+
+    if (is_int(fx.locals[args[1]].type))
+    {
+      auto ptr = load_ptr(ctx, fx, args[0]);
+      auto lhs = load_int(ctx, ptr, fx.locals[args[1]].type);
+      auto rhs = load_int(ctx, fx, args[1]);
+
+      if (lhs == rhs)
+      {
+        store(ctx, ptr, fx.locals[dst].type, load_int(ctx, fx, args[2]));
+        result = true;
+      }
+    }
+    else
+    {
+      ctx.diag.error("invalid atomic cmpxchg arguments", fx.scope, loc);
+      ctx.diag << "  operand type: '" << *fx.locals[args[0]].type << "'\n";
+      return false;
+    }
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
+
+    return true;
+  }
+
   //|///////////////////// decl_kind ////////////////////////////////////////
   bool eval_builtin_decl_kind(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -2688,6 +2803,20 @@ namespace
     }
 
     store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Range<void*>{ data, data + size });
+
+    return true;
+  }
+
+  //|///////////////////// cfg //////////////////////////////////////////////
+  bool eval_builtin_cfg(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto unit = decl_cast<TranslationUnitDecl>(get<Decl*>(get_module(callee.fn)->owner));
+    auto str = expr_cast<StringLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[0])->second)->value);
+    auto cfg = std::find(unit->cfgs.begin(), unit->cfgs.end(), str->value());
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, cfg != unit->cfgs.end());
 
     return true;
   }
@@ -3116,6 +3245,27 @@ namespace
         case Builtin::memfind:
           return eval_builtin_memfind(ctx, fx, dst, call);
 
+        case Builtin::atomic_load:
+          return eval_builtin_atomic_load(ctx, fx, dst, call);
+
+        case Builtin::atomic_store:
+          return eval_builtin_atomic_store(ctx, fx, dst, call);
+
+        case Builtin::atomic_cmpxchg:
+          return eval_builtin_atomic_cmpxchg(ctx, fx, dst, call);
+
+        case Builtin::atomic_xchg:
+        case Builtin::atomic_fetch_add:
+        case Builtin::atomic_fetch_sub:
+        case Builtin::atomic_fetch_and:
+        case Builtin::atomic_fetch_xor:
+        case Builtin::atomic_fetch_or:
+        case Builtin::atomic_fetch_nand:
+          return eval_builtin_atomic_arithmatic(ctx, fx, dst, call);
+
+        case Builtin::atomic_thread_fence:
+          return true;
+
         case Builtin::decl_kind:
           return eval_builtin_decl_kind(ctx, fx, dst, call);
 
@@ -3139,6 +3289,9 @@ namespace
 
         case Builtin::type_enumerators:
           return eval_builtin_type_enumerators(ctx, fx, dst, call);
+
+        case Builtin::__cfg:
+          return eval_builtin_cfg(ctx, fx, dst, call);
 
         default:
           assert(false);

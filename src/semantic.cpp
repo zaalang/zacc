@@ -1186,6 +1186,14 @@ namespace
 
       if (attribute->name == "noreturn")
         fn->flags |= FunctionDecl::NoReturn;
+
+      if (attribute->name == "conditional")
+      {
+        auto id = sema.make_declref(attribute->options.substr(1, attribute->options.length() - 2), fn->loc());
+
+        if (eval(ctx, ctx.stack.back(), sema.make_declref_expression(id, fn->loc())) == 0)
+          fn->flags |= FunctionDecl::Inhibited;
+      }
     }
 
     for(auto &parm : fn->parms)

@@ -241,6 +241,8 @@ namespace Builtin
     __function__,
     __module__,
 
+    __cfg,
+
     Module,
   };
 

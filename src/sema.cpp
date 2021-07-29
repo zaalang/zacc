@@ -46,6 +46,8 @@ TranslationUnitDecl *Sema::translation_unit(string_view file)
   unit->decls.push_back(ast->make_decl<UsingDecl>(unit->builtins, SourceLocation{}));
   unit->decls.push_back(unit->mainmodule);
 
+  unit->cfgs = m_cfgs;
+
   return unit;
 }
 
@@ -648,6 +650,18 @@ ModuleDecl *Sema::lookup_module(string_view name)
   }
 
   return nullptr;
+}
+
+//|///////////////////// add_cfg ////////////////////////////////////////////
+void Sema::add_cfg(string_view str)
+{
+  if (str[0] == '\'' || str[0] == '"')
+  {
+    str.remove_prefix(1);
+    str.remove_suffix(1);
+  }
+
+  m_cfgs.emplace_back(str);
 }
 
 //|///////////////////// add_include_path ///////////////////////////////////

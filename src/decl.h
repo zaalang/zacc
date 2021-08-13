@@ -16,6 +16,7 @@
 #include <string_view>
 #include <vector>
 #include <map>
+#include <unordered_map>
 #include <variant>
 
 class Type;
@@ -124,6 +125,7 @@ class ModuleDecl : public Decl
     enum Flags
     {
       Public = 0x01,
+      Indexed = 0x02,
     };
 
   public:
@@ -134,7 +136,7 @@ class ModuleDecl : public Decl
     std::string name;
     std::vector<Decl*> decls;
 
-    std::multimap<std::string_view, Decl*> index;
+    std::unordered_map<std::string_view, std::vector<Decl*>> index;
 
     void dump(int indent) const override;
 

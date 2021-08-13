@@ -2821,6 +2821,23 @@ namespace
     return true;
   }
 
+  //|///////////////////// __cfg__ //////////////////////////////////////////
+  bool eval_builtin_cfgs(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    std::string config;
+    for(auto &cfg : decl_cast<TranslationUnitDecl>(get<Decl*>(get_module(callee.fn)->owner))->cfgs)
+      config += cfg + '\0';
+
+    if (!config.empty())
+      config.pop_back();
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, ctx.make_expr<StringLiteralExpr>(config, loc));
+
+    return true;
+  }
+
   //|///////////////////// eval_runtime_fd_open /////////////////////////////
   bool eval_runtime_fd_open(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -3292,6 +3309,9 @@ namespace
 
         case Builtin::__cfg:
           return eval_builtin_cfg(ctx, fx, dst, call);
+
+        case Builtin::__cfg__:
+          return eval_builtin_cfgs(ctx, fx, dst, call);
 
         default:
           assert(false);

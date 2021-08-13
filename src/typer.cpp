@@ -863,6 +863,9 @@ namespace
   {
     vector<Decl*> decls;
 
+    if (decl_cast<DeclRefDecl>(init->decl)->name == "this")
+      return;
+
     for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
     {
       find_decls(ctx, sx, decl_cast<DeclRefDecl>(init->decl)->name, QueryFlags::Fields, decls, sema);
@@ -2311,14 +2314,10 @@ namespace
   //|///////////////////// index_decl ///////////////////////////////////////
   void index_decl(TyperContext &ctx, ModuleDecl *module, Decl *decl, Sema &sema)
   {
-#if 0
-    if (!(decl->flags & Decl::Public))
-      return;
-
     switch(decl->kind())
     {
       case Decl::TypeAlias:
-        module->index.emplace(decl_cast<TypeAliasDecl>(decl)->name, decl);
+        module->index[decl_cast<TypeAliasDecl>(decl)->name].push_back(decl);
         break;
 
       case Decl::Struct:
@@ -2326,41 +2325,35 @@ namespace
       case Decl::VTable:
       case Decl::Concept:
       case Decl::Enum:
-        module->index.emplace(decl_cast<TagDecl>(decl)->name, decl);
+        module->index[decl_cast<TagDecl>(decl)->name].push_back(decl);
         break;
 
       case Decl::Import:
-        module->index.emplace(decl_cast<ImportDecl>(decl)->alias, decl);
+        module->index[decl_cast<ImportDecl>(decl)->alias].push_back(decl);
         for(auto &usein : decl_cast<ImportDecl>(decl)->usings)
           index_decl(ctx, module, usein, sema);
         break;
 
       case Decl::Using:
+
         switch(auto usein = decl_cast<UsingDecl>(decl); usein->decl->kind())
         {
           case Decl::Module:
-            for(auto &decl : decl_cast<ModuleDecl>(usein->decl)->decls)
-              index_decl(ctx, module, decl, sema);
-            break;
-
           case Decl::Struct:
           case Decl::Union:
           case Decl::VTable:
           case Decl::Concept:
           case Decl::Enum:
-            module->index.emplace(decl_cast<TagDecl>(usein->decl)->name, decl);
-            break;
-
           case Decl::TypeAlias:
-            module->index.emplace(decl_cast<TypeAliasDecl>(usein->decl)->name, decl);
+            module->index[""].push_back(decl);
             break;
 
           case Decl::DeclRef:
-            module->index.emplace(decl_cast<DeclRefDecl>(usein->decl)->name, decl);
+            module->index[decl_cast<DeclRefDecl>(usein->decl)->name].push_back(decl);
             break;
 
           case Decl::DeclScoped:
-            module->index.emplace(decl_cast<DeclRefDecl>(decl_cast<DeclScopedDecl>(usein->decl)->decls.back())->name, decl);
+            module->index[decl_cast<DeclRefDecl>(decl_cast<DeclScopedDecl>(usein->decl)->decls.back())->name].push_back(decl);
             break;
 
           default:
@@ -2369,7 +2362,7 @@ namespace
         break;
 
       case Decl::Function:
-        module->index.emplace(decl_cast<FunctionDecl>(decl)->name, decl);
+        module->index[decl_cast<FunctionDecl>(decl)->name].push_back(decl);
         break;
 
       case Decl::If:
@@ -2388,7 +2381,6 @@ namespace
       default:
         assert(false);
     }
-#endif
   }
 
   //|///////////////////// typer_module /////////////////////////////////////
@@ -2407,6 +2399,8 @@ namespace
     {
       index_decl(ctx, module, decl, sema);
     }
+
+    module->flags |= ModuleDecl::Indexed;
 
     ctx.stack.pop_back();
   }
@@ -2435,13 +2429,6 @@ void typer(AST *ast, Sema &sema, Diag &diag)
       default:
         break;
     }
-  }
-
-  auto builtins = decl_cast<ModuleDecl>(root->builtins);
-
-  for(auto &decl : builtins->decls)
-  {
-    index_decl(ctx, builtins, decl, sema);
   }
 
   ctx.stack.pop_back();

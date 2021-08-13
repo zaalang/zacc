@@ -673,12 +673,6 @@ namespace
   }
 
   //|///////////////////// is_int_literal ///////////////////////////////////
-  bool is_int_literal(LowerContext &ctx, Type const *type)
-  {
-    return is_typelit_type(type) && type_cast<TypeLitType>(type)->value->kind() == Expr::IntLiteral;
-  }
-
-  //|///////////////////// is_int_literal ///////////////////////////////////
   bool is_int_literal(LowerContext &ctx, MIR::Fragment const &value)
   {
     return is_constant(ctx, value) && get_if<IntLiteralExpr*>(&value.value.get<MIR::RValue::Constant>());
@@ -856,22 +850,23 @@ namespace
 
   void find_decls(LowerContext &ctx, Scope const &scope, string_view name, long queryflags, vector<Decl*> &results)
   {
-#if 0
     if (is_module_scope(scope))
     {
       auto module = decl_cast<ModuleDecl>(get<Decl*>(scope.owner));
 
-      if (queryflags & QueryFlags::Public)
+      if (module->flags & ModuleDecl::Indexed)
       {
-        auto range = module->index.equal_range(name);
+        if (auto j = module->index.find(name); j != module->index.end())
+          for(auto decl : j->second)
+            find_decl(decl, name, queryflags, results);
 
-        for(auto i = range.first; i != range.second; ++i)
-          find_decl(i->second, name, queryflags, results);
+        if (auto j = module->index.find(""); j != module->index.end())
+          for(auto decl : j->second)
+            find_decl(decl, name, queryflags, results);
 
         return;
       }
     }
-#endif
 
     if (is_tag_scope(scope))
     {
@@ -1285,49 +1280,78 @@ namespace
 
   //|///////////////////// find_index ///////////////////////////////////////
 
-  size_t find_index(LowerContext &ctx, vector<Scope> const &stack, Type *target, string_view name)
+  size_t find_index(LowerContext &ctx, vector<Scope> const &stack, std::vector<Decl*> const &decls, string_view id)
   {
     auto value = size_t(-1);
 
-    if (auto [p, ec] = from_chars(name.data(), name.data() + name.length(), value); ec == std::errc())
+    if (auto [p, ec] = from_chars(id.data(), id.data() + id.length(), value); ec == std::errc())
       return value;
 
-    if (name.substr(0, 1) == "#")
+    if (id.substr(0, 1) == "#")
     {
-      name.remove_prefix(1);
+      EvalResult result = {};
 
-      if (auto decl = find_vardecl(ctx, stack, name); decl && (decl->flags & VarDecl::Literal))
+      if (auto vardecl = find_vardecl(ctx, stack, id.substr(1)); vardecl && (vardecl->flags & VarDecl::Literal))
       {
-        auto type = ctx.intliteraltype;
-
-        if (decl->kind() == Decl::ParmVar)
+        if (auto T = ctx.symbols.find(vardecl); T != ctx.symbols.end() && is_int_literal(ctx, T->second))
         {
-          if (auto T = stack.back().find_type(decl); T != stack.back().typeargs.end() && is_int_literal(ctx, T->second))
-          {
-            type = resolve_type(ctx, stack.back(), decl->type);
-            value = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(T->second)->value)->value().value;
-          }
-        }
-
-        if (auto T = ctx.symbols.find(decl); T != ctx.symbols.end() && is_int_literal(ctx, T->second))
-        {
-          type = T->second.type.type;
-          value = get<IntLiteralExpr*>(T->second.value.get<MIR::RValue::Constant>())->value().value;
-        }
-
-        if (is_declid_type(type) && is_tag_type(target))
-        {
-          auto declid = reinterpret_cast<Decl*>(value);
-          auto &fields = type_cast<TagType>(target)->fieldvars;
-
-          value = std::find(fields.begin(), fields.end(), declid) - fields.begin();
+          result.type = T->second.type.type;
+          result.value = get<IntLiteralExpr*>(T->second.value.get<MIR::RValue::Constant>());
         }
       }
 
-      return value;
+      if (!result)
+      {
+        Diag diag(ctx.diag.leader());
+        DeclRefDecl decl(id.substr(1), {});
+        DeclRefExpr expr(&decl, decl.loc());
+
+        result = evaluate(stack.back(), &expr, ctx.symbols, ctx.typetable, diag, expr.loc());
+      }
+
+      if (result.type && is_int_type(result.type))
+      {
+        return expr_cast<IntLiteralExpr>(result.value)->value().value;
+      }
+
+      if (result.type && is_string_type(result.type))
+      {
+        vector<Decl*> results;
+
+        for(auto &decl : decls)
+          find_decl(decl, expr_cast<StringLiteralExpr>(result.value)->value(), QueryFlags::All, results);
+
+        if (results.size() == 1)
+          return std::find(decls.begin(), decls.end(), results.front()) - decls.begin();
+      }
+
+      if (result.type && is_declid_type(result.type))
+      {
+        auto declid = reinterpret_cast<Decl*>(expr_cast<IntLiteralExpr>(result.value)->value().value);
+
+        if (auto j = std::find(decls.begin(), decls.end(), declid); j != decls.end())
+          return j - decls.begin();
+      }
     }
 
-    return value;
+    return size_t(-1);
+  }
+
+  size_t find_field_index(LowerContext &ctx, vector<Scope> const &stack, Type *type, string_view id)
+  {
+    switch(type->klass())
+    {
+      case Type::Tuple:
+        return find_index(ctx, stack, std::vector<Decl*>{}, id);
+
+      case Type::Tag:
+        return find_index(ctx, stack, type_cast<TagType>(type)->fieldvars, id);
+
+      default:
+        assert(false);
+    }
+
+    return size_t(-1);
   }
 
   //|///////////////////// resolve_type /////////////////////////////////////
@@ -1691,7 +1715,7 @@ namespace
 
           if (is_compound_type(type))
           {
-            if (auto index = find_index(ctx, stack, type, declref.decl->name); index != size_t(-1))
+            if (auto index = find_field_index(ctx, stack, type, declref.decl->name); index != size_t(-1))
             {
               if (auto field = find_field(ctx, type_cast<CompoundType>(type), index))
               {
@@ -3205,6 +3229,9 @@ namespace
         if (0 != tx.args.size() + tx.namedargs.size())
           continue;
 
+        if (find_if(results.begin(), results.end(), [&](auto &k) { return (k.fn->flags & FunctionDecl::Builtin) && k.fn->builtin == Builtin::Type_Enum; }) != results.end())
+          continue;
+
         auto typescope = type_scope(ctx, scope, get<Decl*>(scope.owner));
 
         if (auto enumm = resolve_type(ctx, typescope, decl_cast<EnumDecl>(decl)))
@@ -3324,10 +3351,14 @@ namespace
           case Decl::VTable:
           case Decl::Concept:
           case Decl::Enum:
+            if (tx.name != decl_cast<TagDecl>(usein->decl)->name)
+              ttx.queryflags &= ~QueryFlags::Types;
             find_overloads(ctx, ttx, parent_scope(usein->decl), parms, namedparms, results);
             break;
 
           case Decl::TypeAlias:
+            if (tx.name != decl_cast<TypeAliasDecl>(usein->decl)->name)
+              ttx.queryflags &= ~QueryFlags::Types;
             find_overloads(ctx, ttx, parent_scope(usein->decl), parms, namedparms, results);
             break;
 
@@ -3876,39 +3907,12 @@ namespace
 
       if (tx.name.substr(0, 1) == "#")
       {
-        tx.name.remove_prefix(1);
-
         if (auto owner = get_if<Decl*>(&declref.scope.owner); owner && *owner && is_tag_decl(*owner))
         {
-          if (auto decl = find_vardecl(ctx, stack, tx.name); decl && (decl->flags & VarDecl::Literal))
-          {
-            auto value = size_t(-1);
-            auto type = ctx.intliteraltype;
+          auto &decls = decl_cast<TagDecl>(*owner)->decls;
 
-            if (decl->kind() == Decl::ParmVar)
-            {
-              if (auto T = stack.back().find_type(decl); T != stack.back().typeargs.end() && is_int_literal(ctx, T->second))
-              {
-                type = resolve_type(ctx, stack.back(), decl->type);
-                value = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(T->second)->value)->value().value;
-              }
-            }
-
-            if (auto T = ctx.symbols.find(decl); T != ctx.symbols.end() && is_int_literal(ctx, T->second))
-            {
-              type = T->second.type.type;
-              value = get<IntLiteralExpr*>(T->second.value.get<MIR::RValue::Constant>())->value().value;
-            }
-
-            if (is_declid_type(type))
-            {
-              auto declid = reinterpret_cast<Decl*>(value);
-              auto &decls = decl_cast<TagDecl>(*owner)->decls;
-
-              if (auto j = std::find(decls.begin(), decls.end(), declid); j != decls.end())
-                tx.decls.push_back(*j);
-            }
-          }
+          if (auto index = find_index(ctx, stack, decls, tx.name); index < decls.size())
+            tx.decls.push_back(decls[index]);
         }
 
         tx.name = "";
@@ -6209,10 +6213,10 @@ namespace
 
     if (is_compound_type(base.type.type))
     {
-      if (auto index = find_index(ctx, ctx.stack, base.type.type, name); index != size_t(-1))
-      {
-        auto compoundtype = type_cast<CompoundType>(base.type.type);
+      auto compoundtype = type_cast<CompoundType>(base.type.type);
 
+      if (auto index = find_field_index(ctx, ctx.stack, compoundtype, name); index != size_t(-1))
+      {
         if (compoundtype->fields.size() <= index)
         {
           ctx.diag.error("field out of range", ctx.stack.back(), declref->loc());
@@ -6559,6 +6563,12 @@ namespace
 
           parms[0].type.flags &= ~MIR::Local::RValue;
         }
+      }
+
+      if (callee && is_struct_type(parms[0].type.type) && callee.fx.fn->owner != variant<Decl*, Stmt*>{type_cast<TagType>(parms[0].type.type)->decl})
+      {
+        ctx.diag.error("invalid assignment to base expression", ctx.stack.back(), loc);
+        return false;
       }
 
       if (callee && (parms[0].type.flags & MIR::Local::RValue) && !is_qualarg_type(remove_reference_type(decl_cast<ParmVarDecl>(callee.fx.fn->parms[0])->type)))
@@ -7706,17 +7716,32 @@ namespace
 
     ctx.locals[thisvar] = 0;
     ctx.symbols[thisvar].type = ctx.mir.locals[0];
-  }
 
-  //|///////////////////// lower_initialisers ///////////////////////////////
-  void lower_initialisers(LowerContext &ctx)
-  {
     auto fn = ctx.mir.fx.fn;
     auto thistype = type_cast<TagType>(ctx.mir.locals[0].type);
 
     auto sm = ctx.push_barrier();
 
-    for(size_t index = 0; index < thistype->fields.size(); ++index)
+    size_t index = 0;
+
+    if (auto j = find_if(fn->inits.begin(), fn->inits.end(), [&](auto &k) { return decl_cast<DeclRefDecl>(decl_cast<InitialiserDecl>(k)->decl)->name == "this"; }); j != fn->inits.end())
+    {
+      MIR::Fragment result;
+
+      MIR::Fragment address;
+      address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(thistype), MIR::Local::LValue);
+      address.value = MIR::RValue::local(MIR::RValue::Ref, 0, fn->loc());
+
+      auto init = decl_cast<InitialiserDecl>(*j);
+
+      ctx.mir.add_lineinfo(ctx.currentblockid, ctx.currentblock.statements.size(), init->loc().lineno);
+
+      lower_new(ctx, result, address, thistype, init->parms, init->namedparms, fn->loc());
+
+      index = thistype->fields.size();
+    }
+
+    for(; index < thistype->fields.size(); ++index)
     {
       auto type = thistype->fields[index];
       auto decl = decl_cast<FieldVarDecl>(thistype->fieldvars[index]);
@@ -10337,11 +10362,6 @@ namespace
 
     if (fn->body)
     {
-      if (fn->flags & FunctionDecl::Constructor)
-      {
-        lower_initialisers(ctx);
-      }
-
       lower_statement(ctx, fn->body);
 
       if (!ctx.mir.locals[0].type)

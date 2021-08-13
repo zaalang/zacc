@@ -407,12 +407,12 @@ void find_decls(Scope const &scope, string_view name, long flags, vector<Decl*> 
               case Decl::VTable:
               case Decl::Concept:
               case Decl::Enum:
+              case Decl::ThisVar:
                 find_decl(decl, name, flags, results);
                 break;
 
               case Decl::VoidVar:
               case Decl::StmtVar:
-              case Decl::ThisVar:
               case Decl::ErrorVar:
               case Decl::Function:
               case Decl::TypeAlias:

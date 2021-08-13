@@ -2899,6 +2899,9 @@ namespace
   {
     vector<Decl*> inits;
 
+    if (ctx.tok == Token::kw_this)
+      ctx.tok.type = Token::identifier;
+
     while (ctx.tok != Token::l_brace && ctx.tok != Token::eof)
     {
       auto init = sema.initialiser_declaration(ctx.tok.loc);
@@ -2932,6 +2935,9 @@ namespace
       inits.push_back(init);
 
       if (!ctx.try_consume_token(Token::comma))
+        break;
+
+      if (inits.size() == 1 && decl_cast<DeclRefDecl>(decl_cast<InitialiserDecl>(inits[0])->decl)->name == "this")
         break;
     }
 

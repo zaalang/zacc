@@ -1185,7 +1185,9 @@ namespace
       auto attribute = decl_cast<AttributeDecl>(attr);
 
       if (attribute->name == "noreturn")
+      {
         fn->flags |= FunctionDecl::NoReturn;
+      }
 
       if (attribute->name == "conditional")
       {

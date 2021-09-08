@@ -163,7 +163,7 @@ namespace
   //|///////////////////// type_category ///////////////////////////////
   TypeCategory type_category(Type const *type)
   {
-    switch(type->klass())
+    switch (type->klass())
     {
       case Type::Builtin:
         switch (type_cast<BuiltinType>(type)->kind())
@@ -315,7 +315,7 @@ namespace
   {
     stringstream ss;
 
-    switch(type->klass())
+    switch (type->klass())
     {
       case Type::Builtin:
         ss << prefix << '.' << type_cast<BuiltinType>(type)->name();
@@ -1087,7 +1087,7 @@ namespace
   //|///////////////////// llvm_constant ////////////////////////////////////
   llvm::Constant *llvm_constant(GenContext &ctx, FunctionContext &fx, Type *type, Expr *literal)
   {
-    switch(literal->kind())
+    switch (literal->kind())
     {
       case Expr::VoidLiteral:
         return llvm_zero(llvm_type(ctx, type, true));
@@ -1152,11 +1152,11 @@ namespace
         ctx.privateglobals[value] = global;
     }
 
-    if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None)
+    if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None && ctx.genopts.optlevel == GenOpts::OptLevel::None)
     {
       auto i = dst;
 
-      if (fx.locals[i].info && fx.locals[i].alloca)
+      if (fx.locals[i].info)
       {
         auto ditype = llvm_ditype(ctx, fx.mir.locals[i]);
 
@@ -1165,8 +1165,6 @@ namespace
         global->addDebugInfo(varexpr);
       }
     }
-
-    fx.locals[dst].info = nullptr;
 
     if (fx.locals[dst].alloca)
       llvm::cast<llvm::AllocaInst>(fx.locals[dst].alloca)->eraseFromParent();
@@ -1476,7 +1474,7 @@ namespace
     if (fx.mir.locals[dst].zerosized())
       return;
 
-    switch(op)
+    switch (op)
     {
       case MIR::RValue::Val:
         codegen_cpy_value(ctx, fx, dst, variable);
@@ -1536,7 +1534,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Not:
           result = ctx.builder.CreateNot(lhs);
@@ -1552,7 +1550,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Plus:
           result = lhs;
@@ -1587,7 +1585,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Plus:
           result = lhs;
@@ -1630,7 +1628,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Plus:
           result = lhs;
@@ -1691,7 +1689,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::PreInc:
           if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
@@ -1717,7 +1715,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::PreInc:
           if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
@@ -1743,7 +1741,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::PreInc:
           result = ctx.builder.CreateFAdd(lhs, llvm::ConstantFP::get(lhs->getType(), 1));
@@ -1763,7 +1761,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::PreInc:
           result = ctx.builder.CreateInBoundsGEP(lhs, llvm_int(ctx.builder.getInt32Ty(), 1));
@@ -1802,7 +1800,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::And:
           result = ctx.builder.CreateAnd(lhs, rhs);
@@ -1826,7 +1824,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Add:
           if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
@@ -1909,7 +1907,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Shl:
           result = ctx.builder.CreateShl(lhs, ctx.builder.CreateIntCast(rhs, lhs->getType(), true));
@@ -1929,7 +1927,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Shl:
           result = ctx.builder.CreateShl(lhs, ctx.builder.CreateIntCast(rhs, lhs->getType(), false));
@@ -1949,7 +1947,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Add:
           if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
@@ -2041,7 +2039,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Add:
           result = ctx.builder.CreateFAdd(lhs, rhs);
@@ -2091,7 +2089,7 @@ namespace
         return;
       }
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::OffsetAdd:
           result = ctx.builder.CreateInBoundsGEP(lhs, rhs);
@@ -2109,27 +2107,20 @@ namespace
     }
     else if (lhscat == TypeCategory::Pointer && rhscat == TypeCategory::Pointer)
     {
-      auto size = sizeof_type(remove_pointer_type(fx.mir.locals[args[0]].type));
+      llvm::Value *result;
 
-      if (size == 0)
+      switch (callee.fn->builtin)
       {
-        ctx.diag.error("zero sized type", fx.fn, loc);
-        return;
-      }
+        case Builtin::min:
+          result = ctx.builder.CreateSelect(ctx.builder.CreateICmpULT(rhs, lhs), rhs, lhs);
+          break;
 
-      assert(callee.fn->builtin == Builtin::Difference);
+        case Builtin::max:
+          result = ctx.builder.CreateSelect(ctx.builder.CreateICmpULT(lhs, rhs), rhs, lhs);
+          break;
 
-      auto i = ctx.builder.CreatePointerCast(lhs, ctx.builder.getInt64Ty());
-      auto j = ctx.builder.CreatePointerCast(rhs, ctx.builder.getInt64Ty());
-
-      if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
-        codegen_assert_carry(ctx, fx, ctx.builder.CreateICmpULT(i, j));
-
-      auto result = ctx.builder.CreateNUWSub(i, j);
-
-      if (size != 1)
-      {
-        result = ctx.builder.CreateExactUDiv(result, ctx.builder.getInt64(size));
+        default:
+          assert(false);
       }
 
       store(ctx, fx, dst, result);
@@ -2139,6 +2130,36 @@ namespace
       ctx.diag.error("invalid binary arithmetic arguments", fx.fn, loc);
       ctx.diag << "  lhs type: '" << *fx.mir.locals[args[0]].type << "' rhs type: '" << *fx.mir.locals[args[1]].type << "'\n";
     }
+  }
+
+  //|///////////////////// binary_pointer_difference ////////////////////////
+  void codegen_builtin_pointer_difference(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto lhs = load(ctx, fx, args[0]);
+    auto rhs = load(ctx, fx, args[1]);
+
+    auto size = sizeof_type(remove_pointer_type(fx.mir.locals[args[0]].type));
+
+    if (size == 0)
+    {
+      ctx.diag.error("zero sized type", fx.fn, loc);
+      return;
+    }
+
+    auto i = ctx.builder.CreatePointerCast(lhs, ctx.builder.getInt64Ty());
+    auto j = ctx.builder.CreatePointerCast(rhs, ctx.builder.getInt64Ty());
+
+    if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
+      codegen_assert_carry(ctx, fx, ctx.builder.CreateICmpULT(i, j));
+
+    auto result = ctx.builder.CreateNUWSub(i, j);
+
+    if (size != 1)
+      result = ctx.builder.CreateExactUDiv(result, ctx.builder.getInt64(size));
+
+    store(ctx, fx, dst, result);
   }
 
   //|///////////////////// binary_arithmetic_carry //////////////////////////
@@ -2158,7 +2179,7 @@ namespace
       auto N = 2*llvm::cast<llvm::IntegerType>(lhs->getType())->getBitWidth();
       auto width = llvm::cast<llvm::IntegerType>(lhs->getType())->getBitWidth();
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::AddCarry:
           result = ctx.builder.CreateAdd(ctx.builder.CreateIntCast(lhs, ctx.builder.getIntNTy(N), false), ctx.builder.CreateIntCast(rhs, ctx.builder.getIntNTy(N), false));
@@ -2195,7 +2216,7 @@ namespace
       auto N = 2*llvm::cast<llvm::IntegerType>(lhs->getType())->getBitWidth();
       auto width = llvm::cast<llvm::IntegerType>(lhs->getType())->getBitWidth();
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::AddCarry:
           result = ctx.builder.CreateAdd(ctx.builder.CreateIntCast(lhs, ctx.builder.getIntNTy(N), true), ctx.builder.CreateIntCast(rhs, ctx.builder.getIntNTy(N), true));
@@ -2250,7 +2271,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::AndAssign:
           result = ctx.builder.CreateAnd(lhs, rhs);
@@ -2274,7 +2295,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::AddAssign:
           if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
@@ -2345,7 +2366,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::ShlAssign:
           result = ctx.builder.CreateShl(lhs, ctx.builder.CreateIntCast(rhs, lhs->getType(), true));
@@ -2365,7 +2386,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::ShlAssign:
           result = ctx.builder.CreateShl(lhs, ctx.builder.CreateIntCast(rhs, lhs->getType(), false));
@@ -2385,7 +2406,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::AddAssign:
           if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
@@ -2463,7 +2484,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::AddAssign:
           result = ctx.builder.CreateFAdd(lhs, rhs);
@@ -2501,7 +2522,7 @@ namespace
         return;
       }
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::OffsetAddAssign:
           result = ctx.builder.CreateInBoundsGEP(lhs, rhs);
@@ -2574,7 +2595,7 @@ namespace
     }
     else if (lhscat == TypeCategory::Bool && rhscat == TypeCategory::Bool)
     {
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::LT:
           store(ctx, fx, dst, ctx.builder.CreateICmpULT(lhs, rhs));
@@ -2606,7 +2627,7 @@ namespace
     }
     else if (lhscat == TypeCategory::UnsignedInteger && rhscat == TypeCategory::UnsignedInteger)
     {
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::LT:
           store(ctx, fx, dst, ctx.builder.CreateICmpULT(lhs, rhs));
@@ -2638,7 +2659,7 @@ namespace
     }
     else if (lhscat == TypeCategory::SignedInteger && rhscat == TypeCategory::SignedInteger)
     {
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::LT:
           store(ctx, fx, dst, ctx.builder.CreateICmpSLT(lhs, rhs));
@@ -2670,7 +2691,7 @@ namespace
     }
     else if (lhscat == TypeCategory::FloatingPoint && rhscat == TypeCategory::FloatingPoint)
     {
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::LT:
           store(ctx, fx, dst, ctx.builder.CreateFCmpOLT(lhs, rhs));
@@ -2714,7 +2735,7 @@ namespace
 
       llvm::Value *args[] = { ctx.builder.CreateExtractValue(lhs, 1), ctx.builder.CreateExtractValue(lhs, 0), ctx.builder.CreateExtractValue(rhs, 1), ctx.builder.CreateExtractValue(rhs, 0) };
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::LT:
           store(ctx, fx, dst, ctx.builder.CreateICmpSLT(ctx.builder.CreateCall(stringcmp, args), ctx.builder.getInt32(0)));
@@ -2746,7 +2767,7 @@ namespace
     }
     else if (lhscat == TypeCategory::Pointer && rhscat == TypeCategory::Pointer)
     {
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::LT:
           store(ctx, fx, dst, ctx.builder.CreateICmpULT(lhs, rhs));
@@ -3012,7 +3033,7 @@ namespace
   {
     auto &[callee, args, loc] = callop;
 
-    auto returntype = llvm_type(ctx, fx.mir.locals[dst].type, true);
+    auto returntype = llvm_type(ctx, fx.mir.locals[dst].type);
     auto paramtuple = type_cast<TupleType>(fx.mir.locals[args[1]].type);
 
     vector<llvm::Value*> parms;
@@ -3072,7 +3093,7 @@ namespace
     {
       bool result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::is_nan:
         case Builtin::is_finite:
@@ -3093,7 +3114,7 @@ namespace
     {
       llvm::Value *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::is_nan:
           result = ctx.builder.CreateFCmpUNO(lhs, lhs);
@@ -3439,7 +3460,7 @@ namespace
         val = ctx.builder.CreatePtrToInt(val, ctx.builder.getInt64Ty());
       }
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::atomic_xchg:
           result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Xchg, ptr, val, llvm_ordering(ordering->value().value));
@@ -3489,7 +3510,7 @@ namespace
     {
       llvm::AtomicRMWInst *result;
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::atomic_xchg:
           result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Xchg, ptr, val, llvm_ordering(ordering->value().value));
@@ -3622,7 +3643,7 @@ namespace
 
     if (callee.fn->flags & FunctionDecl::Builtin)
     {
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Plus:
         case Builtin::Minus:
@@ -3704,8 +3725,11 @@ namespace
 
         case Builtin::OffsetAdd:
         case Builtin::OffsetSub:
-        case Builtin::Difference:
           codegen_builtin_binary_arithmetic(ctx, fx, dst, call);
+          break;
+
+        case Builtin::Difference:
+          codegen_builtin_pointer_difference(ctx, fx, dst, call);
           break;
 
         case Builtin::OffsetAddAssign:
@@ -4183,6 +4207,10 @@ namespace
       case MIR::Terminator::Throw:
         codegen_throw_terminator(ctx, fx, terminator.value, terminator.blockid);
         break;
+
+      case MIR::Terminator::Unreachable:
+        ctx.builder.CreateUnreachable();
+        break;
     }
   }
 
@@ -4367,7 +4395,7 @@ namespace
 
     // prototype
 
-    auto returntype = llvm_type(ctx, fx.mir.locals[0].type, fx.mir.locals[0].flags);
+    auto returntype = llvm_type(ctx, fx.mir.locals[0].type);
 
     vector<llvm::Type*> parmtypes;
 
@@ -4462,8 +4490,6 @@ namespace
 
     if (ctx.triple.getOS() == llvm::Triple::Win32)
       fnprot->addFnAttr(llvm::Attribute::UWTable);
-
-    fnprot->addFnAttr("frame-pointer", "all");
 
     if ((fx.fn->flags & FunctionDecl::DeclType) == FunctionDecl::ConstDecl)
       fnprot->addFnAttr(llvm::Attribute::AlwaysInline);
@@ -5163,7 +5189,7 @@ namespace
 
     FPM.doFinalization();
 
-    switch(ctx.genopts.outputtype)
+    switch (ctx.genopts.outputtype)
     {
       case GenOpts::OutputType::EmitAsm:
         machine->addPassesToEmitFile(MPM, outstream, nullptr, llvm::CodeGenFileType::CGFT_AssemblyFile, false);

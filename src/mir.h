@@ -273,6 +273,7 @@ class MIR
           Switch,
           Catch,
           Throw,
+          Unreachable,
         };
 
         Kind kind;
@@ -288,6 +289,7 @@ class MIR
         static Terminator switcher(local_t value, block_t block_false, block_t block_true) { return { Switch, value, block_true, { { 0, block_false } } }; }
         static Terminator catcher(local_t value, block_t dst) { return { Catch, value, dst }; }
         static Terminator thrower(local_t value, block_t dst) { return { Throw, value, dst }; }
+        static Terminator unreachable() { return { Unreachable }; }
 
       protected:
 

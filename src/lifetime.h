@@ -14,4 +14,4 @@
 //-------------------------- Lifetime ---------------------------------------
 //---------------------------------------------------------------------------
 
-void lifetime(MIR const &mir, class TypeTable &typetable, class Diag &diag);
+void lifetime(MIR const &mir, struct TypeTable &typetable, class Diag &diag);

@@ -332,6 +332,10 @@ std::ostream &operator <<(std::ostream &os, MIR::Terminator const &terminator)
     case MIR::Terminator::Throw:
       os << "throw(_" << terminator.value << ") -> bb" << terminator.blockid;
       break;
+
+    case MIR::Terminator::Unreachable:
+      os << "unreachable";
+      break;
   }
 
   return os;

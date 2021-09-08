@@ -27,6 +27,13 @@ using namespace std;
 
 namespace
 {
+  enum Unreachable
+  {
+    No = 0,
+    Unwind,
+    Yes,
+  };
+
   struct LowerContext
   {
     Diag diag;
@@ -36,7 +43,7 @@ namespace
     MIR::Block currentblock;
     MIR::block_t currentblockid;
 
-    bool unreachable;
+    Unreachable unreachable;
     MIR::local_t errorarg;
     vector<MIR::block_t> throws;
     vector<MIR::block_t> breaks;
@@ -76,7 +83,7 @@ namespace
       auto arg = mir.add_local(MIR::Local());
 
       add_statement(MIR::Statement::storagelive(arg));
-      retire_statement(MIR::Statement::storagedead(arg));
+      retiring_statement(MIR::Statement::storagedead(arg));
 
       return arg;
     }
@@ -86,7 +93,7 @@ namespace
       auto arg = mir.add_local(MIR::Local(type, flags));
 
       add_statement(MIR::Statement::storagelive(arg));
-      retire_statement(MIR::Statement::storagedead(arg));
+      retiring_statement(MIR::Statement::storagedead(arg));
 
       return arg;
     }
@@ -127,7 +134,7 @@ namespace
       return barriers.size() - 1;
     }
 
-    void retire_statement(MIR::Statement statement)
+    void retiring_statement(MIR::Statement statement)
     {
       barriers.back().retires.push_back(std::move(statement));
     }
@@ -169,9 +176,12 @@ namespace
           throws.resize(barrier.firstthrow);
         }
 
-        for(auto i = barrier.retires.rbegin(); i != barrier.retires.rend(); ++i)
+        if (unreachable != Unreachable::Yes)
         {
-          add_statement(std::move(*i));
+          for(auto i = barrier.retires.rbegin(); i != barrier.retires.rend(); ++i)
+          {
+            add_statement(std::move(*i));
+          }
         }
 
         pack_expansion = barrier.pack_expansion;
@@ -247,7 +257,7 @@ namespace
         outdiag(diag)
     {
       errorarg = 0;
-      unreachable = false;
+      unreachable = Unreachable::No;
       mir.args_beg = 1;
       mir.args_end = 1;
       mir.throws = false;
@@ -1723,6 +1733,12 @@ namespace
               }
             }
           }
+
+          if (is_enum_type(type))
+          {
+            if (declref.decl->name == "super")
+              types.push_back(type_cast<TagType>(type)->fields[0]);
+          }
         }
 
         if (types.size() == 1)
@@ -2716,6 +2732,9 @@ namespace
   {
     auto fn = decl_cast<FunctionDecl>(decl_cast<LambdaDecl>(type_cast<TagType>(rhs)->decl)->fn);
     auto params = type_cast<TupleType>(resolve_type(ctx, scope, lhs->paramtuple));
+
+    if (fn->throws)
+      return false;
 
     if (params->fields.size() != fn->parms.size())
       return false;
@@ -4056,6 +4075,9 @@ namespace
       returntype = mir.locals[0];
     }
 
+    if ((fx.fn->flags & FunctionDecl::Builtin) && fx.fn->builtin == Builtin::CallOp)
+      returntype.defn = returntype.type;
+
     returntype.flags &= ~MIR::Local::Const;
     returntype.flags &= ~MIR::Local::XValue;
     returntype.flags &= ~MIR::Local::Literal;
@@ -4268,12 +4290,12 @@ namespace
       commit_type(ctx, dst, ctx.voidtype);
 
       ctx.push_barrier();
-      ctx.retire_statement(MIR::Statement::storagedead(dst));
-      ctx.retire_statement(MIR::Statement::storagedead(src));
-      ctx.retire_statement(MIR::Statement::assign(dst, MIR::RValue::call(callee.fx, { src }, loc)));
-      ctx.retire_statement(MIR::Statement::assign(src, MIR::RValue::local(MIR::RValue::Ref, arg, loc)));
-      ctx.retire_statement(MIR::Statement::storagelive(dst));
-      ctx.retire_statement(MIR::Statement::storagelive(src));
+      ctx.retiring_statement(MIR::Statement::storagedead(dst));
+      ctx.retiring_statement(MIR::Statement::storagedead(src));
+      ctx.retiring_statement(MIR::Statement::assign(dst, MIR::RValue::call(callee.fx, { src }, loc)));
+      ctx.retiring_statement(MIR::Statement::assign(src, MIR::RValue::local(MIR::RValue::Ref, arg, loc)));
+      ctx.retiring_statement(MIR::Statement::storagelive(dst));
+      ctx.retiring_statement(MIR::Statement::storagelive(src));
     }
   }
 
@@ -5765,7 +5787,7 @@ namespace
       return false;
 
     if (callee.fn->flags & FunctionDecl::NoReturn)
-      ctx.unreachable = true;
+      ctx.unreachable = Unreachable::Yes;
 
     return true;
   }
@@ -6148,8 +6170,9 @@ namespace
       }
       else
       {
-        base.type = resolve_as_reference(ctx, ctx.mir.locals[1]);
-        base.value = MIR::RValue::local(MIR::RValue::Val, 1, loc);
+        auto arg = ctx.mir.fx.throwtype ? 2 : 1;
+        base.type = resolve_as_reference(ctx, ctx.mir.locals[arg]);
+        base.value = MIR::RValue::local(MIR::RValue::Val, arg, loc);
       }
 
       auto field = find_field(ctx, type_cast<TagType>(base.type.type), decl_cast<FieldVarDecl>(vardecl)->name);
@@ -6694,6 +6717,9 @@ namespace
           rhs = base_type(rhs);
         }
 
+        //promote_type(ctx, rhs, lhs);
+        //promote_type(ctx, lhs, rhs);
+
         if (lhs == rhs)
           callee.fx = map_builtin(ctx, binaryop, ctx.typetable.find_or_create<PointerType>(ctx.typetable.find_or_create<ConstType>(lhs)));
       }
@@ -6920,7 +6946,7 @@ namespace
 
     commit_type(ctx, cond, condition.type.type, condition.type.flags);
 
-    auto block_switch = ctx.add_block(MIR::Terminator::switcher(cond, ctx.currentblockid + 1));
+    auto block_cond = ctx.add_block(MIR::Terminator::switcher(cond, ctx.currentblockid + 1));
 
     bool by_value = false;
 
@@ -6928,6 +6954,8 @@ namespace
 
     if (!lower_expr(ctx, lhs, ternaryop->lhs))
       return;
+
+    ctx.unreachable = Unreachable::No;
 
     if (!(lhs.type.flags & MIR::Local::Reference) || !(find_type(ctx, ctx.stack, ternaryop->rhs).flags & MIR::Local::Reference))
       by_value = true;
@@ -6939,12 +6967,14 @@ namespace
 
     auto block_true = ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1));
 
-    ctx.mir.blocks[block_switch].terminator.targets.emplace_back(0, ctx.currentblockid);
+    ctx.mir.blocks[block_cond].terminator.targets.emplace_back(0, ctx.currentblockid);
 
     MIR::Fragment rhs;
 
     if (!lower_expr(ctx, rhs, ternaryop->rhs))
       return;
+
+    ctx.unreachable = Unreachable::No;
 
     if (by_value)
       realise_as_value(ctx, dst, rhs);
@@ -9106,6 +9136,9 @@ namespace
 
       if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
         realise_destructor(ctx, arg, stmt->loc());
+
+      if (ctx.unreachable)
+        ctx.add_block(MIR::Terminator::unreachable());
     }
 
     ctx.retire_barrier(sm);
@@ -9143,15 +9176,15 @@ namespace
 
     commit_type(ctx, cond, condition.type.type, condition.type.flags);
 
-    auto block_switch = ctx.add_block(MIR::Terminator::switcher(cond, ctx.currentblockid + 1));
+    auto block_cond = ctx.add_block(MIR::Terminator::switcher(cond, ctx.currentblockid + 1));
 
-    bool unreachable[2] = { false, false };
+    Unreachable unreachable[2] = { Unreachable::No, Unreachable::No};
 
     lower_statement(ctx, ifs->stmts[0]);
 
     auto block_true = ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1));
 
-    ctx.mir.blocks[block_switch].terminator.targets.emplace_back(0, ctx.currentblockid);
+    ctx.mir.blocks[block_cond].terminator.targets.emplace_back(0, ctx.currentblockid);
 
     swap(ctx.unreachable, unreachable[0]);
 
@@ -9167,16 +9200,16 @@ namespace
     }
 
     if (is_true_constant(ctx, condition))
-      unreachable[1] = true;
+      unreachable[1] = Unreachable::Yes;
 
     if (is_false_constant(ctx, condition))
-      unreachable[0] = true;
+      unreachable[0] = Unreachable::Yes;
 
     if (unreachable[0] && unreachable[1])
     {
       collapse_returns(ctx);
 
-      ctx.unreachable = true;
+      ctx.unreachable = std::min(unreachable[0], unreachable[1]);
     }
 
     ctx.stack.pop_back();
@@ -9415,7 +9448,10 @@ namespace
     for(auto i = ctx.barriers.back().firstbreak; i < ctx.breaks.size(); ++i)
       ctx.mir.blocks[ctx.breaks[i]].terminator.blockid = ctx.currentblockid;
 
-    ctx.unreachable = (!fors->cond || (fors->cond && is_true_constant(ctx, condition))) && ranges.empty() && ctx.barriers.back().firstbreak == ctx.breaks.size();
+    if ((!fors->cond || (fors->cond && is_true_constant(ctx, condition))) && ranges.empty() && ctx.barriers.back().firstbreak == ctx.breaks.size())
+      ctx.unreachable = Unreachable::Yes;
+    else
+      ctx.unreachable = Unreachable::No;
 
     ctx.breaks.resize(ctx.barriers.back().firstbreak);
 
@@ -9619,7 +9655,10 @@ namespace
 
     ctx.continues.resize(ctx.barriers.back().firstcontinue);
 
-    ctx.unreachable = (!rofs->cond || (rofs->cond && is_false_constant(ctx, condition))) && ranges.empty() && ctx.barriers.back().firstbreak == ctx.breaks.size();
+    if ((!rofs->cond || (rofs->cond && is_false_constant(ctx, condition))) && ranges.empty() && ctx.barriers.back().firstbreak == ctx.breaks.size())
+      ctx.unreachable = Unreachable::Yes;
+    else
+      ctx.unreachable = Unreachable::No;
 
     for(auto i = ctx.barriers.back().firstbreak; i < ctx.breaks.size(); ++i)
       ctx.mir.blocks[ctx.breaks[i]].terminator.blockid = ctx.currentblockid;
@@ -9755,11 +9794,11 @@ namespace
 
       ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1));
 
-      if (ctx.barriers.back().firstcontinue != ctx.continues.size())
-        ctx.unreachable = false;
-
       for(auto i = ctx.barriers.back().firstcontinue; i < ctx.continues.size(); ++i)
         ctx.mir.blocks[ctx.continues[i]].terminator.blockid = ctx.currentblockid;
+
+      if (ctx.barriers.back().firstcontinue != ctx.continues.size())
+        ctx.unreachable = Unreachable::No;
 
       ctx.continues.resize(ctx.barriers.back().firstcontinue);
 
@@ -9800,14 +9839,14 @@ namespace
       if (ctx.diag.has_errored())
         return;
 
-      ctx.unreachable = false;
+      ctx.unreachable = Unreachable::No;
     }
-
-    if (ctx.barriers.back().firstbreak != ctx.breaks.size())
-      ctx.unreachable = false;
 
     for(auto i = ctx.barriers.back().firstbreak; i < ctx.breaks.size(); ++i)
       ctx.mir.blocks[ctx.breaks[i]].terminator.blockid = ctx.currentblockid;
+
+    if (ctx.barriers.back().firstbreak != ctx.breaks.size())
+      ctx.unreachable = Unreachable::No;
 
     ctx.breaks.resize(ctx.barriers.back().firstbreak);
 
@@ -9868,7 +9907,10 @@ namespace
 
     ctx.continues.resize(ctx.barriers.back().firstcontinue);
 
-    ctx.unreachable = is_true_constant(ctx, condition) && ctx.barriers.back().firstbreak == ctx.breaks.size();
+    if (is_true_constant(ctx, condition) && ctx.barriers.back().firstbreak == ctx.breaks.size())
+      ctx.unreachable = Unreachable::Yes;
+    else
+      ctx.unreachable = Unreachable::No;
 
     for(auto i = ctx.barriers.back().firstbreak; i < ctx.breaks.size(); ++i)
       ctx.mir.blocks[ctx.breaks[i]].terminator.blockid = ctx.currentblockid;
@@ -9898,7 +9940,7 @@ namespace
 
     MIR::Fragment base;
     MIR::Fragment condition;
-    vector<MIR::block_t> blocks;
+    vector<MIR::block_t> block_bodys;
 
     if (!lower_expr(ctx, condition, swtch->cond))
       return;
@@ -9999,17 +10041,17 @@ namespace
 
         ctx.stack.pop_back();
 
-        blocks.push_back(ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1)));
+        block_bodys.push_back(ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1)));
       }
 
-      ctx.unreachable = false;
+      ctx.unreachable = Unreachable::No;
     }
 
     if (ctx.mir.blocks[block_cond].terminator.blockid == block_cond)
       ctx.mir.blocks[block_cond].terminator.blockid = ctx.currentblockid;
 
-    for(auto &block : blocks)
-      ctx.mir.blocks[block].terminator.blockid = ctx.currentblockid;
+    for(auto &block_body : block_bodys)
+      ctx.mir.blocks[block_body].terminator.blockid = ctx.currentblockid;
 
     ctx.stack.pop_back();
     ctx.retire_barrier(sm);
@@ -10022,7 +10064,7 @@ namespace
 
     lower_decl(ctx, decl_cast<ErrorVarDecl>(trys->errorvar));
 
-    bool unreachable[2] = { false, true };
+    Unreachable unreachable[2] = { Unreachable::No, Unreachable::Yes};
 
     lower_statement(ctx, trys->body);
 
@@ -10032,7 +10074,7 @@ namespace
 
     if (ctx.barriers.back().firstthrow != ctx.throws.size())
     {
-      unreachable[1] = false;
+      unreachable[1] = Unreachable::No;
 
       for(auto i = ctx.barriers.back().firstthrow; i < ctx.throws.size(); ++i)
         ctx.mir.blocks[ctx.throws[i]].terminator.blockid = ctx.currentblockid;
@@ -10061,7 +10103,7 @@ namespace
     {
       collapse_returns(ctx);
 
-      ctx.unreachable = true;
+      ctx.unreachable = std::min(unreachable[0], unreachable[1]);
     }
 
     ctx.retire_barrier(sm);
@@ -10096,7 +10138,7 @@ namespace
 
     ctx.throws.push_back(ctx.currentblockid);
     ctx.add_block(MIR::Terminator::thrower(ctx.errorarg, ctx.currentblockid));
-    ctx.unreachable = true;
+    ctx.unreachable = Unreachable::Unwind;
 
     ctx.retire_barrier(sm);
   }
@@ -10105,14 +10147,14 @@ namespace
   void lower_break_statement(LowerContext &ctx, BreakStmt *breck)
   {
     ctx.breaks.push_back(ctx.currentblockid);
-    ctx.unreachable = true;
+    ctx.unreachable = Unreachable::Unwind;
   }
 
   //|///////////////////// lower_continue_statement /////////////////////////
   void lower_continue_statement(LowerContext &ctx, ContinueStmt *continu)
   {
     ctx.continues.push_back(ctx.currentblockid);
-    ctx.unreachable = true;
+    ctx.unreachable = Unreachable::Unwind;
   }
 
   //|///////////////////// lower_return_statement ///////////////////////////
@@ -10193,7 +10235,7 @@ namespace
     }
 
     ctx.returns.push_back(ctx.currentblockid);
-    ctx.unreachable = true;
+    ctx.unreachable = Unreachable::Unwind;
 
     ctx.retire_barrier(sm);
   }
@@ -10208,10 +10250,10 @@ namespace
     {
       ctx.stack.back().goalpost = stmt;
 
+      lower_statement(ctx, stmt);
+
       if (ctx.unreachable)
         break;
-
-      lower_statement(ctx, stmt);
     }
 
     // return block consolidation

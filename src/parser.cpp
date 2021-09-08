@@ -1851,6 +1851,11 @@ namespace
       }
     }
 
+    if (ctx.try_consume_token(Token::kw_throws))
+    {
+      fn->throws = sema.make_bool_literal(true, ctx.tok.loc);
+    }
+
     if (ctx.try_consume_token(Token::arrow))
     {
       fn->returntype = parse_type(ctx, sema);
@@ -2718,7 +2723,6 @@ namespace
   {
     auto var = sema.var_declaration(ctx.tok.loc);
 
-    var->flags |= VarDecl::Const;
     var->type = sema.make_typearg(sema.make_typearg("var", ctx.tok.loc));
 
     var->value = parse_lambda(ctx, sema);

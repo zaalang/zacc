@@ -888,7 +888,7 @@ namespace
         rhs = remove_pointference_type(rhs);
       }
 
-      switch(rhs = remove_const_type(rhs); rhs->klass())
+      switch (rhs = remove_const_type(rhs); rhs->klass())
       {
         case Type::Tag:
         case Type::Tuple:
@@ -919,7 +919,7 @@ namespace
       return false;
     }
 
-    switch(op)
+    switch (op)
     {
       case MIR::RValue::Val:
         memcpy(fx.locals[dst].alloc, src, fx.locals[dst].size);
@@ -952,7 +952,7 @@ namespace
 
       auto lhs = load_int(ctx, fx, args[0]);
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Plus:
           result = lhs;
@@ -999,7 +999,7 @@ namespace
 
       auto lhs = load_float(ctx, fx, args[0]);
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Plus:
           result = lhs;
@@ -1070,7 +1070,7 @@ namespace
 
       auto lhs = load_int(ctx, arg, argtype);
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::PreInc:
           result = lhs + Numeric::int_literal(1, 1);
@@ -1099,7 +1099,7 @@ namespace
 
       auto lhs = load_float(ctx, arg, argtype);
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::PreInc:
           result = lhs + Numeric::float_literal(1.0);
@@ -1128,7 +1128,7 @@ namespace
 
       auto lhs = load_ptr(ctx, arg, argtype);
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::PreInc:
           result = (void*)((size_t)lhs + sizeof_type(remove_pointference_type(argtype)));
@@ -1169,7 +1169,7 @@ namespace
       auto lhs = load_int(ctx, fx, args[0]);
       auto rhs = load_int(ctx, fx, args[1]);
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Add:
           result = lhs + rhs;
@@ -1272,7 +1272,7 @@ namespace
       auto lhs = load_float(ctx, fx, args[0]);
       auto rhs = load_float(ctx, fx, args[1]);
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Add:
           result = lhs + rhs;
@@ -1334,7 +1334,7 @@ namespace
         return false;
       }
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::OffsetAdd:
           result = (void*)((size_t)lhs + rhs.value * size);
@@ -1352,26 +1352,24 @@ namespace
     }
     else if (is_pointference_type(fx.locals[args[0]].type) && is_pointference_type(fx.locals[args[1]].type))
     {
+      void *result;
+
       auto lhs = load_ptr(ctx, fx, args[0]);
       auto rhs = load_ptr(ctx, fx, args[1]);
 
-      auto size = sizeof_type(remove_pointer_type(fx.locals[args[0]].type));
-
-      if (size == 0)
+      switch (callee.fn->builtin)
       {
-        ctx.diag.error("zero sized type", fx.scope, loc);
-        return false;
+        case Builtin::min:
+          result = rhs < lhs ? rhs : lhs;
+          break;
+
+        case Builtin::max:
+          result = lhs < rhs ? rhs : lhs;
+          break;
+
+        default:
+          assert(false);
       }
-
-      assert(callee.fn->builtin == Builtin::Difference);
-
-      if ((size_t)lhs < (size_t)rhs)
-      {
-        ctx.diag.error("pointer difference overflow", fx.scope, loc);
-        return false;
-      }
-
-      auto result = Numeric::int_literal(+1, ((size_t)lhs - (size_t)(rhs)) / size);
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
     }
@@ -1381,6 +1379,33 @@ namespace
       ctx.diag << "  lhs type: '" << *fx.locals[args[0]].type << "' rhs type: '" << *fx.locals[args[1]].type << "'\n";
       return false;
     }
+
+    return true;
+  }
+
+  //|///////////////////// pointer_difference ///////////////////////////////
+  bool eval_builtin_pointer_difference(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto lhs = load_ptr(ctx, fx, args[0]);
+    auto rhs = load_ptr(ctx, fx, args[1]);
+
+    auto size = sizeof_type(remove_pointer_type(fx.locals[args[0]].type));
+
+    if (size == 0)
+    {
+      ctx.diag.error("zero sized type", fx.scope, loc);
+      return false;
+    }
+
+    if ((size_t)lhs < (size_t)rhs)
+    {
+      ctx.diag.error("pointer difference overflow", fx.scope, loc);
+      return false;
+    }
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Numeric::int_literal(+1, ((size_t)lhs - (size_t)(rhs)) / size));
 
     return true;
   }
@@ -1400,7 +1425,7 @@ namespace
       auto width = 8*sizeof_type(fx.locals[args[0]].type);
       auto is_signed = is_signed_type(fx.locals[args[0]].type);
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::AddCarry:
           add_with_carry(lhs, rhs, width, is_signed, result, carry);
@@ -1448,7 +1473,7 @@ namespace
       auto lhs = load_int(ctx, arg, argtype);
       auto rhs = load_int(ctx, fx, args[1]);
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::AddAssign:
           result = lhs + rhs;
@@ -1539,7 +1564,7 @@ namespace
       auto lhs = load_float(ctx, arg, argtype);
       auto rhs = load_float(ctx, fx, args[1]);
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::AddAssign:
           result = lhs + rhs;
@@ -1603,7 +1628,7 @@ namespace
         return false;
       }
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::OffsetAddAssign:
           result = (void*)((size_t)lhs + rhs.value * size);
@@ -1681,7 +1706,7 @@ namespace
       auto lhs = load_int(ctx, fx, args[0]);
       auto rhs = load_int(ctx, fx, args[1]);
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::LT:
           result = lhs < rhs;
@@ -1720,7 +1745,7 @@ namespace
       auto lhs = load_float(ctx, fx, args[0]);
       auto rhs = load_float(ctx, fx, args[1]);
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::LT:
           result = lhs < rhs;
@@ -1767,7 +1792,7 @@ namespace
       auto lhs = load_string(ctx, fx, args[0]);
       auto rhs = load_string(ctx, fx, args[1]);
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::LT:
           result = lhs < rhs;
@@ -1806,7 +1831,7 @@ namespace
       auto lhs = load_ptr(ctx, fx, args[0]);
       auto rhs = load_ptr(ctx, fx, args[1]);
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::LT:
           result = lhs < rhs;
@@ -2118,7 +2143,7 @@ namespace
 
     if (is_int(fx.locals[args[0]].type))
     {
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::is_nan:
         case Builtin::is_finite:
@@ -2137,7 +2162,7 @@ namespace
     {
       auto lhs = load_float(ctx, fx, args[0]);
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::is_nan:
           result = isnan(lhs.value);
@@ -2466,7 +2491,7 @@ namespace
       auto lhs = load_int(ctx, ptr, fx.locals[args[1]].type);
       auto rhs = load_int(ctx, fx, args[1]);
 
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::atomic_xchg:
           result = rhs;
@@ -3081,6 +3106,7 @@ namespace
     //auto &[callee, args, loc] = call;
 
     //auto addr = load_ptr(ctx, fx, args[0]);
+    //auto size = load_int(ctx, fx, args[1]);
 
     return true;
   }
@@ -3102,7 +3128,7 @@ namespace
 
     if (callee.fn->flags & FunctionDecl::Builtin)
     {
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Plus:
         case Builtin::Minus:
@@ -3171,8 +3197,10 @@ namespace
 
         case Builtin::OffsetAdd:
         case Builtin::OffsetSub:
-        case Builtin::Difference:
           return eval_builtin_binary_arithmetic(ctx, fx, dst, call);
+
+        case Builtin::Difference:
+          return eval_builtin_pointer_difference(ctx, fx, dst, call);
 
         case Builtin::OffsetAddAssign:
         case Builtin::OffsetSubAssign:
@@ -3553,7 +3581,7 @@ namespace
         }
       }
 
-      switch(auto &terminator = mir.blocks[block].terminator; terminator.kind)
+      switch (auto &terminator = mir.blocks[block].terminator; terminator.kind)
       {
         case MIR::Terminator::Goto:
           block = terminator.blockid;
@@ -3594,6 +3622,10 @@ namespace
 
         case MIR::Terminator::Return:
           block = mir.blocks.size();
+          break;
+
+        case MIR::Terminator::Unreachable:
+          assert(false);
           break;
       }
     }
@@ -3872,6 +3904,13 @@ EvalResult evaluate(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fr
 
   if (eval_function(ctx, scope, mir, returnvalue))
   {
+    if (mir.locals[0].flags & MIR::Local::Reference)
+    {
+      returnvalue.alloc = load_ptr(ctx, returnvalue.alloc, returnvalue.type);
+      returnvalue.type = remove_const_type(remove_pointer_type(returnvalue.type));
+      returnvalue.size = sizeof_type(returnvalue.type);
+    }
+
     result = make_result(ctx, returnvalue, loc);
   }
 

@@ -17,7 +17,6 @@ using namespace std;
 
 namespace
 {
-
   struct Context
   {
     Diag &diag;
@@ -282,6 +281,9 @@ namespace
 
         case MIR::Terminator::Throw:
           ctx.threads[0].block = block.terminator.blockid;
+          break;
+
+        case MIR::Terminator::Unreachable:
           break;
       }
     }

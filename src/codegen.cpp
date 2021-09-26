@@ -3383,6 +3383,21 @@ namespace
     store(ctx, fx, dst, ctx.builder.CreateCall(memfind, { source, value, size }));
   }
 
+  //|///////////////////// alloca//////////////////////////////////////////
+  void codegen_builtin_alloca(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto size = load(ctx, fx, args[0]);
+    auto align = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[1])->second)->value);
+
+    auto alloca = ctx.builder.CreateAlloca(ctx.builder.getInt8Ty(), size);
+
+    alloca->setAlignment(llvm::Align(align->value().value ? align->value().value : 16));
+
+    store(ctx, fx, dst, ctx.builder.CreatePointerCast(alloca, llvm_type(ctx, fx.mir.locals[dst].type)));
+  }
+
   //|///////////////////// symbol ///////////////////////////////////////////
   void codegen_builtin_symbol(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -3826,6 +3841,10 @@ namespace
 
         case Builtin::memfind:
           codegen_builtin_memfind(ctx, fx, dst, call);
+          break;
+
+        case Builtin::alloca:
+          codegen_builtin_alloca(ctx, fx, dst, call);
           break;
 
         case Builtin::symbol:
@@ -4481,7 +4500,7 @@ namespace
     auto linkage = llvm::Function::InternalLinkage;
 
     if (fx.fn->flags & FunctionDecl::ExternMask)
-      linkage = llvm::Function::ExternalLinkage;
+      linkage = (fx.fn->flags & FunctionDecl::Weak) ? llvm::Function::ExternalWeakLinkage : llvm::Function::ExternalLinkage;
 
     auto fntype = llvm::FunctionType::get(returntype, parmtypes, false);
     auto fnprot = llvm::Function::Create(fntype, linkage, name, ctx.module);

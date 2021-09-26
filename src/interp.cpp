@@ -18,6 +18,7 @@
 #include <cmath>
 #include <memory>
 #include <sys/stat.h>
+#include <unistd.h>
 
 using namespace std;
 
@@ -2454,6 +2455,21 @@ namespace
     return true;
   }
 
+  //|///////////////////// alloca ///////////////////////////////////////////
+  bool eval_builtin_alloca(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto size = load_int(ctx, fx, args[0]);
+    auto align = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[1])->second)->value);
+
+    auto result = ctx.allocate(size.value, align->value().value);
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
+
+    return true;
+  }
+
   //|///////////////////// atomic_load //////////////////////////////////////
   bool eval_builtin_atomic_load(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -3121,6 +3137,34 @@ namespace
     return false;
   }
 
+  //|///////////////////// __argc__ /////////////////////////////////////////
+  bool eval_builtin_argc(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    ctx.diag.error("not implemented", fx.scope, loc);
+
+    return false;
+  }
+
+  //|///////////////////// __argv__ /////////////////////////////////////////
+  bool eval_builtin_argv(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    ctx.diag.error("not implemented", fx.scope, loc);
+
+    return false;
+  }
+
+  //|///////////////////// __envp__ /////////////////////////////////////////
+  bool eval_builtin_envp(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, environ);
+
+    return true;
+  }
+
   //|///////////////////// eval_call ////////////////////////////////////////
   bool eval_call(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -3290,6 +3334,9 @@ namespace
         case Builtin::memfind:
           return eval_builtin_memfind(ctx, fx, dst, call);
 
+        case Builtin::alloca:
+          return eval_builtin_alloca(ctx, fx, dst, call);
+
         case Builtin::atomic_load:
           return eval_builtin_atomic_load(ctx, fx, dst, call);
 
@@ -3310,6 +3357,15 @@ namespace
 
         case Builtin::atomic_thread_fence:
           return true;
+
+        case Builtin::__argc__:
+          return eval_builtin_argc(ctx, fx, dst, call);
+
+        case Builtin::__argv__:
+          return eval_builtin_argv(ctx, fx, dst, call);
+
+        case Builtin::__envp__:
+          return eval_builtin_envp(ctx, fx, dst, call);
 
         case Builtin::decl_kind:
           return eval_builtin_decl_kind(ctx, fx, dst, call);

@@ -560,6 +560,8 @@ namespace Builtin
     make_function(memmove, "pub fn __memmove(void mut *, void*, usize) -> void mut *", __LINE__);
     make_function(memfind, "pub fn __memfind(void*, u8, usize) -> usize", __LINE__);
 
+    make_function(alloca, "pub fn __alloca(usize, ##int = 0) -> void mut *", __LINE__);
+
     make_function(symbol, "pub fn extern(##string) -> uintptr", __LINE__);
 
     make_function(atomic_load, "pub fn __atomic_load<T>(T*, ##int) -> T", __LINE__);

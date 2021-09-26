@@ -752,6 +752,14 @@ namespace
           var->type = sema.make_reference(var->type);
         }
 
+        else if (ctx.try_consume_token(Token::ampamp))
+        {
+          if (kw_mut || kw_const)
+            ctx.diag.warn("invalid qualifiers", ctx.text, ctx.tok.loc);
+
+          var->type = sema.make_reference(sema.make_qualarg(var->type));
+        }
+
         if (kw_const)
           var->flags |= VarDecl::Const;
 
@@ -795,7 +803,7 @@ namespace
 
         ctx.consume_token();
 
-        var->type = sema.make_reference(sema.make_typearg(var->arg));
+        var->type = sema.make_reference(sema.make_qualarg(sema.make_typearg(var->arg)));
 
         var->value = sema.make_declref_expression(sema.make_declref(var->name, loc), loc);
       }

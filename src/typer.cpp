@@ -344,8 +344,11 @@ namespace
           return count(results.begin(), results.begin() + n, decl) != 0;
         }), results.end());
       }
+    }
 
-      if (decl->kind() == Decl::Import)
+    for(size_t i = 0; i < results.size(); ++i)
+    {
+      if (results[i]->kind() == Decl::Import)
       {
         results.erase(remove_if(results.begin() + i + 1, results.end(), [&](auto &decl) {
           return decl->kind() == Decl::Import;

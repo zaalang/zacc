@@ -202,6 +202,8 @@ namespace Builtin
     memmove,
     memfind,
 
+    alloca,
+
     symbol,
 
     atomic_load,

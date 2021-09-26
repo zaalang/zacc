@@ -1012,9 +1012,7 @@ namespace
 
     for(size_t i = 0; i < results.size(); ++i)
     {
-      auto decl = results[i];
-
-      if (decl->kind() == Decl::Import)
+      if (results[i]->kind() == Decl::Import)
       {
         results.erase(remove_if(results.begin() + i + 1, results.end(), [&](auto &decl) {
           return decl->kind() == Decl::Import;
@@ -7375,6 +7373,9 @@ namespace
       if (!lower_expr(ctx, result, decl_cast<LambdaVarDecl>(capture)->value))
         return;
 
+      if (is_qualarg_type(remove_reference_type(decl_cast<LambdaVarDecl>(capture)->type)) && (result.type.flags & MIR::Local::Const))
+        result.type.type = ctx.typetable.find_or_create<ConstType>(result.type.type);
+
       parms.push_back(std::move(result));
     }
 
@@ -10184,9 +10185,16 @@ namespace
       {
         if (!deduce_returntype(ctx, ctx.stack.back(), ctx.mir.fx.fn, ctx.mir.locals[0], result.type))
         {
-          ctx.diag.error("type mismatch", ctx.stack.back(), retrn->loc());
-          ctx.diag << "  return type: '" << *result.type.type << "' required type: '" << *ctx.mir.locals[0].type << "'\n";
-          return;
+          if ((ctx.mir.fx.fn->flags & FunctionDecl::DeclType) == FunctionDecl::RequiresDecl)
+            return;
+
+          vector<MIR::Fragment> parms(1);
+          map<string_view, MIR::Fragment> namedparms;
+
+          parms[0] = std::move(result);
+
+          if (!lower_copy(ctx, result, ctx.mir.locals[0].type, parms, namedparms, retrn->expr->loc()))
+            return;
         }
 
         if (is_lambda_decay(ctx, ctx.mir.locals[0].type, result.type.type))

@@ -1196,6 +1196,11 @@ namespace
         if (eval(ctx, ctx.stack.back(), sema.make_declref_expression(id, fn->loc())) == 0)
           fn->flags |= FunctionDecl::Inhibited;
       }
+
+      if (attribute->name == "weak")
+      {
+        fn->flags |= FunctionDecl::Weak;
+      }
     }
 
     for(auto &parm : fn->parms)

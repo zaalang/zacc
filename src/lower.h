@@ -37,6 +37,8 @@ struct TypeTable
 
   std::map<std::tuple<Decl*, std::vector<std::pair<Decl*, Type*>>, Type*>, std::tuple<std::vector<std::pair<Decl*, Type*>>, Type*>> concepts;
 
+  std::unordered_map<FnSig, Expr*> injections;
+
   template<typename T>
   T *find_or_create(Type *subtype);
 
@@ -44,7 +46,7 @@ struct TypeTable
   T *find(Decl *decl, std::vector<std::pair<Decl*, Type*>> const &args);
 
   template<typename T>
-  T *create(Decl *decl, std::vector<std::pair<Decl*, Type*>> const &args, std::vector<Decl*> &&decls);
+  T *create(Decl *decl, std::vector<std::pair<Decl*, Type*>> const &args);
 
   template<typename T>
   T *find_or_create(Type *elemtype, Type *sizetype);
@@ -158,9 +160,9 @@ inline TagType *TypeTable::find<TagType>(Decl *decl, std::vector<std::pair<Decl*
 }
 
 template<>
-inline TagType *TypeTable::create<TagType>(Decl *decl, std::vector<std::pair<Decl*, Type*>> const &args, std::vector<Decl*> &&decls)
+inline TagType *TypeTable::create<TagType>(Decl *decl, std::vector<std::pair<Decl*, Type*>> const &args)
 {
-  return tag_types.emplace(decl, make_type<TagType>(decl, args, std::move(decls)))->second;
+  return tag_types.emplace(decl, make_type<TagType>(decl, args))->second;
 }
 
 template<>

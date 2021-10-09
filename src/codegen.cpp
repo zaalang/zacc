@@ -318,11 +318,14 @@ namespace
     switch (type->klass())
     {
       case Type::Builtin:
-        ss << prefix << '.' << type_cast<BuiltinType>(type)->name();
+        ss << prefix << '.' << *type_cast<BuiltinType>(type)->name();
         break;
 
       case Type::Tag:
-        ss << prefix << '.' << decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->name << '.' << hex << static_cast<void*>(type);
+        ss << prefix;
+        if (decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->name)
+          ss << '.' << *decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->name;
+        ss << '.' << hex << static_cast<void*>(type);
         break;
 
       case Type::Tuple:
@@ -723,16 +726,16 @@ namespace
         ditype = ctx.di.createUnspecifiedType("void");
 
       else if (type->is_bool_type())
-        ditype = ctx.di.createBasicType(type->name(), sizeof_type(type) * 8, llvm::dwarf::DW_ATE_boolean);
+        ditype = ctx.di.createBasicType(type->name()->sv(), sizeof_type(type) * 8, llvm::dwarf::DW_ATE_boolean);
 
       else if (type->is_char_type())
-        ditype = ctx.di.createBasicType(type->name(), sizeof_type(type) * 8, llvm::dwarf::DW_ATE_UTF);
+        ditype = ctx.di.createBasicType(type->name()->sv(), sizeof_type(type) * 8, llvm::dwarf::DW_ATE_UTF);
 
       else if (type->is_int_type())
-        ditype = ctx.di.createBasicType(type->name(), sizeof_type(type) * 8, type->is_signed_type() ? llvm::dwarf::DW_ATE_signed : llvm::dwarf::DW_ATE_unsigned);
+        ditype = ctx.di.createBasicType(type->name()->sv(), sizeof_type(type) * 8, type->is_signed_type() ? llvm::dwarf::DW_ATE_signed : llvm::dwarf::DW_ATE_unsigned);
 
       else if (type->is_float_type())
-        ditype = ctx.di.createBasicType(type->name(), sizeof_type(type) * 8, llvm::dwarf::DW_ATE_float);
+        ditype = ctx.di.createBasicType(type->name()->sv(), sizeof_type(type) * 8, llvm::dwarf::DW_ATE_float);
 
       else if (type->kind() == BuiltinType::PtrLiteral)
         ditype = ctx.di.createNullPtrType();
@@ -798,7 +801,7 @@ namespace
       {
         auto vardecl = decl_cast<FieldVarDecl>(type->fieldvars[index]);
 
-        auto field = ctx.di.createMemberType(distruct, vardecl->name, difile, vardecl->loc().lineno, sizeof_field(type, index) * 8, alignof_field(type, index) * 8, offsetof_field(type, index) * 8, llvm::DINode::FlagZero, llvm_ditype(ctx, type->fields[index]));
+        auto field = ctx.di.createMemberType(distruct, vardecl->name->sv(), difile, vardecl->loc().lineno, sizeof_field(type, index) * 8, alignof_field(type, index) * 8, offsetof_field(type, index) * 8, llvm::DINode::FlagZero, llvm_ditype(ctx, type->fields[index]));
 
         elements.push_back(field);
       }
@@ -832,7 +835,7 @@ namespace
       auto decl = decl_cast<TagDecl>(type->decl);
       auto difile = llvm_difile(ctx, decl);
 
-      ditype = ctx.di.createEnumerationType(llvm_discope(ctx, decl), decl->name, difile, decl->loc().lineno, sizeof_type(type) * 8, alignof_type(type) * 8, ctx.di.getOrCreateArray({}), llvm_ditype(ctx, type->fields[0]));
+      ditype = ctx.di.createEnumerationType(llvm_discope(ctx, decl), decl->name->sv(), difile, decl->loc().lineno, sizeof_type(type) * 8, alignof_type(type) * 8, ctx.di.getOrCreateArray({}), llvm_ditype(ctx, type->fields[0]));
 
       ctx.deferred_enums.push_back(type);
     }
@@ -875,7 +878,7 @@ namespace
   {
     if (is_char_type(type) || is_int_type(type))
     {
-      if (!literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
+      if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
       {
         ctx.diag.error("literal value out of range for required type", fx.fn, literal->loc());
         ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
@@ -902,7 +905,7 @@ namespace
 
     if (is_bool_type(type) || is_int_type(type) || is_char_type(type))
     {
-      if (!literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
+      if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
       {
         ctx.diag.error("literal value out of range for required type", fx.fn, literal->loc());
         ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
@@ -913,7 +916,7 @@ namespace
     }
     else if (is_float_type(type))
     {
-      if (!literal_valid(type_cast<BuiltinType>(type)->kind(), Numeric::float_cast<double>(literal->value())))
+      if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), Numeric::float_cast<double>(literal->value())))
       {
         ctx.diag.error("literal value out of range for required type", fx.fn, literal->loc());
         ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
@@ -935,7 +938,7 @@ namespace
   {
     if (is_bool_type(type) || is_int_type(type) || is_char_type(type))
     {
-      if (!literal_valid(type_cast<BuiltinType>(type)->kind(), Numeric::int_cast<double>(literal->value())))
+      if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), Numeric::int_cast<double>(literal->value())))
       {
         ctx.diag.error("literal value out of range for required type", fx.fn, literal->loc());
         ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
@@ -946,7 +949,7 @@ namespace
     }
     else if (is_float_type(type))
     {
-      if (!literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
+      if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
       {
         ctx.diag.error("literal value out of range for required type", fx.fn, literal->loc());
         ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
@@ -1143,28 +1146,17 @@ namespace
     {
       global = new llvm::GlobalVariable(ctx.module, value->getType(), fx.locals[dst].flags & MIR::Local::Const, linkage, value);
 
-      if (fx.locals[dst].flags & MIR::Local::ThreadLocal)
-        global->setThreadLocalMode(llvm::GlobalVariable::GeneralDynamicTLSModel);
-
       global->setAlignment(llvm::Align(16));
 
       if (linkage == llvm::GlobalVariable::PrivateLinkage)
         ctx.privateglobals[value] = global;
     }
 
-    if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None && ctx.genopts.optlevel == GenOpts::OptLevel::None)
-    {
-      auto i = dst;
+    if (fx.locals[dst].flags & MIR::Local::CacheAligned)
+      global->setAlignment(llvm::Align(std::max(global->getAlign()->value(), uint64_t(64))));
 
-      if (fx.locals[i].info)
-      {
-        auto ditype = llvm_ditype(ctx, fx.mir.locals[i]);
-
-        auto varexpr = ctx.di.createGlobalVariableExpression(fx.discopes.front(), fx.locals[i].info->name, llvm::StringRef(), fx.difile, fx.locals[i].info->loc.lineno, ditype, false);
-
-        global->addDebugInfo(varexpr);
-      }
-    }
+    if (fx.locals[dst].flags & MIR::Local::PageAligned)
+      global->setAlignment(llvm::Align(std::max(global->getAlign()->value(), uint64_t(4096))));
 
     if (fx.locals[dst].alloca)
       llvm::cast<llvm::AllocaInst>(fx.locals[dst].alloca)->eraseFromParent();
@@ -1186,6 +1178,29 @@ namespace
     if (auto value = llvm_constant(ctx, fx, fx.mir.locals[dst].type, literal))
     {
       codegen_global(ctx, fx, dst, value, llvm::GlobalValue::InternalLinkage);
+
+      auto global = llvm::cast<llvm::GlobalVariable>(fx.locals[dst].alloca);
+
+      if (fx.locals[dst].info)
+        global->setName(get_mangled_name(fx.fn, fx.locals[dst].info->vardecl->name->sv()));
+
+      if (fx.locals[dst].flags & MIR::Local::ThreadLocal)
+        global->setThreadLocalMode(llvm::GlobalVariable::GeneralDynamicTLSModel);
+
+      if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None && ctx.genopts.optlevel == GenOpts::OptLevel::None)
+      {
+        auto i = dst;
+
+        if (fx.locals[i].info)
+        {
+          auto loc = fx.locals[i].info->vardecl->loc();
+          auto name = fx.locals[i].info->vardecl->name->sv();
+          auto ditype = llvm_ditype(ctx, fx.mir.locals[i]);
+          auto varexpr = ctx.di.createGlobalVariableExpression(fx.discopes.front(), name, llvm::StringRef(), fx.difile, loc.lineno, ditype, true);
+
+          global->addDebugInfo(varexpr);
+        }
+      }
     }
   }
 
@@ -3905,6 +3920,10 @@ namespace
           codegen_builtin_envp(ctx, fx, dst, call);
           break;
 
+        case Builtin::is_const_eval:
+          store(ctx, fx, dst, ctx.builder.getInt1(false));
+          break;
+
         case Builtin::StringSlice:
         case Builtin::StringAppend:
         case Builtin::StringCreate:
@@ -4163,7 +4182,7 @@ namespace
     }
     else if (is_int_type(type) || is_char_type(type) || is_enum_type(type))
     {
-      auto value = ctx.builder.CreateZExt(cond, ctx.builder.getInt64Ty());
+      auto value = ctx.builder.CreateSExt(cond, ctx.builder.getInt64Ty());
       auto swtch = ctx.builder.CreateSwitch(value, fx.blocks[blockid].bx, targets.size());
 
       for(auto &[k, v] : targets)
@@ -4294,13 +4313,14 @@ namespace
 
       if (fx.locals[i].info && fx.locals[i].alloca)
       {
+        auto loc = fx.locals[i].info->vardecl->loc();
+        auto name = fx.locals[i].info->vardecl->name->sv();
         auto ditype = llvm_ditype(ctx, fx.mir.locals[i]);
+        auto autovar = ctx.di.createAutoVariable(fx.discopes.back(), name, fx.difile, loc.lineno, ditype);
 
-        auto autovar = ctx.di.createAutoVariable(fx.discopes.back(), fx.locals[i].info->name, fx.difile, fx.locals[i].info->loc.lineno, ditype);
+        fx.discopes.push_back(ctx.di.createLexicalBlock(fx.discopes.back(), fx.difile, loc.lineno, loc.charpos));
 
-        fx.discopes.push_back(ctx.di.createLexicalBlock(fx.discopes.back(), fx.difile, fx.locals[i].info->loc.lineno, fx.locals[i].info->loc.charpos));
-
-        ctx.di.insertDeclare(fx.locals[i].alloca, autovar, ctx.di.createExpression(), llvm_diloc(ctx, fx, fx.locals[i].info->loc), ctx.builder.GetInsertBlock());
+        ctx.di.insertDeclare(fx.locals[i].alloca, autovar, ctx.di.createExpression(), llvm_diloc(ctx, fx, loc), ctx.builder.GetInsertBlock());
       }
     }
   }
@@ -4429,10 +4449,7 @@ namespace
       auto argtype = llvm_type(ctx, fx.mir.locals[0].type, fx.mir.locals[0].flags, true);
 
       attrbuilder.clear();
-
-#if LLVM_VERSION_MAJOR >= 12
       attrbuilder.addByRefAttr(argtype);
-#endif
 
       parmtypes.push_back(argtype->getPointerTo());
       parmattrs.push_back(attrbuilder);
@@ -4452,10 +4469,7 @@ namespace
         auto argtype = llvm_type(ctx, fx.mir.locals[1].type, true);
 
         attrbuilder.clear();
-
-#if LLVM_VERSION_MAJOR >= 12
         attrbuilder.addByRefAttr(argtype);
-#endif
 
         parmtypes.push_back(argtype->getPointerTo());
         parmattrs.push_back(attrbuilder);
@@ -4488,10 +4502,8 @@ namespace
         fx.locals[i].passarg_pointer = true;
       }
 
-#if LLVM_VERSION_MAJOR >= 12
       if (fx.mir.locals[i].flags & MIR::Local::Reference)
         attrbuilder.addByRefAttr(argtype);
-#endif
 
       parmtypes.push_back(argtype);
       parmattrs.push_back(attrbuilder);
@@ -4562,7 +4574,7 @@ namespace
 
     if (fx.fn->flags & FunctionDecl::ExternMask)
     {
-      if (auto func = ctx.module.getFunction(fx.fn->name); func && func != fnprot)
+      if (auto func = ctx.module.getFunction(fx.fn->name->sv()); func && func != fnprot)
       {
         if (fnprot->getType() != func->getType())
         {
@@ -4741,7 +4753,7 @@ namespace
       auto scopeloc = fx.fn->body ? fx.fn->body->loc().lineno : fnloc;
 
       auto dity = ctx.di.createSubroutineType(ctx.di.getOrCreateTypeArray(parameters));
-      auto difn = ctx.di.createFunction(llvm_discope(ctx, fx.fn), fx.fn->name, llvm::StringRef(), fx.difile, fnloc, dity, scopeloc, llvm::DINode::FlagPrototyped, llvm::DISubprogram::SPFlagDefinition);
+      auto difn = ctx.di.createFunction(llvm_discope(ctx, fx.fn), fx.fn->name->str(), llvm::StringRef(), fx.difile, fnloc, dity, scopeloc, llvm::DINode::FlagPrototyped, llvm::DISubprogram::SPFlagDefinition);
 
       fnprot->setSubprogram(difn);
 
@@ -4773,6 +4785,9 @@ namespace
 
     for(size_t i = firstarg; i < 1; ++i)
     {
+      if (is_void_type(fx.mir.locals[i].type))
+        continue;
+
       if (!fx.locals[i].addressable && fx.locals[i].writes == 1)
         continue;
 
@@ -4811,7 +4826,12 @@ namespace
     {
       for(size_t i = fx.mir.args_beg, end = fx.mir.args_end; i != end; ++i)
       {
-        auto parmvar = ctx.di.createParameterVariable(fx.discopes.back(), fx.locals[i].info->name, i, fx.difile, fx.fn->loc().lineno, llvm_ditype(ctx, fx.mir.locals[i]));
+        if (!fx.locals[i].info->vardecl->name)
+          continue;
+
+        auto loc = fx.locals[i].info->vardecl->loc();
+        auto name = fx.locals[i].info->vardecl->name->sv();
+        auto parmvar = ctx.di.createParameterVariable(fx.discopes.back(), name, i, fx.difile, loc.lineno, llvm_ditype(ctx, fx.mir.locals[i]));
 
         ctx.di.insertDeclare(fx.locals[i].alloca, parmvar, ctx.di.createExpression(), llvm_diloc(ctx, fx, fx.fn->loc()), fx.blocks[0].bx);
       }
@@ -4839,7 +4859,12 @@ namespace
         return;
     }
 
-    ctx.builder.SetCurrentDebugLocation({});
+    if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None)
+    {
+      ctx.builder.SetCurrentDebugLocation({});
+
+      ctx.di.finalizeSubprogram(fnprot->getSubprogram());
+    }
 
     llvm::verifyFunction(*fnprot);
   }
@@ -5039,7 +5064,7 @@ namespace
         {
           if (auto constant = ctx.typetable.find<ConstantType>(field, type))
           {
-            auto &name = decl_cast<EnumConstantDecl>(field)->name;
+            auto name = decl_cast<EnumConstantDecl>(field)->name->sv();
             auto value = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(constant->expr)->value)->value().value;
 
             elements.push_back(ctx.di.createEnumerator(name, value));
@@ -5279,7 +5304,7 @@ void codegen(AST *ast, string const &target, GenOpts const &genopts, Diag &diag)
     {
       auto fn = decl_cast<FunctionDecl>(decl);
 
-      if (fn->name == "main" && !(fn->flags & FunctionDecl::ExternMask))
+      if (fn->name == Ident::kw_main && !(fn->flags & FunctionDecl::ExternMask))
       {
         ctx.main = fn;
 

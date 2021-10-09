@@ -25,35 +25,35 @@ namespace Builtin
   {
     BuiltinModule() noexcept;
 
-    inline static BuiltinType voidtype = BuiltinType(BuiltinType::Void);
-    inline static BuiltinType booltype = BuiltinType(BuiltinType::Bool);
-    inline static BuiltinType chartype = BuiltinType(BuiltinType::Char);
-    inline static BuiltinType i8type = BuiltinType(BuiltinType::I8);
-    inline static BuiltinType i16type = BuiltinType(BuiltinType::I16);
-    inline static BuiltinType i32type = BuiltinType(BuiltinType::I32);
-    inline static BuiltinType i64type = BuiltinType(BuiltinType::I64);
-    inline static BuiltinType isizetype = BuiltinType(BuiltinType::ISize);
-    inline static BuiltinType u8type = BuiltinType(BuiltinType::U8);
-    inline static BuiltinType u16type = BuiltinType(BuiltinType::U16);
-    inline static BuiltinType u32type = BuiltinType(BuiltinType::U32);
-    inline static BuiltinType u64type = BuiltinType(BuiltinType::U64);
-    inline static BuiltinType usizetype = BuiltinType(BuiltinType::USize);
-    inline static BuiltinType f32type = BuiltinType(BuiltinType::F32);
-    inline static BuiltinType f64type = BuiltinType(BuiltinType::F64);
+    static inline BuiltinType voidtype = BuiltinType(BuiltinType::Void);
+    static inline BuiltinType booltype = BuiltinType(BuiltinType::Bool);
+    static inline BuiltinType chartype = BuiltinType(BuiltinType::Char);
+    static inline BuiltinType i8type = BuiltinType(BuiltinType::I8);
+    static inline BuiltinType i16type = BuiltinType(BuiltinType::I16);
+    static inline BuiltinType i32type = BuiltinType(BuiltinType::I32);
+    static inline BuiltinType i64type = BuiltinType(BuiltinType::I64);
+    static inline BuiltinType isizetype = BuiltinType(BuiltinType::ISize);
+    static inline BuiltinType u8type = BuiltinType(BuiltinType::U8);
+    static inline BuiltinType u16type = BuiltinType(BuiltinType::U16);
+    static inline BuiltinType u32type = BuiltinType(BuiltinType::U32);
+    static inline BuiltinType u64type = BuiltinType(BuiltinType::U64);
+    static inline BuiltinType usizetype = BuiltinType(BuiltinType::USize);
+    static inline BuiltinType f32type = BuiltinType(BuiltinType::F32);
+    static inline BuiltinType f64type = BuiltinType(BuiltinType::F64);
 
-    inline static BuiltinType intliteraltype = BuiltinType(BuiltinType::IntLiteral);
-    inline static BuiltinType floatliteraltype = BuiltinType(BuiltinType::FloatLiteral);
-    inline static BuiltinType stringliteraltype = BuiltinType(BuiltinType::StringLiteral);
-    inline static BuiltinType declidliteraltype = BuiltinType(BuiltinType::DeclidLiteral);
-    inline static BuiltinType ptrliteraltype = BuiltinType(BuiltinType::PtrLiteral);
+    static inline BuiltinType intliteraltype = BuiltinType(BuiltinType::IntLiteral);
+    static inline BuiltinType floatliteraltype = BuiltinType(BuiltinType::FloatLiteral);
+    static inline BuiltinType stringliteraltype = BuiltinType(BuiltinType::StringLiteral);
+    static inline BuiltinType declidliteraltype = BuiltinType(BuiltinType::DeclidLiteral);
+    static inline BuiltinType ptrliteraltype = BuiltinType(BuiltinType::PtrLiteral);
 
-    inline static Type *declidspantype = new ArrayType(new TupleType(vector<Type*>{ new PointerType(&declidliteraltype), new PointerType(&declidliteraltype) }), new TypeLitType(new IntLiteralExpr(Numeric::int_literal(1), {})));
+    static inline Type *declidspantype = new ArrayType(new TupleType(vector<Type*>{ new PointerType(&declidliteraltype), new PointerType(&declidliteraltype) }), new TypeLitType(new IntLiteralExpr(Numeric::int_literal(1), {})));
 
     Decl *make_typealias(string_view name, Type *type, long flags, int line)
     {
       auto ty = new TypeAliasDecl(SourceLocation{ line, 21 });
 
-      ty->name = name;
+      ty->name = Ident::from(name);
       ty->type = type;
       ty->flags = TypeAliasDecl::Public | flags;
       ty->owner = this;
@@ -72,7 +72,7 @@ namespace Builtin
     {
       auto koncept = new ConceptDecl(SourceLocation{ line, 21 });
 
-      koncept->name = "var";
+      koncept->name = Ident::kw_var;
       koncept->flags = ConceptDecl::Public;
       koncept->owner = this;
 
@@ -111,7 +111,6 @@ namespace Builtin
         if (name == "##string") return &stringliteraltype;
         if (name == "#declid") return &declidliteraltype;
         if (name == "#declspan") return declidspantype;
-
         if (name == "null") return &ptrliteraltype;
         if (auto j = typeargs.find(name); j != typeargs.end()) return j->second;
         throw logic_error("invalid type");
@@ -263,7 +262,7 @@ namespace Builtin
 
       fn->flags = flags;
       fn->builtin = kind;
-      fn->name = name.text;
+      fn->name = Ident::from(name.text);
 
       try_consume(cursor, "::");
 
@@ -271,13 +270,15 @@ namespace Builtin
       {
         while (!try_consume(cursor, ">"))
         {
+          auto name = consume(cursor);
+
           auto arg = new TypeArgDecl(name.loc);
 
-          arg->name = consume(cursor).text;
+          arg->name = Ident::from(name.text);
 
           fn->args.push_back(arg);
 
-          typeargs[arg->name] = new TypeArgType(arg);
+          typeargs[name.text] = new TypeArgType(arg);
 
           if (try_consume(cursor, "="))
           {
@@ -329,9 +330,9 @@ namespace Builtin
 
             if (value.text == "cast")
             {
-              parm->defult = new CastExpr(typeargs["T"], new IntLiteralExpr(Numeric::int_literal(0), value.loc), value.loc);
+              parm->defult = new CastExpr(parm->type, new IntLiteralExpr(Numeric::int_literal(0), value.loc), value.loc);
 
-              cursor.position += 6;
+              cursor.position += 3;
             }
           }
 
@@ -360,7 +361,7 @@ namespace Builtin
   };
 
   BuiltinModule::BuiltinModule() noexcept
-    : ModuleDecl("#builtin", __FILE__)
+    : ModuleDecl(Ident::from("#builtin"), __FILE__)
   {
     make_typealias("void", &voidtype, TypeAliasDecl::Implicit, __LINE__);
     make_typealias("bool", &booltype, TypeAliasDecl::Implicit, __LINE__);
@@ -404,11 +405,12 @@ namespace Builtin
     make_function(Type_IntLiteral, "pub const fn #int(#int = 0) -> #int", __LINE__);
     make_function(Type_FloatLiteral, "pub const fn #float(#float = 0.0) -> #float", __LINE__);
     make_function(Type_StringLiteral, "pub const fn #string(#string = \"\") -> #string", __LINE__);
+    make_function(Type_DeclidLiteral, "pub const fn #declid(#declid = cast(0)) -> #declid", __LINE__);
     make_function(Type_PtrLiteral, "pub const fn null<T = null>(null = null) -> T", __LINE__);
 
     make_function(Type_Ptr, "pub fn #ptr<T>(T = null) -> T", __LINE__);
     make_function(Type_Ref, "pub fn #ref<T>(T) -> T", __LINE__);
-    make_function(Type_Enum, "pub fn #enum<T>(T = cast<T>(0)) -> T", __LINE__);
+    make_function(Type_Enum, "pub fn #enum<T>(T = cast(0)) -> T", __LINE__);
     make_function(Type_Lit, "pub fn #lit<T, V>() -> T", __LINE__);
 
     make_function(Array_Constructor, "pub fn #array<T>() -> T", FunctionDecl::Defaulted, __LINE__);
@@ -526,6 +528,7 @@ namespace Builtin
     make_function(is_trivial_copy, "pub const fn __is_trivial_copy<T>() -> bool", __LINE__);
     make_function(is_trivial_assign, "pub const fn __is_trivial_assign<T>() -> bool", __LINE__);
     make_function(is_trivial_destroy, "pub const fn __is_trivial_destroy<T>() -> bool", __LINE__);
+    make_function(is_const_eval, "pub fn __is_const_eval() -> bool", __LINE__);
     make_function(tuple_len, "pub const fn __tuple_len<T>() -> usize", __LINE__);
     make_function(array_len, "pub const fn __array_len<T>() -> usize", __LINE__);
 
@@ -680,7 +683,7 @@ namespace Builtin
   //|///////////////////// fn ///////////////////////////////////////////////
   auto fn(Decl *module, Builtin::Kind kind, Type *T1, Type *T2) -> FnSig
   {
-    assert(module->kind() == Decl::Module && decl_cast<ModuleDecl>(module)->name == "#builtin");
+    assert(module->kind() == Decl::Module && decl_cast<ModuleDecl>(module)->name == "#builtin"sv);
 
     for(auto &decl : decl_cast<ModuleDecl>(module)->decls)
     {
@@ -775,6 +778,9 @@ namespace Builtin
         if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_tuple_type(T->second) || is_tuple_type(base_type(T->second));
         break;
+
+      case Builtin::VTable_Constructor:
+        return typeargs.size() > 0;
 
       case Builtin::Bool:
         if (auto T = find_type(fn->args[0]); T != typeargs.end())

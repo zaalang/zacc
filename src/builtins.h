@@ -167,6 +167,7 @@ namespace Builtin
     is_trivial_copy,
     is_trivial_assign,
     is_trivial_destroy,
+    is_const_eval,
     tuple_len,
     array_len,
 

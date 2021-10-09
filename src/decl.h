@@ -22,6 +22,7 @@
 class Type;
 class Stmt;
 class Expr;
+class Ident;
 
 //---------------------- Decl -----------------------------------------------
 //---------------------------------------------------------------------------
@@ -129,14 +130,14 @@ class ModuleDecl : public Decl
     };
 
   public:
-    ModuleDecl(std::string_view name, std::string_view file);
+    ModuleDecl(Ident *name, std::string_view file);
 
     std::string const &file() const { return m_file; }
 
-    std::string name;
+    Ident *name = nullptr;
     std::vector<Decl*> decls;
 
-    std::unordered_map<std::string_view, std::vector<Decl*>> index;
+    std::unordered_map<Ident*, std::vector<Decl*>> index;
 
     void dump(int indent) const override;
 
@@ -185,7 +186,7 @@ class FunctionDecl : public Decl
   public:
     FunctionDecl(SourceLocation loc);
 
-    std::string name;
+    Ident *name = nullptr;
 
     Type *returntype;
     std::vector<Decl*> args;
@@ -225,11 +226,12 @@ class DeclScopedDecl : public Decl
 class DeclRefDecl : public Decl
 {
   public:
-    DeclRefDecl(std::string_view name, SourceLocation loc);
+    DeclRefDecl(SourceLocation loc);
+    DeclRefDecl(Ident *name, SourceLocation loc);
 
-    std::string name;
+    Ident *name = nullptr;
     std::vector<Type*> args;
-    std::map<std::string, Type*> namedargs;
+    std::map<Ident*, Type*> namedargs;
     bool argless = true;
 
     void dump(int indent) const override;
@@ -268,7 +270,7 @@ class ImportDecl : public Decl
 
     Decl *decl = nullptr;
 
-    std::string alias;
+    Ident *alias = nullptr;
     std::vector<Decl*> usings;
 
     void dump(int indent) const override;
@@ -315,7 +317,7 @@ class TypeAliasDecl : public Decl
   public:
     TypeAliasDecl(SourceLocation loc);
 
-    std::string name;
+    Ident *name = nullptr;
 
     Type *type = nullptr;
     std::vector<Decl*> args;
@@ -340,9 +342,9 @@ class TypeArgDecl : public Decl
 
   public:
     TypeArgDecl(SourceLocation loc);
-    TypeArgDecl(std::string_view name, SourceLocation loc);
+    TypeArgDecl(Ident *name, SourceLocation loc);
 
-    std::string name;
+    Ident *name = nullptr;
 
     Type *defult = nullptr;
 
@@ -363,12 +365,14 @@ class VarDecl : public Decl
       Literal = 0x10,
       Static = 0x20,
       ThreadLocal = 0x100,
+      CacheAligned = 0x200,
+      PageAligned = 0x400,
     };
 
   public:
     VarDecl(Kind kind, SourceLocation loc);
 
-    std::string name;
+    Ident *name = nullptr;
     Type *type = nullptr;
 };
 
@@ -424,12 +428,13 @@ class TagDecl : public Decl
     {
       Public = 0x01,
       Captures = 0x10,
+      Packed = 0x100,
     };
 
   public:
     TagDecl(Kind kind, SourceLocation loc);
 
-    std::string name;
+    Ident *name = nullptr;
     std::vector<Decl*> args;
     std::vector<Decl*> decls;
 
@@ -570,10 +575,10 @@ class InitialiserDecl : public Decl
   public:
     InitialiserDecl(SourceLocation loc);
 
-    Decl *decl = nullptr;
+    Ident *name = nullptr;
 
     std::vector<Expr*> parms;
-    std::map<std::string, Expr*> namedparms;
+    std::map<Ident*, Expr*> namedparms;
 
     void dump(int indent) const override;
 };
@@ -664,8 +669,7 @@ class EnumConstantDecl : public Decl
   public:
     EnumConstantDecl(SourceLocation loc);
 
-    std::string name;
-
+    Ident *name = nullptr;
     Expr *value = nullptr;
 
     void dump(int indent) const override;

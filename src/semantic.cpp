@@ -226,7 +226,7 @@ namespace
   {
     if (!cast->type)
     {
-      cast->type = sema.make_typearg(sema.make_typearg("var", cast->loc()));
+      cast->type = sema.make_typearg(sema.make_typearg(Ident::kw_var, cast->loc()));
     }
 
     semantic_type(ctx, cast->type, sema);
@@ -279,6 +279,20 @@ namespace
     }
 
     semantic_decl(ctx, declexpr->decl, sema);
+  }
+
+  //|///////////////////// fragment_expression //////////////////////////////
+  void semantic_expr(SemanticContext &ctx, FragmentExpr *fragment, Sema &sema)
+  {
+    for(auto &arg : fragment->args)
+    {
+      semantic_expr(ctx, arg, sema);
+    }
+
+    for(auto &decl : fragment->decls)
+    {
+      semantic_decl(ctx, decl, sema);
+    }
   }
 
   //|///////////////////// expression ///////////////////////////////////////
@@ -353,6 +367,10 @@ namespace
 
       case Expr::DeclRef:
         semantic_expr(ctx, expr_cast<DeclRefExpr>(expr), sema);
+        break;
+
+      case Expr::Fragment:
+        semantic_expr(ctx, expr_cast<FragmentExpr>(expr), sema);
         break;
 
       default:
@@ -488,6 +506,14 @@ namespace
       if (!(tagdecl->flags & Decl::Public))
         decl->flags |= Decl::Public;
     }
+
+    for(auto attr : tagdecl->attributes)
+    {
+      auto attribute = decl_cast<AttributeDecl>(attr);
+
+      if (attribute->name == "packed")
+        tagdecl->flags |= Type::Packed;
+    }
   }
 
   //|///////////////////// struct ///////////////////////////////////////////
@@ -501,7 +527,7 @@ namespace
 
       auto basefield = sema.field_declaration(strct->loc());
 
-      basefield->name = "super";
+      basefield->name = Ident::kw_super;
       basefield->flags = VarDecl::Public;
       basefield->type = strct->basetype;
 
@@ -520,7 +546,7 @@ namespace
 
     auto kindtype = sema.enum_declaration(unnion->loc());
 
-    kindtype->name = "#kind";
+    kindtype->name = Ident::type_enum;
     kindtype->flags |= EnumDecl::Public;
 
     kindtype->decls.push_back(sema.enum_constant_declaration(unnion->loc()));
@@ -541,7 +567,7 @@ namespace
 
     auto kindfield = sema.field_declaration(unnion->loc());
 
-    kindfield->name = "kind";
+    kindfield->name = Ident::kw_kind;
     kindfield->flags |= VarDecl::Public;
     kindfield->flags |= VarDecl::Const;
     kindfield->type = sema.make_typeref(kindtype);
@@ -577,7 +603,7 @@ namespace
 
       auto basefield = sema.field_declaration(vtable->loc());
 
-      basefield->name = "super";
+      basefield->name = Ident::kw_super;
       basefield->flags = VarDecl::Public;
       basefield->type = vtable->basetype;
 
@@ -640,7 +666,7 @@ namespace
     {
       auto copy = sema.function_declaration(vtable->loc());
 
-      copy->name = "=";
+      copy->name = Ident::op_assign;
       copy->flags |= FunctionDecl::Public;
       copy->flags |= FunctionDecl::Defaulted;
       copy->builtin = Builtin::Default_Assignment;
@@ -663,7 +689,7 @@ namespace
     {
       auto dtor = sema.function_declaration(vtable->loc());
 
-      dtor->name = "~" + vtable->name;
+      dtor->name = Ident::from("~#vtable");
       dtor->flags |= FunctionDecl::Public;
       dtor->flags |= FunctionDecl::Destructor;
       dtor->flags |= FunctionDecl::Defaulted;
@@ -683,6 +709,7 @@ namespace
       ctor->builtin = Builtin::VTable_Constructor;
 
       ctor->args.push_back(sema.typearg_declaration(vtable->loc()));
+      ctor->args.insert(ctor->args.end(), vtable->args.begin(), vtable->args.end());
 
       ctor->returntype = vtabletype;
 
@@ -793,7 +820,7 @@ namespace
     {
       auto copy = sema.function_declaration(fn->loc());
 
-      copy->name = "=";
+      copy->name = Ident::op_assign;
       copy->flags |= FunctionDecl::Public;
       copy->flags |= FunctionDecl::Defaulted;
       copy->builtin = Builtin::Default_Assignment;
@@ -817,7 +844,7 @@ namespace
     {
       auto dtor = sema.function_declaration(fn->loc());
 
-      dtor->name = "~" + lambda->name;
+      dtor->name = Ident::from("~#lambda");
       dtor->flags |= FunctionDecl::Public;
       dtor->flags |= FunctionDecl::Destructor;
       dtor->flags |= FunctionDecl::Defaulted;
@@ -900,7 +927,7 @@ namespace
     {
       if (auto call = expr_cast<DeclRefExpr>(init->parms[0]); call->decl->kind() == Decl::DeclRef)
       {
-        if (auto declref = decl_cast<DeclRefDecl>(call->decl); declref->name == "void")
+        if (auto declref = decl_cast<DeclRefDecl>(call->decl); declref->name == Ident::kw_void)
         {
           init->flags |= InitialiserDecl::VoidInit;
         }
@@ -916,8 +943,6 @@ namespace
     {
       semantic_expr(ctx, parm, sema);
     }
-
-    semantic_decl(ctx, init->decl, sema);
   }
 
   //|///////////////////// case /////////////////////////////////////////////
@@ -936,10 +961,10 @@ namespace
   //|///////////////////// import ///////////////////////////////////////////
   void semantic_decl(SemanticContext &ctx, ImportDecl *imprt, Sema &sema)
   {
-    auto &name = decl_cast<DeclRefDecl>(imprt->decl)->name;
+    auto name = decl_cast<DeclRefDecl>(imprt->decl)->name;
 
     auto submodule = false;
-    auto path = decl_cast<DeclRefDecl>(imprt->decl)->name;
+    auto path = decl_cast<DeclRefDecl>(imprt->decl)->name->str();
 
     if (auto j = path.find('.'); j != path.npos)
     {
@@ -949,7 +974,7 @@ namespace
       std::replace(path.begin(), path.end(), '.', '/');
 #endif
 
-      if (path.substr(0, j) == imprt->alias)
+      if (path.substr(0, j) == imprt->alias->sv())
         submodule = true;
     }
 
@@ -972,7 +997,7 @@ namespace
 
       if (!umbrella)
       {
-        umbrella = sema.module_declaration(imprt->alias, imprt->alias + '/' + imprt->alias + ".zaa");
+        umbrella = sema.module_declaration(imprt->alias, imprt->alias->str() + '/' + imprt->alias->str() + ".zaa");
 
         load(umbrella, sema, ctx.diag);
 
@@ -1024,11 +1049,6 @@ namespace
       semantic_decl(ctx, arg, sema);
     }
 
-    for(auto &init: fn->inits)
-    {
-      semantic_decl(ctx, init, sema);
-    }
-
     if (auto owner = get_if<Decl*>(&fn->owner); owner && is_tag_decl(*owner))
     {
       if (fn->parms.size() != 0)
@@ -1039,9 +1059,9 @@ namespace
         {
           if (auto typeref = type_cast<TypeRefType>(basetype); typeref->decl->kind() == Decl::DeclRef)
           {
-            if (decl_cast<DeclRefDecl>(typeref->decl)->name == "this")
+            if (decl_cast<DeclRefDecl>(typeref->decl)->name == Ident::kw_this)
             {
-              parm->name = "this";
+              parm->name = Ident::kw_this;
               typeref->decl = *owner;
             }
           }
@@ -1058,7 +1078,7 @@ namespace
           auto stmt = sema.declaration_statement(fn->loc());
 
           auto thisvar = sema.thisvar_declaration(fn->loc());
-          thisvar->name = "this";
+          thisvar->name = Ident::kw_this;
           thisvar->type = sema.make_typeref(*owner);
 
           stmt->decl = thisvar;
@@ -1072,12 +1092,12 @@ namespace
         {
           if (fn->flags & FunctionDecl::Defaulted)
           {
-            if (fn->parms.size() == 0 || (fn->parms.size() == 1 && decl_cast<ParmVarDecl>(fn->parms[0])->name == "allocator"))
+            if (fn->parms.size() == 0 || (fn->parms.size() == 1 && decl_cast<ParmVarDecl>(fn->parms[0])->name == Ident::kw_allocator))
             {
               fn->builtin = Builtin::Default_Constructor;
             }
 
-            else if (fn->parms.size() == 1 || (fn->parms.size() == 2 && decl_cast<ParmVarDecl>(fn->parms[1])->name == "allocator"))
+            else if (fn->parms.size() == 1 || (fn->parms.size() == 2 && decl_cast<ParmVarDecl>(fn->parms[1])->name == Ident::kw_allocator))
             {
               if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[0])->type))
                 ctx.diag.error("non-reference first parameter", ctx.file, fn->loc());
@@ -1100,7 +1120,7 @@ namespace
         // destructor
 
         auto thisvar = sema.parm_declaration(fn->loc());
-        thisvar->name = "this";
+        thisvar->name = Ident::kw_this;
         thisvar->type = sema.make_reference(sema.make_typeref(*owner));
 
         fn->parms.push_back(thisvar);
@@ -1117,7 +1137,7 @@ namespace
       }
     }
 
-    if (fn->name == "=")
+    if (fn->name == Ident::op_assign)
     {
       if (fn->flags & FunctionDecl::Defaulted)
       {
@@ -1140,7 +1160,7 @@ namespace
       }
     }
 
-    if (fn->name == "==")
+    if (fn->name == Ident::op_equality)
     {
       if (fn->flags & FunctionDecl::Defaulted)
       {
@@ -1160,7 +1180,7 @@ namespace
       }
     }
 
-    if (fn->name == "<=>")
+    if (fn->name == Ident::op_compare)
     {
       if (fn->flags & FunctionDecl::Defaulted)
       {
@@ -1191,7 +1211,7 @@ namespace
 
       if (attribute->name == "conditional")
       {
-        auto id = sema.make_declref(attribute->options.substr(1, attribute->options.length() - 2), fn->loc());
+        auto id = sema.make_declref(Ident::from(attribute->options.substr(1, attribute->options.length() - 2)), fn->loc());
 
         if (eval(ctx, ctx.stack.back(), sema.make_declref_expression(id, fn->loc())) == 0)
           fn->flags |= FunctionDecl::Inhibited;
@@ -1221,6 +1241,11 @@ namespace
     if (fn->where)
     {
       semantic_expr(ctx, fn->where, sema);
+    }
+
+    for(auto &init : fn->inits)
+    {
+      semantic_decl(ctx, init, sema);
     }
 
     if (fn->body)
@@ -1376,16 +1401,22 @@ namespace
     }
   }
 
-  //|///////////////////// declaration_statement ////////////////////////////
-  void semantic_declaration_statement(SemanticContext &ctx, DeclStmt *stmt, Sema &sema)
+  //|///////////////////// injection_statement //////////////////////////////
+  void semantic_injection_statement(SemanticContext &ctx, InjectionStmt *injection, Sema &sema)
   {
-    if (stmt->decl->kind() == Decl::StmtVar)
+    semantic_expr(ctx, injection->expr, sema);
+  }
+
+  //|///////////////////// declaration_statement ////////////////////////////
+  void semantic_declaration_statement(SemanticContext &ctx, DeclStmt *declstmt, Sema &sema)
+  {
+    if (declstmt->decl->kind() == Decl::StmtVar)
     {
-      if (auto var = decl_cast<StmtVarDecl>(stmt->decl); var->value->kind() == Expr::Call)
+      if (auto var = decl_cast<StmtVarDecl>(declstmt->decl); var->value->kind() == Expr::Call)
       {
         if (auto call = expr_cast<CallExpr>(var->value); call->parms.size() == 1 && call->parms[0]->kind() == Expr::DeclRef)
         {
-          if (auto declref = expr_cast<DeclRefExpr>(call->parms[0]); declref->decl->kind() == Decl::DeclRef && decl_cast<DeclRefDecl>(declref->decl)->name == "void")
+          if (auto declref = expr_cast<DeclRefExpr>(call->parms[0]); declref->decl->kind() == Decl::DeclRef && decl_cast<DeclRefDecl>(declref->decl)->name == Ident::kw_void)
           {
             if (var->flags & VarDecl::Const)
             {
@@ -1397,25 +1428,25 @@ namespace
             voidvar->name = var->name;
             voidvar->type = sema.make_typeref(call->callee);
 
-            stmt->decl = voidvar;
+            declstmt->decl = voidvar;
           }
         }
       }
     }
 
-    ctx.stack.emplace_back(stmt);
+    ctx.stack.emplace_back(declstmt);
 
-    semantic_decl(ctx, stmt->decl, sema);
+    semantic_decl(ctx, declstmt->decl, sema);
 
     ctx.stack.pop_back();
   }
 
   //|///////////////////// expression_statement /////////////////////////////
-  void semantic_expression_statement(SemanticContext &ctx, ExprStmt *stmt, Sema &sema)
+  void semantic_expression_statement(SemanticContext &ctx, ExprStmt *exprstmt, Sema &sema)
   {
-    if (stmt->expr)
+    if (exprstmt->expr)
     {
-      semantic_expr(ctx, stmt->expr, sema);
+      semantic_expr(ctx, exprstmt->expr, sema);
     }
   }
 
@@ -1456,7 +1487,7 @@ namespace
 
     semantic_statement(ctx, fors->stmt, sema);
 
-    for(auto &iter: fors->iters)
+    for(auto &iter : fors->iters)
     {
       semantic_statement(ctx, iter, sema);
     }
@@ -1486,7 +1517,7 @@ namespace
 
     semantic_statement(ctx, rofs->stmt, sema);
 
-    for(auto &iter: rofs->iters)
+    for(auto &iter : rofs->iters)
     {
       semantic_statement(ctx, iter, sema);
     }
@@ -1641,6 +1672,10 @@ namespace
 
       case Stmt::Continue:
         semantic_continue_statement(ctx, stmt_cast<ContinueStmt>(stmt), sema);
+        break;
+
+      case Stmt::Injection:
+        semantic_injection_statement(ctx, stmt_cast<InjectionStmt>(stmt), sema);
         break;
 
       case Stmt::Return:

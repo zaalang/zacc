@@ -40,6 +40,7 @@ class Stmt
       Throw,
       Break,
       Continue,
+      Injection,
       Return,
     };
 
@@ -281,6 +282,21 @@ class ContinueStmt : public Stmt
 };
 
 
+//---------------------- InjectionStmt --------------------------------------
+//---------------------------------------------------------------------------
+
+class InjectionStmt : public Stmt
+{
+  public:
+    InjectionStmt(SourceLocation loc);
+    InjectionStmt(Expr *expr, SourceLocation loc);
+
+    Expr *expr = nullptr;
+
+    void dump(int indent) const override;
+};
+
+
 //---------------------- ReturnStmt -----------------------------------------
 //---------------------------------------------------------------------------
 
@@ -288,6 +304,7 @@ class ReturnStmt : public Stmt
 {
   public:
     ReturnStmt(SourceLocation loc);
+    ReturnStmt(Expr *expr, SourceLocation loc);
 
     Expr *expr = nullptr;
 
@@ -316,5 +333,6 @@ template<> inline auto stmt_cast<TryStmt>(Stmt *stmt) { assert(stmt && stmt->kin
 template<> inline auto stmt_cast<ThrowStmt>(Stmt *stmt) { assert(stmt && stmt->kind() == Stmt::Throw); return static_cast<ThrowStmt*>(stmt); };
 template<> inline auto stmt_cast<BreakStmt>(Stmt *stmt) { assert(stmt && stmt->kind() == Stmt::Break); return static_cast<BreakStmt*>(stmt); };
 template<> inline auto stmt_cast<ContinueStmt>(Stmt *stmt) { assert(stmt && stmt->kind() == Stmt::Continue); return static_cast<ContinueStmt*>(stmt); };
+template<> inline auto stmt_cast<InjectionStmt>(Stmt *stmt) { assert(stmt && stmt->kind() == Stmt::Injection); return static_cast<InjectionStmt*>(stmt); };
 template<> inline auto stmt_cast<ReturnStmt>(Stmt *stmt) { assert(stmt && stmt->kind() == Stmt::Return); return static_cast<ReturnStmt*>(stmt); };
 template<> inline auto stmt_cast<CompoundStmt>(Stmt *stmt) { assert(stmt && stmt->kind() == Stmt::Compound); return static_cast<CompoundStmt*>(stmt); };

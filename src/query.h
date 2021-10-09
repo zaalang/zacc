@@ -36,7 +36,7 @@ namespace QueryFlags
 
 struct Scope
 {
-  Stmt const *goalpost = nullptr;
+  void const *goalpost = nullptr;
 
   std::variant<Decl*, Stmt*> owner;
   std::vector<std::pair<Decl*, Type*>> typeargs;
@@ -87,7 +87,7 @@ Scope child_scope(Scope scope, std::variant<Decl*, Stmt*> const &owner, std::vec
 
 ModuleDecl *get_module(Scope const &scope);
 
-void find_decl(Decl *decl, std::string_view name, long flags, std::vector<Decl*> &results);
-void find_decls(Scope const &scope, std::string_view name, long flags, std::vector<Decl*> &results);
+void find_decl(Decl *decl, Ident *name, long flags, std::vector<Decl*> &results);
+void find_decls(Scope const &scope, Ident *name, long flags, std::vector<Decl*> &results);
 
 std::ostream &operator <<(std::ostream &os, Scope const &scope);

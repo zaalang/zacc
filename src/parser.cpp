@@ -29,6 +29,7 @@ namespace
     SourceText const &text;
 
     vector<Decl*> attributes;
+    vector<Expr*> substitutions;
 
     ParseContext(SourceText const &text, Diag &diag)
       : diag(diag),
@@ -113,6 +114,14 @@ namespace
         }
       }
     }
+  };
+
+  enum class IdentUsage
+  {
+    VarName,
+    TagName,
+    FunctionName,
+    ScopedName,
   };
 
   enum class PrecLevel
@@ -283,6 +292,7 @@ namespace
   Decl *parse_vtable_declaration(ParseContext &ctx, Sema &sema);
   Stmt *parse_statement(ParseContext &ctx, Sema &sema);
   Stmt *parse_compound_statement(ParseContext &ctx, Sema &sema);
+  Stmt *parse_declaration_statement(ParseContext &ctx, Sema &sema);
 
   //|///////////////////// consume_attributes ///////////////////////////////
   void consume_attributes(ParseContext &ctx, Sema &sema)
@@ -338,6 +348,130 @@ namespace
     }
   }
 
+  //|///////////////////// consume_substitution /////////////////////////////
+  void consume_substitution(ParseContext &ctx, Sema &sema)
+  {
+    if (!ctx.try_consume_token(Token::l_paren))
+    {
+      ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+      return;
+    }
+
+    auto expr = parse_expression(ctx, sema);
+
+    if (!expr)
+    {
+      ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+    }
+
+    if (!ctx.try_consume_token(Token::r_paren))
+    {
+      ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+    }
+
+    ctx.substitutions.push_back(expr);
+  }
+
+  //|///////////////////// parse_ident //////////////////////////////////////
+  Ident *parse_ident(ParseContext &ctx, IdentUsage usage, Sema &sema)
+  {
+    switch (auto tok = ctx.tok; tok.type)
+    {
+      case Token::identifier:
+         ctx.consume_token();
+
+        return Ident::from(tok.text);
+
+      case Token::l_square:
+      case Token::l_paren:
+      case Token::plus: case Token::plusplus: case Token::plusequal:
+      case Token::minus: case Token::minusminus: case Token::minusequal:
+      case Token::star: case Token::starequal:
+      case Token::slash: case Token::slashequal:
+      case Token::percent: case Token::percentequal:
+      case Token::arrow: case Token::arrowstar:
+      case Token::amp: case Token::ampamp: case Token::ampequal:
+      case Token::pipe: case Token::pipepipe: case Token::pipeequal:
+      case Token::caret: case Token::caretequal:
+      case Token::exclaim: case Token::exclaimequal:
+      case Token::tilde:
+      case Token::less: case Token::lessless: case Token::lesslessequal: case Token::lessequal:
+      case Token::greater: case Token::greatergreater: case Token::greatergreaterequal: case Token::greaterequal:
+      case Token::equal: case Token::equalequal:
+      case Token::spaceship:
+      case Token::kw_yield:
+      case Token::kw_await:
+      case Token::kw_void:
+      case Token::kw_null:
+      case Token::kw_new:
+      case Token::kw_nil:
+      case Token::kw_var:
+        ctx.consume_token();
+
+        if (usage != IdentUsage::FunctionName && usage != IdentUsage::ScopedName)
+          break;
+
+        if (tok == Token::l_square || tok == Token::l_paren || (tok == Token::tilde && ctx.tok == Token::identifier))
+        {
+          if (ctx.tok.text.begin() != tok.text.end())
+            ctx.diag.error("extra characters within identifier", ctx.text, ctx.tok.loc);
+
+          tok.text = string_view(tok.text.data(), tok.text.length() + ctx.tok.text.length());
+
+          ctx.consume_token();
+        }
+
+        return Ident::from(tok.text);
+
+      case Token::numeric_constant:
+        ctx.consume_token();
+
+        if (usage != IdentUsage::ScopedName)
+          break;
+
+        return Ident::make_index_ident(tok.text);
+
+      case Token::hash:
+        ctx.consume_token();
+
+        if (usage != IdentUsage::ScopedName)
+          break;
+
+        if (ctx.tok == Token::identifier)
+        {
+          tok.text = ctx.tok.text;
+
+          ctx.consume_token();
+        }
+
+        return Ident::make_hash_ident(tok.text);
+
+      case Token::dollar:
+        ctx.consume_token();
+
+        if (ctx.tok == Token::identifier)
+        {
+          if (ctx.tok.text.begin() != tok.text.end())
+            ctx.diag.error("extra characters within identifier", ctx.text, ctx.tok.loc);
+
+          tok.text = string_view(tok.text.data(), tok.text.length() + ctx.tok.text.length());
+
+          ctx.consume_token(Token::identifier);
+        }
+
+        consume_substitution(ctx, sema);
+
+        return Ident::make_dollar_ident(tok.text, ctx.substitutions.size() - 1);
+
+      default:
+        break;
+    }
+
+    ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
+
+    return nullptr;
+  }
+
   //|///////////////////// parse_typearg_list ///////////////////////////////
   vector<Type*> parse_typearg_list(ParseContext &ctx, Sema &sema)
   {
@@ -366,18 +500,17 @@ namespace
   }
 
   //|///////////////////// parse_named_typearg_list //////////////////////
-  map<string, Type*> parse_named_typearg_list(ParseContext &ctx, Sema &sema)
+  map<Ident*, Type*> parse_named_typearg_list(ParseContext &ctx, Sema &sema)
   {
-    map<string, Type*> args;
+    map<Ident*, Type*> args;
 
     while (ctx.tok != Token::greater && ctx.tok != Token::eof)
     {
       if (ctx.tok != Token::identifier || ctx.token(1) != Token::colon)
         break;
 
-      auto name = ctx.tok.text;
+      auto name = parse_ident(ctx, IdentUsage::VarName, sema);
 
-      ctx.consume_token(Token::identifier);
       ctx.consume_token(Token::colon);
 
       auto type = parse_type_ex(ctx, sema);
@@ -406,14 +539,7 @@ namespace
       if (ctx.try_consume_token(Token::ellipsis))
         arg->flags |= TypeArgDecl::Pack;
 
-      arg->name = ctx.tok.text;
-
-      if (!ctx.try_consume_token(Token::identifier))
-      {
-        ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
-        break;
-      }
+      arg->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
       if (ctx.try_consume_token(Token::equal))
       {
@@ -428,19 +554,11 @@ namespace
 
         arg = sema.typearg_declaration(ctx.tok.loc);
 
-        arg->name = ctx.tok.text;
-
-        if (!ctx.try_consume_token(Token::identifier))
-        {
-          ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
-          ctx.comsume_til_resumable();
-          break;
-        }
+        arg->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
         if (!ctx.try_consume_token(Token::r_paren))
         {
           ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-          ctx.comsume_til_resumable();
           break;
         }
       }
@@ -453,19 +571,11 @@ namespace
 
         arg = sema.typearg_declaration(ctx.tok.loc);
 
-        arg->name = ctx.tok.text;
-
-        if (!ctx.try_consume_token(Token::identifier))
-        {
-          ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
-          ctx.comsume_til_resumable();
-          break;
-        }
+        arg->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
         if (!ctx.try_consume_token(Token::r_square))
         {
           ctx.diag.error("expected bracket", ctx.text, ctx.tok.loc);
-          ctx.comsume_til_resumable();
           break;
         }
       }
@@ -494,7 +604,6 @@ namespace
       if (!expr)
       {
         ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         break;
       }
 
@@ -513,28 +622,19 @@ namespace
   }
 
   //|///////////////////// parse_named_expression_list //////////////////////
-  map<string, Expr*> parse_named_expression_list(ParseContext &ctx, Sema &sema)
+  map<Ident*, Expr*> parse_named_expression_list(ParseContext &ctx, Sema &sema)
   {
-    map<string, Expr*> exprs;
+    map<Ident*, Expr*> exprs;
 
     while (ctx.tok != Token::r_paren && ctx.tok != Token::eof)
     {
       if (ctx.tok != Token::identifier || !(ctx.token(1) == Token::colon || (ctx.token(1) == Token::question && ctx.token(2) == Token::colon)))
         break;
 
-      auto name = ctx.tok.text;
+      auto name = parse_ident(ctx, IdentUsage::VarName, sema);
 
-      ctx.consume_token(Token::identifier);
-
-      if (ctx.tok == Token::question)
-      {
-        if (ctx.tok.text.begin() != name.end())
-          ctx.diag.error("extra characters within parameter name", ctx.text, ctx.tok.loc);
-
-        name = string_view(name.data(), name.length() + 1);
-
-        ctx.consume_token(Token::question);
-      }
+      if (ctx.try_consume_token(Token::question))
+        name = Ident::from(name->str() + "?");
 
       ctx.consume_token(Token::colon);
 
@@ -576,11 +676,9 @@ namespace
       if (ctx.try_consume_token(Token::ellipsis))
         parm->type = sema.make_pack(parm->type);
 
-      if (ctx.tok == Token::identifier || ctx.tok == Token::kw_this)
+      if (ctx.tok == Token::identifier || ctx.tok == Token::dollar)
       {
-        parm->name = ctx.tok.text;
-
-        ctx.consume_token();
+        parm->name = parse_ident(ctx, IdentUsage::VarName, sema);
       }
 
       if (ctx.try_consume_token(Token::equal))
@@ -629,7 +727,7 @@ namespace
 
         ctx.consume_token();
 
-        auto type = sema.make_typearg(sema.make_typearg("var", ctx.tok.loc));
+        auto type = sema.make_typearg(sema.make_typearg(Ident::kw_var, ctx.tok.loc));
 
         auto kw_mut = ctx.try_consume_token(Token::kw_mut);
         auto kw_const = ctx.try_consume_token(Token::kw_const) || (flags & VarDecl::Const);
@@ -645,19 +743,11 @@ namespace
         if (kw_const)
           flags |= VarDecl::Const;
 
-        auto name = ctx.tok.text;
-
-        if (!ctx.try_consume_token(Token::identifier) && !ctx.try_consume_token(Token::kw_this))
-        {
-          ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
-          ctx.comsume_til_resumable();
-          break;
-        }
+        auto name = parse_ident(ctx, IdentUsage::VarName, sema);
 
         if (ctx.tok != Token::colon && ctx.tok != Token::equal)
         {
           ctx.diag.error("expected assignment", ctx.text, ctx.tok.loc);
-          ctx.comsume_til_resumable();
           break;
         }
 
@@ -673,7 +763,6 @@ namespace
           if (!var->range)
           {
             ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-            ctx.comsume_til_resumable();
             break;
           }
 
@@ -692,7 +781,6 @@ namespace
           if (!var->value)
           {
             ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-            ctx.comsume_til_resumable();
             break;
           }
 
@@ -710,7 +798,6 @@ namespace
         if (!stmt->expr)
         {
           ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-          ctx.comsume_til_resumable();
           break;
         }
 
@@ -733,7 +820,7 @@ namespace
     {
       auto var = sema.capture_declaration(ctx.tok.loc);
 
-      var->arg = sema.make_typearg("_" + to_string(captures.size() + 1), ctx.tok.loc);
+      var->arg = sema.make_typearg(Ident::from("_" + to_string(captures.size() + 1)), ctx.tok.loc);
 
       if (ctx.tok == Token::kw_var)
       {
@@ -763,19 +850,11 @@ namespace
         if (kw_const)
           var->flags |= VarDecl::Const;
 
-        var->name = ctx.tok.text;
-
-        if (!ctx.try_consume_token(Token::identifier))
-        {
-          ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
-          ctx.comsume_til_resumable();
-          break;
-        }
+        var->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
         if (!ctx.try_consume_token(Token::equal))
         {
           ctx.diag.error("expected assignment", ctx.text, ctx.tok.loc);
-          ctx.comsume_til_resumable();
           break;
         }
 
@@ -784,7 +863,6 @@ namespace
         if (!var->value)
         {
           ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-          ctx.comsume_til_resumable();
           break;
         }
       }
@@ -792,16 +870,7 @@ namespace
       {
         auto loc = ctx.tok.loc;
 
-        var->name = ctx.tok.text;
-
-        if (ctx.tok != Token::identifier && ctx.tok != Token::kw_this)
-        {
-          ctx.diag.error("expected variable", ctx.text, loc);
-          ctx.comsume_til_resumable();
-          break;
-        }
-
-        ctx.consume_token();
+        var->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
         var->type = sema.make_reference(sema.make_qualarg(sema.make_typearg(var->arg)));
 
@@ -817,26 +886,6 @@ namespace
     return captures;
   }
 
-  //|///////////////////// parse_name ///////////////////////////////////////
-  string_view parse_name(ParseContext &ctx, Sema &sema)
-  {
-    auto name = ctx.tok.text;
-
-    if (ctx.tok == Token::l_square || ctx.tok == Token::l_paren || ctx.tok == Token::hash || (ctx.tok == Token::tilde && ctx.token(1) == Token::identifier))
-    {
-      ctx.consume_token();
-
-      if (ctx.tok.text.begin() != name.end())
-        ctx.diag.error("extra characters within function name", ctx.text, ctx.tok.loc);
-
-      name = string_view(name.data(), ctx.tok.text.length() + 1);
-    }
-
-    ctx.consume_token();
-
-    return name;
-  }
-
   //|///////////////////// parse_qualified_name /////////////////////////////
   Decl *parse_qualified_name(ParseContext &ctx, Sema &sema)
   {
@@ -844,13 +893,9 @@ namespace
 
     auto loc = ctx.tok.loc;
 
-    if (ctx.tok == Token::coloncolon)
+    if (ctx.try_consume_token(Token::coloncolon))
     {
-      auto loc = ctx.tok.loc;
-
-      decls.push_back(sema.make_declref("::", loc));
-
-      ctx.consume_token(Token::coloncolon);
+      decls.push_back(sema.make_declref(Ident::op_scope, loc));
     }
 
     if (ctx.try_consume_token(Token::kw_typeof))
@@ -860,7 +905,6 @@ namespace
       if (!ctx.try_consume_token(Token::l_paren))
       {
         ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
 
@@ -869,14 +913,12 @@ namespace
       if (!expr)
       {
         ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
 
       if (!ctx.try_consume_token(Token::r_paren))
       {
         ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
 
@@ -889,11 +931,11 @@ namespace
     while (true)
     {
       auto loc = ctx.tok.loc;
-      auto name = parse_name(ctx, sema);
+      auto name = parse_ident(ctx, IdentUsage::ScopedName, sema);
 
       auto ref = sema.make_declref(name, loc);
 
-      if ((ctx.tok == Token::coloncolon && ctx.token(1) == Token::less) || (ctx.tok == Token::less && ctx.tok.text.begin() == name.end()))
+      if ((ctx.tok == Token::coloncolon && ctx.token(1) == Token::less) || (ctx.tok == Token::less && !std::isspace(ctx.tok.text.data()[-1])))
       {
         if (ctx.tok == Token::coloncolon)
           ctx.consume_token();
@@ -907,7 +949,6 @@ namespace
         if (ctx.tok != Token::greater && ctx.tok != Token::greatergreater)
         {
           ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
-          ctx.comsume_til_resumable();
           return nullptr;
         }
 
@@ -1025,7 +1066,6 @@ namespace
       if (!ctx.try_consume_token(Token::r_paren))
       {
         ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
 
@@ -1098,7 +1138,6 @@ namespace
         if (!ctx.try_consume_token(Token::r_paren))
         {
           ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-          ctx.comsume_til_resumable();
           return nullptr;
         }
 
@@ -1127,14 +1166,12 @@ namespace
 //      if (!expr)
 //      {
 //        ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-//        ctx.comsume_til_resumable();
 //        return nullptr;
 //      }
 
 //      if (!ctx.try_consume_token(Token::semi))
 //      {
 //        ctx.diag.error("expected semi after type expression", ctx.text, ctx.tok.loc);
-//        ctx.comsume_til_resumable();
 //        return nullptr;
 //      }
 
@@ -1201,6 +1238,7 @@ namespace
 
         case Token::identifier:
         case Token::coloncolon:
+        case Token::dollar:
           leftid = true;
           break;
 
@@ -1215,6 +1253,26 @@ namespace
 
           if (!leftid && !comma)
             maybe = true;
+          break;
+
+        case Token::l_square:
+          for(int indent = 0; tok != Token::eof; )
+          {
+            if (tok == Token::l_paren)
+              skip_bracketed();
+
+            if (tok == Token::l_square)
+              indent += 1;
+
+            if (tok == Token::r_square)
+              indent -= 1;
+
+            if (indent <= 0)
+              break;
+
+            lexcursor = lex(ctx.text, lexcursor, tok);
+          }
+          maybe = true;
           break;
 
         case Token::less:
@@ -1281,14 +1339,12 @@ namespace
     if (!expr)
     {
       ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
     if (!ctx.try_consume_token(Token::r_paren))
     {
       ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
@@ -1343,6 +1399,9 @@ namespace
     auto loc = ctx.tok.loc;
     auto name = parse_qualified_name(ctx, sema);
 
+    if (!name)
+      return nullptr;
+
     if (ctx.try_consume_token(Token::l_paren))
     {
       auto parms = parse_expression_list(ctx, sema);
@@ -1351,7 +1410,6 @@ namespace
       if (!ctx.try_consume_token(Token::r_paren))
       {
         ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
 
@@ -1375,7 +1433,6 @@ namespace
       if (!ctx.try_consume_token(Token::greater))
       {
         ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
 
@@ -1384,7 +1441,6 @@ namespace
         if (!ctx.try_consume_token(Token::r_paren))
         {
           ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-          ctx.comsume_til_resumable();
           return nullptr;
         }
       }
@@ -1399,7 +1455,6 @@ namespace
       if (!ctx.try_consume_token(Token::r_paren))
       {
         ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
 
@@ -1423,7 +1478,6 @@ namespace
       if (!ctx.try_consume_token(Token::greater))
       {
         ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
 
@@ -1432,7 +1486,6 @@ namespace
         if (!ctx.try_consume_token(Token::r_paren))
         {
           ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-          ctx.comsume_til_resumable();
           return nullptr;
         }
       }
@@ -1447,7 +1500,6 @@ namespace
       if (!ctx.try_consume_token(Token::r_paren))
       {
         ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
 
@@ -1467,7 +1519,6 @@ namespace
     if (!ctx.try_consume_token(Token::l_paren))
     {
       ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
@@ -1476,23 +1527,14 @@ namespace
     if (!ctx.try_consume_token(Token::comma))
     {
       ctx.diag.error("expected comma", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
-    auto name = ctx.tok.text;
-
-    if (!ctx.try_consume_token(Token::identifier))
-    {
-      ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
-      return nullptr;
-    }
+    auto name = parse_ident(ctx, IdentUsage::VarName, sema);
 
     if (!ctx.try_consume_token(Token::r_paren))
     {
       ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
@@ -1509,27 +1551,35 @@ namespace
     if (!ctx.try_consume_token(Token::l_paren))
     {
       ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
-    auto name = ctx.tok.text;
+    Expr *expr = nullptr;
 
-    if (!ctx.try_consume_token(Token::identifier))
+    if (ctx.tok == Token::identifier)
     {
-      ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
-      return nullptr;
+      expr = sema.make_string_literal(ctx.tok.text, ctx.tok.loc);
+
+      ctx.consume_token(Token::identifier);
+    }
+    else
+    {
+      expr = parse_expression(ctx, sema);
+
+      if (!expr)
+      {
+        ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+        return nullptr;
+      }
     }
 
     if (!ctx.try_consume_token(Token::r_paren))
     {
       ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
-    return sema.make_unary_expression(UnaryOpExpr::Extern, sema.make_string_literal(name, loc), loc);
+    return sema.make_unary_expression(UnaryOpExpr::Extern, expr, loc);
   }
 
   //|///////////////////// parse_cast ///////////////////////////////////////
@@ -1540,7 +1590,6 @@ namespace
     ctx.consume_token(Token::kw_cast);
 
     Type *type = nullptr;
-    Expr *expr = nullptr;
 
     if (ctx.try_consume_token(Token::less))
     {
@@ -1549,10 +1598,11 @@ namespace
       if (!ctx.try_consume_token(Token::greater))
       {
         ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
     }
+
+    Expr *expr = nullptr;
 
     if (ctx.try_consume_token(Token::l_paren))
     {
@@ -1561,7 +1611,6 @@ namespace
       if (!ctx.try_consume_token(Token::r_paren))
       {
         ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
     }
@@ -1585,7 +1634,6 @@ namespace
     if (!ctx.try_consume_token(Token::less))
     {
       ctx.diag.error("expected less", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
@@ -1594,14 +1642,12 @@ namespace
     if (!ctx.try_consume_token(Token::greater))
     {
       ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
     if (!ctx.try_consume_token(Token::l_paren))
     {
       ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
@@ -1610,14 +1656,12 @@ namespace
     if (!address)
     {
       ctx.diag.error("expected address parameter", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
     if (!ctx.try_consume_token(Token::r_paren))
     {
       ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
@@ -1629,7 +1673,6 @@ namespace
       if (!ctx.try_consume_token(Token::r_paren))
       {
         ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
 
@@ -1647,6 +1690,9 @@ namespace
     auto loc = ctx.tok.loc;
     auto name = parse_qualified_name(ctx, sema);
 
+    if (!name)
+      return nullptr;
+
     if (ctx.try_consume_token(Token::l_paren))
     {
       auto parms = parse_expression_list(ctx, sema);
@@ -1655,7 +1701,6 @@ namespace
       if (!ctx.try_consume_token(Token::r_paren))
       {
         ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
 
@@ -1671,14 +1716,13 @@ namespace
     ctx.consume_token(Token::l_square);
 
     auto loc = ctx.tok.loc;
-    auto name = sema.make_declref("[]", loc);
+    auto name = sema.make_declref(Ident::op_index, loc);
     auto parms = parse_expression_list(ctx, sema);
     auto namedparms = parse_named_expression_list(ctx, sema);
 
     if (!ctx.try_consume_token(Token::r_square))
     {
       ctx.diag.error("expected bracket", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
@@ -1691,14 +1735,13 @@ namespace
     ctx.consume_token(Token::l_paren);
 
     auto loc = ctx.tok.loc;
-    auto name = sema.make_declref("()", loc);
+    auto name = sema.make_declref(Ident::op_call, loc);
     auto parms = parse_expression_list(ctx, sema);
     auto namedparms = parse_named_expression_list(ctx, sema);
 
     if (!ctx.try_consume_token(Token::r_paren))
     {
       ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
@@ -1721,7 +1764,6 @@ namespace
       if (!ctx.try_consume_token(Token::r_paren))
       {
         ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
     }
@@ -1733,7 +1775,6 @@ namespace
       if (!fn->returntype)
       {
         ctx.diag.error("expected requires type", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
     }
@@ -1741,7 +1782,6 @@ namespace
     if (ctx.tok != Token::l_brace)
     {
       ctx.diag.error("expected requires body", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
@@ -1766,7 +1806,6 @@ namespace
       if (!ctx.try_consume_token(Token::r_paren))
       {
         ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
     }
@@ -1774,7 +1813,6 @@ namespace
     if (ctx.tok != Token::l_brace)
     {
       ctx.diag.error("expected match body", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
@@ -1793,7 +1831,6 @@ namespace
     if (!where)
     {
       ctx.diag.error("expected where condition", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
@@ -1812,13 +1849,11 @@ namespace
     fn->flags |= FunctionDecl::Public;
     fn->flags |= FunctionDecl::LambdaDecl;
 
-    fn->name = "()";
+    fn->name = Ident::op_call;
 
-    if (ctx.tok == Token::identifier)
+    if (ctx.tok == Token::identifier || ctx.tok == Token::dollar)
     {
-      lambda->name = ctx.tok.text;
-
-      ctx.consume_token(Token::identifier);
+      lambda->name = parse_ident(ctx, IdentUsage::TagName, sema);
     }
 
     if (ctx.try_consume_token(Token::l_square))
@@ -1830,7 +1865,6 @@ namespace
       if (!ctx.try_consume_token(Token::r_square))
       {
         ctx.diag.error("expected bracket", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
     }
@@ -1842,7 +1876,6 @@ namespace
       if (!ctx.try_consume_token(Token::greater))
       {
         ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
     }
@@ -1854,7 +1887,6 @@ namespace
       if (!ctx.try_consume_token(Token::r_paren))
       {
         ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
     }
@@ -1871,7 +1903,6 @@ namespace
       if (!fn->returntype)
       {
         ctx.diag.error("expected return type", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
     }
@@ -1879,7 +1910,6 @@ namespace
     if (ctx.tok != Token::l_brace)
     {
       ctx.diag.error("expected function body", ctx.text, ctx.tok.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
     }
 
@@ -1895,11 +1925,7 @@ namespace
   Expr *parse_expression_head(ParseContext &ctx, Token op, Expr *lhs, Sema &sema)
   {
     if (!lhs)
-    {
-      ctx.diag.error("expected expression", ctx.text, op.loc);
-      ctx.comsume_til_resumable();
       return nullptr;
-    }
 
     return sema.make_unary_expression(unaryopcode(op), lhs, op.loc);
   }
@@ -1907,6 +1933,9 @@ namespace
   //|///////////////////// parse_expression_post ////////////////////////////
   Expr *parse_expression_post(ParseContext &ctx, Expr *lhs, Sema &sema)
   {
+    if (!lhs)
+      return nullptr;
+
     auto op = ctx.tok;
 
     switch (op.type)
@@ -1998,10 +2027,10 @@ namespace
       case Token::kw_extern:
         return parse_extern(ctx, sema);
 
-      case Token::kw_this:
       case Token::kw_typeof:
       case Token::coloncolon:
       case Token::identifier:
+      case Token::dollar:
         return parse_expression_post(ctx, parse_callee(ctx, sema), sema);
 
       case Token::exclaim:
@@ -2048,14 +2077,12 @@ namespace
         if (!middle)
         {
           ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-          ctx.comsume_til_resumable();
           return nullptr;
         }
 
         if (!ctx.try_consume_token(Token::colon))
         {
           ctx.diag.error("expected colon", ctx.text, ctx.tok.loc);
-          ctx.comsume_til_resumable();
           return nullptr;
         }
       }
@@ -2073,7 +2100,6 @@ namespace
       if (!rhs)
       {
         ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         return nullptr;
       }
 
@@ -2225,48 +2251,36 @@ namespace
     auto loc = ctx.tok.loc;
     auto name = ctx.tok.text;
 
-    if (ctx.tok != Token::identifier)
+    if (!ctx.try_consume_token(Token::identifier))
     {
       ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
       goto resume;
     }
 
-    imprt->alias = name;
-
-    ctx.consume_token(Token::identifier);
+    imprt->alias = Ident::from(name);
 
     while (ctx.try_consume_token(Token::period) || ctx.try_consume_token(Token::minus))
     {
-      if (ctx.tok != Token::identifier)
+      name = string_view(name.data(), ctx.tok.text.end() - name.begin());
+
+      if (!ctx.try_consume_token(Token::identifier))
       {
         ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
         goto resume;
       }
-
-      name = string_view(name.data(), ctx.tok.text.end() - name.begin());
-
-      ctx.consume_token(Token::identifier);
     }
 
     if (auto j = name.find('.'); j != name.npos)
     {
-      if (name.substr(0, j) == imprt->alias && name.substr(j+1) == imprt->alias)
-        name = imprt->alias;
+      if (name.substr(j+1) == imprt->alias->sv())
+        name = imprt->alias->sv();
     }
 
     if (ctx.tok == Token::identifier && ctx.tok.text == "as")
     {
       ctx.consume_token(Token::identifier);
 
-      if (ctx.tok != Token::identifier)
-      {
-        ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
-        goto resume;
-      }
-
-      imprt->alias = ctx.tok.text;
-
-      ctx.consume_token(Token::identifier);
+      imprt->alias = parse_ident(ctx, IdentUsage::TagName, sema);
     }
 
     if (ctx.try_consume_token(Token::colon))
@@ -2279,7 +2293,7 @@ namespace
           usein->flags |= Decl::Public;
 
         auto loc = ctx.tok.loc;
-        auto name = parse_name(ctx, sema);
+        auto name = parse_ident(ctx, IdentUsage::FunctionName, sema);
 
         usein->decl = sema.make_declref(name, loc);
 
@@ -2290,7 +2304,7 @@ namespace
       }
     }
 
-    imprt->decl = sema.make_declref(name, loc);
+    imprt->decl = sema.make_declref(Ident::from(name), loc);
 
     if (!ctx.try_consume_token(Token::semi))
     {
@@ -2340,9 +2354,7 @@ namespace
 
     ctx.consume_token(Token::kw_using);
 
-    alias->name = ctx.tok.text;
-
-    ctx.consume_token(Token::identifier);
+    alias->name = parse_ident(ctx, IdentUsage::TagName, sema);
 
     if (ctx.try_consume_token(Token::less))
     {
@@ -2428,14 +2440,24 @@ namespace
 
     ctx.consume_token();
 
-    if (ctx.tok.text == "thread_local")
+    if (var->flags & VarDecl::Static)
     {
-      var->flags |= VarDecl::ThreadLocal;
+      while (ctx.tok.text == "thread_local" || ctx.tok.text == "cache_aligned" || ctx.tok.text == "page_aligned")
+      {
+        if (ctx.tok.text == "thread_local")
+          var->flags |= VarDecl::ThreadLocal;
 
-      ctx.consume_token();
+        if (ctx.tok.text == "cache_aligned")
+          var->flags |= VarDecl::CacheAligned;
+
+        if (ctx.tok.text == "page_aligned")
+          var->flags |= VarDecl::PageAligned;
+
+        ctx.consume_token();
+      }
     }
 
-    var->type = sema.make_typearg(sema.make_typearg("var", ctx.tok.loc));
+    var->type = sema.make_typearg(sema.make_typearg(Ident::kw_var, ctx.tok.loc));
 
     auto kw_mut = ctx.try_consume_token(Token::kw_mut);
     auto kw_const = ctx.try_consume_token(Token::kw_const) || (var->flags & VarDecl::Const);
@@ -2454,13 +2476,7 @@ namespace
     if (kw_const)
       var->flags |= VarDecl::Const;
 
-    var->name = ctx.tok.text;
-
-    if (!ctx.try_consume_token(Token::identifier) && !ctx.try_consume_token(Token::kw_this))
-    {
-      ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
-      goto resume;
-    }
+    var->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
     if (!ctx.try_consume_token(Token::equal))
     {
@@ -2557,8 +2573,6 @@ namespace
           ctx.diag.error("expected requires type", ctx.text, ctx.tok.loc);
           goto resume;
         }
-
-        fn->returntype = reqires->requirestype;
       }
 
       fn->body = parse_compound_statement(ctx, sema);
@@ -2607,9 +2621,7 @@ namespace
 
     ctx.consume_token(Token::kw_concept);
 
-    koncept->name = ctx.tok.text;
-
-    ctx.consume_token(Token::identifier);
+    koncept->name = parse_ident(ctx, IdentUsage::TagName, sema);
 
     if (ctx.try_consume_token(Token::less))
     {
@@ -2678,9 +2690,7 @@ namespace
     fn->flags |= FunctionDecl::Const;
     fn->flags |= FunctionDecl::ConstDecl;
 
-    fn->name = ctx.tok.text;
-
-    ctx.consume_token(Token::identifier);
+    fn->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
     if (ctx.try_consume_token(Token::less))
     {
@@ -2731,7 +2741,7 @@ namespace
   {
     auto var = sema.var_declaration(ctx.tok.loc);
 
-    var->type = sema.make_typearg(sema.make_typearg("var", ctx.tok.loc));
+    var->type = sema.make_typearg(sema.make_typearg(Ident::kw_var, ctx.tok.loc));
 
     var->value = parse_lambda(ctx, sema);
 
@@ -2740,7 +2750,7 @@ namespace
 
     var->name = decl_cast<LambdaDecl>(expr_cast<LambdaExpr>(var->value)->decl)->name;
 
-    if (var->name.empty())
+    if (!var->name)
     {
       ctx.diag.error("expected identifier", ctx.text, var->loc());
       goto resume;
@@ -2793,17 +2803,10 @@ namespace
     if (!ctx.try_consume_token(Token::kw_fn))
       ctx.diag.error("expected function", ctx.text, ctx.tok.loc);
 
-    auto name = parse_name(ctx, sema);
+    auto name = parse_ident(ctx, IdentUsage::FunctionName, sema);
 
-    if (ctx.tok == Token::equal)
-    {
-      if (ctx.tok.text.begin() != name.end())
-        ctx.diag.error("extra characters within function name", ctx.text, ctx.tok.loc);
-
-      name = string_view(name.data(), name.length() + 1);
-
-      ctx.consume_token();
-    }
+    if (ctx.try_consume_token(Token::equal))
+      name = Ident::from(name->str() + "=");
 
     fn->name = name;
 
@@ -2911,26 +2914,15 @@ namespace
   {
     vector<Decl*> inits;
 
-    if (ctx.tok == Token::kw_this)
-      ctx.tok.type = Token::identifier;
-
     while (ctx.tok != Token::l_brace && ctx.tok != Token::eof)
     {
       auto init = sema.initialiser_declaration(ctx.tok.loc);
 
-      init->decl = sema.make_declref(ctx.tok.text, ctx.tok.loc);
-
-      if (!ctx.try_consume_token(Token::identifier))
-      {
-        ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
-        break;
-      }
+      init->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
       if (!ctx.try_consume_token(Token::l_paren))
       {
         ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         break;
       }
 
@@ -2940,7 +2932,6 @@ namespace
       if (!ctx.try_consume_token(Token::r_paren))
       {
         ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-        ctx.comsume_til_resumable();
         break;
       }
 
@@ -2949,7 +2940,7 @@ namespace
       if (!ctx.try_consume_token(Token::comma))
         break;
 
-      if (inits.size() == 1 && decl_cast<DeclRefDecl>(decl_cast<InitialiserDecl>(inits[0])->decl)->name == "this")
+      if (inits.size() == 1 && decl_cast<InitialiserDecl>(inits[0])->name == Ident::kw_this)
         break;
     }
 
@@ -2969,11 +2960,9 @@ namespace
     if (ctx.try_consume_token(Token::kw_const))
       fn->flags |= FunctionDecl::Const;
 
+    fn->name = parse_ident(ctx, IdentUsage::TagName, sema);
+
     fn->attributes = std::move(ctx.attributes);
-
-    fn->name = ctx.tok.text;
-
-    ctx.consume_token(Token::identifier);
 
     if (ctx.tok == Token::coloncolon && ctx.token(1) != Token::identifier)
       ctx.consume_token();
@@ -3056,7 +3045,7 @@ namespace
 
     fn->attributes = std::move(ctx.attributes);
 
-    fn->name = string_view(ctx.tok.text.data(), ctx.token(1).text.length() + 1);
+    fn->name = Ident::from(string_view(ctx.tok.text.data(), ctx.token(1).text.length() + 1));
 
     ctx.consume_token(Token::tilde);
     ctx.consume_token(Token::identifier);
@@ -3124,13 +3113,7 @@ namespace
       field->type = remove_const_type(field->type);
     }
 
-    field->name = ctx.tok.text;
-
-    if (!ctx.try_consume_token(Token::identifier))
-    {
-      ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
-      goto resume;
-    }
+    field->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
     ctx.try_consume_token(Token::semi) || ctx.try_consume_token(Token::comma);
 
@@ -3153,11 +3136,9 @@ namespace
 
     ctx.consume_token(Token::kw_struct);
 
-    if (ctx.tok == Token::identifier)
+    if (ctx.tok == Token::identifier || ctx.tok == Token::dollar)
     {
-      strct->name = ctx.tok.text;
-
-      ctx.consume_token(Token::identifier);
+      strct->name = parse_ident(ctx, IdentUsage::TagName, sema);
     }
 
     if (ctx.try_consume_token(Token::less))
@@ -3208,6 +3189,7 @@ namespace
               break;
 
             case Token::identifier:
+            case Token::dollar:
               break;
 
             default:
@@ -3255,10 +3237,12 @@ namespace
             break;
 
           case Token::kw_void:
+          case Token::kw_null:
           case Token::kw_typeof:
           case Token::l_paren:
           case Token::identifier:
-            if (tok.text == strct->name)
+          case Token::dollar:
+            if (strct->name == tok.text)
             {
               auto tok = ctx.tok;
               auto lexcursor = ctx.lexcursor;
@@ -3399,9 +3383,7 @@ namespace
     if (ctx.try_consume_token(Token::kw_pub))
       field->flags |= Decl::Public;
 
-    field->name = ctx.tok.text;
-
-    ctx.consume_token(Token::identifier);
+    field->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
     if (ctx.try_consume_token(Token::l_paren))
     {
@@ -3441,11 +3423,9 @@ namespace
 
     ctx.consume_token(Token::kw_union);
 
-    if (ctx.tok == Token::identifier)
+    if (ctx.tok == Token::identifier || ctx.tok == Token::dollar)
     {
-      unnion->name = ctx.tok.text;
-
-      ctx.consume_token(Token::identifier);
+      unnion->name = parse_ident(ctx, IdentUsage::TagName, sema);
     }
 
     if (ctx.try_consume_token(Token::less))
@@ -3491,6 +3471,7 @@ namespace
               break;
 
             case Token::identifier:
+            case Token::dollar:
               break;
 
             default:
@@ -3538,7 +3519,8 @@ namespace
             break;
 
           case Token::identifier:
-            if (tok.text == unnion->name)
+          case Token::dollar:
+            if (unnion->name == tok.text)
             {
               decl = parse_constructor_declaration(ctx, sema);
               break;
@@ -3654,11 +3636,9 @@ namespace
 
     ctx.consume_token(Token::kw_vtable);
 
-    if (ctx.tok == Token::identifier)
+    if (ctx.tok == Token::identifier || ctx.tok == Token::dollar)
     {
-      vtable->name = ctx.tok.text;
-
-      ctx.consume_token(Token::identifier);
+      vtable->name = parse_ident(ctx, IdentUsage::TagName, sema);
     }
 
     if (ctx.try_consume_token(Token::less))
@@ -3864,9 +3844,7 @@ namespace
     if (ctx.try_consume_token(Token::kw_pub))
       constant->flags |= Decl::Public;
 
-    constant->name = ctx.tok.text;
-
-    ctx.consume_token(Token::identifier);
+    constant->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
     if (ctx.try_consume_token(Token::equal))
     {
@@ -3900,11 +3878,9 @@ namespace
 
     ctx.consume_token(Token::kw_enum);
 
-    if (ctx.tok == Token::identifier)
+    if (ctx.tok == Token::identifier || ctx.tok == Token::dollar)
     {
-      enumm->name = ctx.tok.text;
-
-      ctx.consume_token(Token::identifier);
+      enumm->name = parse_ident(ctx, IdentUsage::TagName, sema);
     }
 
     if (ctx.try_consume_token(Token::colon))
@@ -3944,6 +3920,7 @@ namespace
               break;
 
             case Token::identifier:
+            case Token::dollar:
               break;
 
             default:
@@ -3967,6 +3944,7 @@ namespace
             break;
 
           case Token::identifier:
+          case Token::dollar:
             decl = parse_constant_declaration(ctx, sema);
             break;
 
@@ -4055,6 +4033,257 @@ namespace
     }
 
     return enumm;
+
+    resume:
+      ctx.comsume_til_resumable();
+      return nullptr;
+  }
+
+
+  //|///////////////////// parse_case_declaration ///////////////////////////
+  Decl *parse_case_declaration(ParseContext &ctx, Sema &sema)
+  {
+    auto casse = sema.case_declaration(ctx.tok.loc);
+
+    if (ctx.tok == Token::kw_case)
+    {
+      ctx.consume_token(Token::kw_case);
+
+      if (ctx.tok == Token::identifier)
+      {
+        auto name = parse_qualified_name(ctx, sema);
+
+        casse->label = sema.make_declref_expression(name, ctx.tok.loc);
+      }
+      else
+      {
+        casse->label = parse_expression(ctx, sema);
+      }
+
+      if (ctx.try_consume_token(Token::l_paren))
+      {
+        auto var = sema.casevar_declaration(ctx.tok.loc);
+
+        var->name = parse_ident(ctx, IdentUsage::VarName, sema);
+        var->type = sema.make_reference(sema.make_typearg(sema.make_typearg(Ident::kw_var, var->loc())));
+
+        casse->parm = var;
+
+        if (!ctx.try_consume_token(Token::r_paren))
+        {
+          ctx.diag.error("expected colon", ctx.text, ctx.tok.loc);
+          goto resume;
+        }
+      }
+    }
+
+    if (ctx.tok == Token::kw_else)
+    {
+      ctx.consume_token(Token::kw_else);
+    }
+
+    if (!ctx.try_consume_token(Token::colon))
+    {
+      ctx.diag.error("expected colon", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
+
+    if (ctx.tok != Token::kw_case && ctx.tok != Token::kw_else)
+    {
+      auto compound = sema.compound_statement(ctx.tok.loc);
+
+      while (ctx.tok != Token::kw_case && ctx.tok != Token::kw_else && ctx.tok != Token::r_brace && ctx.tok != Token::eof)
+      {
+        Stmt *stmt = nullptr;
+
+        if (ctx.tok == Token::hash && (ctx.token(1) == Token::kw_else || ctx.token(1).text == "end" || ctx.token(1) == Token::l_brace))
+          break;
+
+        switch (ctx.tok.type)
+        {
+          case Token::kw_fn:
+          case Token::kw_extern:
+          case Token::kw_const:
+          case Token::kw_static:
+          case Token::kw_import:
+          case Token::kw_using:
+          case Token::kw_struct:
+          case Token::kw_union:
+          case Token::kw_vtable:
+          case Token::kw_concept:
+          case Token::kw_enum:
+          case Token::kw_let:
+          case Token::kw_var:
+            stmt = parse_declaration_statement(ctx, sema);
+            break;
+
+          default:
+            stmt = parse_statement(ctx, sema);
+            break;
+        }
+
+        if (stmt)
+        {
+          compound->stmts.push_back(stmt);
+        }
+      }
+
+      compound->endloc = ctx.tok.loc;
+
+      casse->body = compound;
+    }
+
+    if (casse->parm && !casse->body)
+    {
+      ctx.diag.error("parameterised case requires body", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
+
+    return casse;
+
+    resume:
+      ctx.comsume_til_resumable();
+      return nullptr;
+  }
+
+  //|///////////////////// parse_injection_statement ////////////////////////
+  Stmt *parse_injection_statement(ParseContext &ctx, Sema &sema)
+  {
+    auto injection = sema.injection_statement(ctx.tok.loc);
+
+    ctx.consume_token(Token::arrow);
+
+    vector<Decl*> decls;
+    vector<Expr*> substitutions;
+    std::swap(ctx.substitutions, substitutions);
+
+    if (!ctx.try_consume_token(Token::semi))
+    {
+      if (!ctx.try_consume_token(Token::l_brace))
+      {
+        ctx.diag.error("expected brace", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
+
+      Decl *decl = nullptr;
+
+      while (ctx.tok != Token::r_brace && ctx.tok != Token::eof)
+      {
+        auto tok = ctx.tok;
+        auto nexttok = 1;
+
+        if (tok == Token::kw_pub)
+        {
+          tok = ctx.token(nexttok++);
+        }
+
+        if (tok == Token::kw_const)
+        {
+          switch (ctx.token(nexttok).type)
+          {
+            case Token::kw_fn:
+              tok = ctx.token(nexttok++);
+              break;
+
+            case Token::identifier:
+            case Token::dollar:
+              break;
+
+            default:
+              goto unhandled;
+          }
+        }
+
+        switch (tok.type)
+        {
+          case Token::semi:
+            ctx.diag.warn("extra semi", ctx.text, tok.loc);
+            ctx.consume_token(Token::semi);
+            continue;
+
+          case Token::kw_const:
+            decl = parse_const_declaration(ctx, sema);
+            break;
+
+          case Token::kw_fn:
+            decl = parse_function_declaration(ctx, sema);
+            break;
+
+          case Token::kw_struct:
+            decl = parse_struct_declaration(ctx, sema);
+            break;
+
+          case Token::kw_union:
+            decl = parse_union_declaration(ctx, sema);
+            break;
+
+          case Token::kw_vtable:
+            decl = parse_vtable_declaration(ctx, sema);
+            break;
+
+          case Token::kw_concept:
+            decl = parse_concept_declaration(ctx, sema);
+            break;
+
+          case Token::kw_enum:
+            decl = parse_enum_declaration(ctx, sema);
+            break;
+
+          case Token::kw_using:
+            decl = parse_using_or_alias_declaration(ctx, sema);
+            break;
+
+          case Token::kw_case:
+          case Token::kw_else:
+            decl = parse_case_declaration(ctx, sema);
+            break;
+
+          case Token::kw_void:
+          case Token::kw_null:
+          case Token::kw_typeof:
+          case Token::l_paren:
+          case Token::identifier:
+          case Token::dollar:
+            decl = parse_field_declaration(ctx, sema);
+            break;
+
+          case Token::tilde:
+            decl = parse_destructor_declaration(ctx, sema);
+            break;
+
+          case Token::eof:
+            break;
+
+          default:
+          unhandled:
+            ctx.diag.error("expected declaration", ctx.text, tok.loc);
+            goto resume;
+        }
+
+        if (!decl)
+          break;
+
+        decls.push_back(decl);
+      }
+
+      if (ctx.tok == Token::eof)
+      {
+        ctx.diag.error("unexpected end of file", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
+
+      if (!ctx.try_consume_token(Token::r_brace))
+      {
+        ctx.diag.error("expected brace", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
+    }
+
+    injection->expr = sema.make_fragment_expression(std::move(ctx.substitutions), decls, injection->loc());
+
+    std::swap(ctx.substitutions, substitutions);
+
+    return injection;
 
     resume:
       ctx.comsume_til_resumable();
@@ -4400,114 +4629,6 @@ namespace
       return nullptr;
   }
 
-  //|///////////////////// parse_case_declaration ///////////////////////////
-  Decl *parse_case_declaration(ParseContext &ctx, Sema &sema)
-  {
-    auto casse = sema.case_declaration(ctx.tok.loc);
-
-    if (ctx.tok == Token::kw_case)
-    {
-      ctx.consume_token(Token::kw_case);
-
-      if (ctx.tok == Token::identifier)
-      {
-        auto name = parse_qualified_name(ctx, sema);
-
-        casse->label = sema.make_declref_expression(name, ctx.tok.loc);
-      }
-      else
-      {
-        casse->label = parse_expression(ctx, sema);
-      }
-
-      if (ctx.try_consume_token(Token::l_paren))
-      {
-        auto var = sema.casevar_declaration(ctx.tok.loc);
-
-        var->name = ctx.tok.text;
-        var->type = sema.make_reference(sema.make_typearg(sema.make_typearg("var", ctx.tok.loc)));
-
-        ctx.consume_token();
-
-        casse->parm = var;
-
-        if (!ctx.try_consume_token(Token::r_paren))
-        {
-          ctx.diag.error("expected colon", ctx.text, ctx.tok.loc);
-          goto resume;
-        }
-      }
-    }
-
-    if (ctx.tok == Token::kw_else)
-    {
-      ctx.consume_token(Token::kw_else);
-    }
-
-    if (!ctx.try_consume_token(Token::colon))
-    {
-      ctx.diag.error("expected colon", ctx.text, ctx.tok.loc);
-      goto resume;
-    }
-
-    if (ctx.tok != Token::kw_case && ctx.tok != Token::kw_else)
-    {
-      auto compound = sema.compound_statement(ctx.tok.loc);
-
-      while (ctx.tok != Token::kw_case && ctx.tok != Token::kw_else && ctx.tok != Token::r_brace && ctx.tok != Token::eof)
-      {
-        Stmt *stmt = nullptr;
-
-        if (ctx.tok == Token::hash && (ctx.token(1) == Token::kw_else || ctx.token(1).text == "end" || ctx.token(1) == Token::l_brace))
-          break;
-
-        switch (ctx.tok.type)
-        {
-          case Token::kw_fn:
-          case Token::kw_extern:
-          case Token::kw_const:
-          case Token::kw_static:
-          case Token::kw_import:
-          case Token::kw_using:
-          case Token::kw_struct:
-          case Token::kw_union:
-          case Token::kw_vtable:
-          case Token::kw_concept:
-          case Token::kw_enum:
-          case Token::kw_let:
-          case Token::kw_var:
-            stmt = parse_declaration_statement(ctx, sema);
-            break;
-
-          default:
-            stmt = parse_statement(ctx, sema);
-            break;
-        }
-
-        if (stmt)
-        {
-          compound->stmts.push_back(stmt);
-        }
-      }
-
-      compound->endloc = ctx.tok.loc;
-
-      casse->body = compound;
-    }
-
-    if (casse->parm && !casse->body)
-    {
-      ctx.diag.error("parameterised case requires body", ctx.text, ctx.tok.loc);
-      goto resume;
-    }
-
-    return casse;
-
-    resume:
-      ctx.comsume_til_resumable();
-      return nullptr;
-  }
-
   //|///////////////////// parse_switch_statement ///////////////////////////
   Stmt *parse_switch_statement(ParseContext &ctx, Sema &sema)
   {
@@ -4702,11 +4823,9 @@ namespace
         goto resume;
       }
 
-      if (ctx.tok == Token::identifier)
+      if (ctx.tok == Token::identifier || ctx.tok == Token::dollar)
       {
-        var->name = ctx.tok.text;
-
-        ctx.consume_token();
+        var->name = parse_ident(ctx, IdentUsage::VarName, sema);
       }
 
       if (!ctx.try_consume_token(Token::r_paren))
@@ -4937,6 +5056,9 @@ namespace
 
       case Token::l_brace:
         return parse_compound_statement(ctx, sema);
+
+      case Token::arrow:
+        return parse_injection_statement(ctx, sema);
 
       case Token::hash:
         switch (auto tok = ctx.token(1); tok.type)

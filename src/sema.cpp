@@ -40,7 +40,7 @@ TranslationUnitDecl *Sema::translation_unit(string_view file)
   unit->builtins = make_builtin_module(ast);
   unit->builtins->owner = unit;
 
-  unit->mainmodule = ast->make_decl<ModuleDecl>(basename(file), file);
+  unit->mainmodule = ast->make_decl<ModuleDecl>(Ident::from(basename(file)), file);
   unit->mainmodule->owner = unit;
 
   unit->decls.push_back(ast->make_decl<UsingDecl>(unit->builtins, SourceLocation{}));
@@ -52,7 +52,7 @@ TranslationUnitDecl *Sema::translation_unit(string_view file)
 }
 
 //|///////////////////// module_declaration /////////////////////////////////
-ModuleDecl *Sema::module_declaration(string_view name, string_view file)
+ModuleDecl *Sema::module_declaration(Ident *name, string_view file)
 {
   auto unit = decl_cast<TranslationUnitDecl>(ast->root);
 
@@ -177,6 +177,12 @@ BreakStmt *Sema::break_statement(SourceLocation loc)
 ContinueStmt *Sema::continue_statement(SourceLocation loc)
 {
   return ast->make_stmt<ContinueStmt>(loc);
+}
+
+//|///////////////////// injection_statement ////////////////////////////////
+InjectionStmt *Sema::injection_statement(SourceLocation loc)
+{
+  return ast->make_stmt<InjectionStmt>(loc);
 }
 
 //|///////////////////// return_statement ///////////////////////////////////
@@ -342,7 +348,7 @@ IfDecl *Sema::if_declaration(SourceLocation loc)
 }
 
 //|///////////////////// make_declref ///////////////////////////////////////
-DeclRefDecl *Sema::make_declref(string_view name, SourceLocation loc)
+DeclRefDecl *Sema::make_declref(Ident *name, SourceLocation loc)
 {
   return ast->make_decl<DeclRefDecl>(name, loc);
 }
@@ -360,7 +366,7 @@ TypeOfDecl *Sema::make_decltype(Expr *expr, SourceLocation loc)
 }
 
 //|///////////////////// make_typearg ///////////////////////////////////////
-TypeArgDecl *Sema::make_typearg(string_view name, SourceLocation loc)
+TypeArgDecl *Sema::make_typearg(Ident *name, SourceLocation loc)
 {
   return ast->make_decl<TypeArgDecl>(name, loc);
 }
@@ -471,13 +477,13 @@ Expr *Sema::make_call_expression(Decl *decl, SourceLocation loc)
 }
 
 //|///////////////////// make_call_expression ///////////////////////////////
-Expr *Sema::make_call_expression(Decl *decl, vector<Expr*> const &parms, map<string, Expr*> const &namedparms, SourceLocation loc)
+Expr *Sema::make_call_expression(Decl *decl, vector<Expr*> const &parms, map<Ident*, Expr*> const &namedparms, SourceLocation loc)
 {
   return ast->make_expr<CallExpr>(decl, parms, namedparms, loc);
 }
 
 //|///////////////////// make_call_expression ///////////////////////////////
-Expr *Sema::make_call_expression(Expr *base, Decl *decl, vector<Expr*> const &parms, map<string, Expr*> const &namedparms, SourceLocation loc)
+Expr *Sema::make_call_expression(Expr *base, Decl *decl, vector<Expr*> const &parms, map<Ident*, Expr*> const &namedparms, SourceLocation loc)
 {
   return ast->make_expr<CallExpr>(base, decl, parms, namedparms, loc);
 }
@@ -507,9 +513,9 @@ Expr *Sema::make_alignof_expression(Expr *expr, SourceLocation loc)
 }
 
 //|///////////////////// make_offsetof_expression ///////////////////////////
-Expr *Sema::make_offsetof_expression(Type *type, string_view name, SourceLocation loc)
+Expr *Sema::make_offsetof_expression(Type *type, Ident *field, SourceLocation loc)
 {
-  return ast->make_expr<OffsetofExpr>(type, name, loc);
+  return ast->make_expr<OffsetofExpr>(type, field, loc);
 }
 
 //|///////////////////// make_cast_expression ///////////////////////////////
@@ -525,7 +531,7 @@ Expr *Sema::make_new_expression(Type *type, Expr *address, SourceLocation loc)
 }
 
 //|///////////////////// make_new_expression ////////////////////////////////
-Expr *Sema::make_new_expression(Type *type, Expr *address, vector<Expr*> const &parms, map<string, Expr*> const &namedparms, SourceLocation loc)
+Expr *Sema::make_new_expression(Type *type, Expr *address, vector<Expr*> const &parms, map<Ident*, Expr*> const &namedparms, SourceLocation loc)
 {
   return ast->make_expr<NewExpr>(type, address, parms, namedparms, loc);
 }
@@ -546,6 +552,12 @@ Expr *Sema::make_match_expression(Decl *decl, SourceLocation loc)
 Expr *Sema::make_lambda_expression(Decl *decl, SourceLocation loc)
 {
   return ast->make_expr<LambdaExpr>(decl, loc);
+}
+
+//|///////////////////// make_fragment_expression ///////////////////////////
+Expr *Sema::make_fragment_expression(std::vector<Expr*> const &args, std::vector<Decl*> const &decls, SourceLocation loc)
+{
+  return ast->make_expr<FragmentExpr>(args, decls, loc);
 }
 
 //|///////////////////// make_const /////////////////////////////////////////
@@ -639,7 +651,7 @@ Type *Sema::make_unpack(Type *type)
 }
 
 //|///////////////////// lookup_module //////////////////////////////////////
-ModuleDecl *Sema::lookup_module(string_view name)
+ModuleDecl *Sema::lookup_module(Ident *name)
 {
   auto unit = decl_cast<TranslationUnitDecl>(ast->root);
 

@@ -29,6 +29,8 @@ class FunctionPointerExpr;
 class StringLiteralExpr;
 class ArrayLiteralExpr;
 class CompoundLiteralExpr;
+class FragmentExpr;
+class VarDecl;
 
 //-------------------------- FnSig ------------------------------------------
 //---------------------------------------------------------------------------
@@ -129,6 +131,8 @@ class MIR
 
           Unaligned = 0x80,
           ThreadLocal = 0x100,
+          CacheAligned = 0x200,
+          PageAligned = 0x400,
         };
 
         long flags;
@@ -176,6 +180,7 @@ class MIR
         Variable,
         Call,
         Cast,
+        Injection,
       };
 
       enum Op
@@ -196,6 +201,7 @@ class MIR
       using VariableData = std::tuple<Op, local_t, std::vector<Field>, SourceLocation>;
       using CallData = std::tuple<FnSig, std::vector<local_t>, SourceLocation>;
       using CastData = std::tuple<local_t, SourceLocation>;
+      using InjectionData = std::tuple<FragmentExpr*, std::vector<local_t>, SourceLocation>;
 
       auto kind() const { return value.index(); }
 
@@ -220,10 +226,11 @@ class MIR
       static VariableData field(Op op, local_t arg, std::vector<Field> fields, SourceLocation loc) { return { op, arg, std::move(fields), loc }; }
       static CallData call(FnSig sig, std::vector<local_t> args, SourceLocation loc) { return { std::move(sig), std::move(args), loc }; }
       static CastData cast(local_t arg, SourceLocation loc) { return { arg, loc }; }
+      static InjectionData injection(FragmentExpr *expr, std::vector<local_t> args, SourceLocation loc) { return { expr, std::move(args), loc }; }
 
       private:
 
-      std::variant<std::monostate, ConstantData, VariableData, CallData, CastData> value;
+      std::variant<std::monostate, ConstantData, VariableData, CallData, CastData, InjectionData> value;
     };
 
     //-------------------------- Statement ----------------------------------
@@ -322,8 +329,7 @@ class MIR
     struct VarInfo
     {
       local_t local;
-      std::string name;
-      SourceLocation loc;
+      VarDecl *vardecl;
     };
 
     //-------------------------- LineInfo -----------------------------------
@@ -372,7 +378,7 @@ class MIR
 
     statement_t add_statement(Statement statement) { blocks.back().statements.push_back(std::move(statement)); return blocks.back().statements.size() - 1; }
 
-    void add_varinfo(local_t local, std::string name, SourceLocation loc) { varinfos.push_back(VarInfo{ local, std::move(name), loc }); }
+    void add_varinfo(local_t local, VarDecl *vardecl) { varinfos.push_back(VarInfo{ local, vardecl }); }
     void add_lineinfo(block_t block, statement_t statement, int lineno) { lineinfos.push_back(LineInfo{ block, statement, lineno }); }
 
     void dump() const;

@@ -9,6 +9,7 @@
 
 #include "interp.h"
 #include "diag.h"
+#include "copier.h"
 #include "numeric.h"
 #include <iostream>
 #include <algorithm>
@@ -18,7 +19,12 @@
 #include <cmath>
 #include <memory>
 #include <sys/stat.h>
+
+#if defined _MSC_VER
+#define environ _environ
+#else
 #include <unistd.h>
+#endif
 
 using namespace std;
 
@@ -37,6 +43,8 @@ namespace
     map<tuple<Type*, CompoundLiteralExpr const *>, void*> compoundliterals;
 
     bool exception;
+
+    vector<Decl*> fragments;
 
     Type *voidtype;
     Type *booltype;
@@ -620,6 +628,140 @@ namespace
     memcpy(alloc, &value, sizeof(value));
   }
 
+  //|///////////////////// eval_result //////////////////////////////////////
+  Expr *make_expr(EvalContext &ctx, void *alloc, Type *type, SourceLocation loc)
+  {
+    // TODO: this needs an allocator that is attached to the parent mir somehow
+
+    if (type == ctx.voidtype)
+    {
+      return ctx.make_expr<VoidLiteralExpr>(loc);
+    }
+    else if (type == ctx.ptrliteraltype)
+    {
+      return ctx.make_expr<PointerLiteralExpr>(loc);
+    }
+    else if (is_bool_type(type))
+    {
+      return ctx.make_expr<BoolLiteralExpr>(load_bool(ctx, alloc, type), loc);
+    }
+    else if (is_char_type(type))
+    {
+      return ctx.make_expr<CharLiteralExpr>(load_int(ctx, alloc, type), loc);
+    }
+    else if (is_int_type(type))
+    {
+      return ctx.make_expr<IntLiteralExpr>(load_int(ctx, alloc, type), loc);
+    }
+    else if (is_float_type(type))
+    {
+      return ctx.make_expr<FloatLiteralExpr>(load_float(ctx, alloc, type), loc);
+    }
+    else if (is_enum_type(type))
+    {
+      return ctx.make_expr<IntLiteralExpr>(load_int(ctx, alloc, type), loc);
+    }
+    else if (is_pointer_type(type))
+    {
+      auto ptr = load_ptr(ctx, alloc, type);
+
+      if (ptr == 0)
+        return ctx.make_expr<PointerLiteralExpr>(loc);
+
+      if (is_function_type(remove_const_type(remove_pointer_type(type))))
+        return static_cast<FunctionPointerExpr*>(ptr);
+
+      ctx.diag.error("invalid literal pointer", ctx.dx, loc);
+    }
+    else if (is_reference_type(type))
+    {
+      auto ptr = load_ptr(ctx, alloc, type);
+
+      if (is_function_type(remove_const_type(remove_reference_type(type))))
+        return static_cast<FunctionPointerExpr*>(ptr);
+
+      ctx.diag.error("invalid literal pointer", ctx.dx, loc);
+    }
+    else if (is_string_type(type))
+    {
+      return ctx.make_expr<StringLiteralExpr>(load_string(ctx, alloc, type), loc);
+    }
+    else if (is_declid_type(type))
+    {
+      return ctx.make_expr<IntLiteralExpr>(load_int(ctx, alloc, type), loc);
+    }
+    else if (is_span_type(type))
+    {
+      auto slicetype = type_cast<TupleType>(type_cast<ArrayType>(type)->type);
+      auto elemtype = remove_const_type(remove_pointference_type(slicetype->fields[0]));
+      auto elemsize = sizeof_type(elemtype);
+
+      auto span = load_range<void*>(ctx, alloc, slicetype);
+
+      if (slicetype->fields.size() == 3)
+        span.end = (void*)((size_t)span.end + elemsize);
+
+      auto arraylen = ((size_t)span.end - (size_t)span.beg) / elemsize;
+      auto sizetype = ctx.typetable.find_or_create<TypeLitType>(ctx.make_expr<IntLiteralExpr>(Numeric::int_literal(arraylen), loc));
+      auto elements = vector<Expr*>(arraylen);
+
+      for(size_t i = 0; i < arraylen; ++i)
+      {
+        elements[i] = make_expr(ctx, (void*)((size_t)span.beg + i * elemsize), elemtype, loc);
+      }
+
+      if (any_of(elements.begin(), elements.end(), [](auto &k) { return !k; }))
+        return nullptr;
+
+      return ctx.make_expr<ArrayLiteralExpr>(elements, sizetype, loc);
+    }
+    else if (is_array_type(type) && is_literal_copy_type(type))
+    {
+      auto elemtype = type_cast<ArrayType>(type)->type;
+      auto elemsize = sizeof_type(elemtype);
+      auto arraylen = array_len(type_cast<ArrayType>(type));
+      auto elements = vector<Expr*>(arraylen);
+
+      for(size_t i = 0; i < arraylen; ++i)
+      {
+        elements[i] = make_expr(ctx, (void*)((size_t)alloc + i * elemsize), elemtype, loc);
+      }
+
+      if (any_of(elements.begin(), elements.end(), [](auto &k) { return !k; }))
+        return nullptr;
+
+      return ctx.make_expr<ArrayLiteralExpr>(elements, type_cast<ArrayType>(type)->size, loc);
+    }
+    else if (is_compound_type(type) && is_literal_copy_type(type))
+    {
+      auto compoundtype = type_cast<CompoundType>(type);
+      auto fieldslen = compoundtype->fields.size();
+      auto fields = vector<Expr*>(fieldslen);
+
+      for(size_t i = 0; i < fieldslen; ++i)
+      {
+        auto alignment = alignof_field(compoundtype, i);
+
+        alloc = (void*)(((size_t)alloc + alignment - 1) & -alignment);
+
+        fields[i] = make_expr(ctx, alloc, compoundtype->fields[i], loc);
+
+        alloc = (void*)((size_t)alloc + sizeof_field(compoundtype, i));
+      }
+
+      if (any_of(fields.begin(), fields.end(), [](auto &k) { return !k; }))
+        return nullptr;
+
+      return ctx.make_expr<CompoundLiteralExpr>(fields, loc);
+    }
+    else
+    {
+      ctx.diag.error("invalid literal type", ctx.dx, loc);
+    }
+
+    return nullptr;
+  }
+
   //|///////////////////// eval_assign_constant /////////////////////////////
   bool eval_assign_constant(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, VoidLiteralExpr const *literal)
   {
@@ -661,7 +803,7 @@ namespace
 
     if (is_char_type(type) || is_int_type(type))
     {
-      if (!literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
+      if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
       {
         ctx.diag.error("literal value out of range for required type", fx.scope, literal->loc());
         ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
@@ -692,7 +834,7 @@ namespace
 
     if (is_bool_type(type) || is_int_type(type) || is_char_type(type) || is_declid_type(type))
     {
-      if (!literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
+      if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
       {
         ctx.diag.error("literal value out of range for required type", fx.scope, literal->loc());
         ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
@@ -703,7 +845,7 @@ namespace
     }
     else if (is_float_type(type))
     {
-      if (!literal_valid(type_cast<BuiltinType>(type)->kind(), Numeric::float_cast<double>(literal->value())))
+      if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), Numeric::float_cast<double>(literal->value())))
       {
         ctx.diag.error("literal value out of range for required type", fx.scope, literal->loc());
         ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
@@ -729,7 +871,7 @@ namespace
 
     if (is_bool_type(type) || is_int_type(type) || is_char_type(type))
     {
-      if (!literal_valid(type_cast<BuiltinType>(type)->kind(), Numeric::int_cast<double>(literal->value())))
+      if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), Numeric::int_cast<double>(literal->value())))
       {
         ctx.diag.error("literal value out of range for required type", fx.scope, literal->loc());
         ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
@@ -741,7 +883,7 @@ namespace
 
     else if (is_float_type(type))
     {
-      if (!literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
+      if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
       {
         ctx.diag.error("literal value out of range for required type", fx.scope, literal->loc());
         ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
@@ -985,7 +1127,7 @@ namespace
           assert(false);
       }
 
-      if (!ok && !literal_valid(type_cast<BuiltinType>(fx.locals[dst].type)->kind(), result))
+      if (!ok && !is_literal_valid(type_cast<BuiltinType>(fx.locals[dst].type)->kind(), result))
       {
         ctx.diag.error("literal value out of range for required type", fx.scope, loc);
         ctx.diag << "  literal value: '" << result << "' required type: '" << *fx.locals[dst].type << "'\n";
@@ -1038,7 +1180,7 @@ namespace
           assert(false);
       }
 
-      if (!literal_valid(type_cast<BuiltinType>(fx.locals[dst].type)->kind(), result))
+      if (!is_literal_valid(type_cast<BuiltinType>(fx.locals[dst].type)->kind(), result))
       {
         ctx.diag.error("literal value out of range for required type", fx.scope, loc);
         ctx.diag << "  literal value: '" << result << "' required type: '" << *fx.locals[dst].type << "'\n";
@@ -1085,7 +1227,7 @@ namespace
           assert(false);
       }
 
-      if (!literal_valid(type_cast<BuiltinType>(argtype)->kind(), result))
+      if (!is_literal_valid(type_cast<BuiltinType>(argtype)->kind(), result))
       {
         ctx.diag.error("literal value out of range for required type", fx.scope, loc);
         ctx.diag << "  literal value: '" << result << "' required type: '" << *argtype << "'\n";
@@ -1114,7 +1256,7 @@ namespace
           assert(false);
       }
 
-      if (!literal_valid(type_cast<BuiltinType>(argtype)->kind(), result))
+      if (!is_literal_valid(type_cast<BuiltinType>(argtype)->kind(), result))
       {
         ctx.diag.error("literal value out of range for required type", fx.scope, loc);
         ctx.diag << "  literal value: '" << result << "' required type: '" << *argtype << "'\n";
@@ -1257,7 +1399,7 @@ namespace
           assert(false);
       }
 
-      if (!ok && !literal_valid(type_cast<BuiltinType>(fx.locals[dst].type)->kind(), result))
+      if (!ok && !is_literal_valid(type_cast<BuiltinType>(fx.locals[dst].type)->kind(), result))
       {
         ctx.diag.error("literal value out of range for required type", fx.scope, loc);
         ctx.diag << "  literal value: '" << result << "' required type: '" << *fx.locals[dst].type << "'\n";
@@ -1311,7 +1453,7 @@ namespace
           assert(false);
       }
 
-      if (!literal_valid(type_cast<BuiltinType>(fx.locals[dst].type)->kind(), result))
+      if (!is_literal_valid(type_cast<BuiltinType>(fx.locals[dst].type)->kind(), result))
       {
         ctx.diag.error("literal value out of range for required type", fx.scope, loc);
         ctx.diag << "  literal value: '" << result << "' required type: '" << *fx.locals[dst].type << "'\n";
@@ -1549,7 +1691,7 @@ namespace
           assert(false);
       }
 
-      if (!ok && !literal_valid(type_cast<BuiltinType>(argtype)->kind(), result))
+      if (!ok && !is_literal_valid(type_cast<BuiltinType>(argtype)->kind(), result))
       {
         ctx.diag.error("literal value out of range for required type", fx.scope, loc);
         ctx.diag << "  literal value: '" << result << "' required type: '" << *argtype << "'\n";
@@ -1605,7 +1747,7 @@ namespace
           assert(false);
       }
 
-      if (!literal_valid(type_cast<BuiltinType>(argtype)->kind(), result))
+      if (!is_literal_valid(type_cast<BuiltinType>(argtype)->kind(), result))
       {
         ctx.diag.error("literal value out of range for required type", fx.scope, loc);
         ctx.diag << "  literal value: '" << result << "' required type: '" << *argtype << "'\n";
@@ -2616,7 +2758,7 @@ namespace
       return false;
     }
 
-    string_view result;
+    Ident *result = nullptr;
 
     switch (decl->kind())
     {
@@ -2665,7 +2807,7 @@ namespace
         break;
     }
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, ctx.make_expr<StringLiteralExpr>(result, loc));
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, ctx.make_expr<StringLiteralExpr>(result ? result->str() : string(), loc));
 
     return true;
   }
@@ -3397,6 +3539,10 @@ namespace
         case Builtin::__cfg__:
           return eval_builtin_cfgs(ctx, fx, dst, call);
 
+        case Builtin::is_const_eval:
+          store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, true);
+          return true;
+
         default:
           assert(false);
       }
@@ -3405,34 +3551,34 @@ namespace
     }
     else if (callee.fn->flags & FunctionDecl::ExternC)
     {
-      if (callee.fn->name == "fd_open")
+      if (callee.fn->name == "fd_open"sv)
         return eval_runtime_fd_open(ctx, fx, dst, call);
 
-      if (callee.fn->name == "fd_stat")
+      if (callee.fn->name == "fd_stat"sv)
         return eval_runtime_fd_stat(ctx, fx, dst, call);
 
-      if (callee.fn->name == "fd_readv")
+      if (callee.fn->name == "fd_readv"sv)
         return eval_runtime_fd_readv(ctx, fx, dst, call);
 
-      if (callee.fn->name == "fd_preadv")
+      if (callee.fn->name == "fd_preadv"sv)
         return eval_runtime_fd_preadv(ctx, fx, dst, call);
 
-      if (callee.fn->name == "fd_writev")
+      if (callee.fn->name == "fd_writev"sv)
         return eval_runtime_fd_writev(ctx, fx, dst, call);
 
-      if (callee.fn->name == "fd_pwritev")
+      if (callee.fn->name == "fd_pwritev"sv)
         return eval_runtime_fd_pwritev(ctx, fx, dst, call);
 
-      if (callee.fn->name == "fd_close")
+      if (callee.fn->name == "fd_close"sv)
         return eval_runtime_fd_close(ctx, fx, dst, call);
 
-      if (callee.fn->name == "mem_alloc")
+      if (callee.fn->name == "mem_alloc"sv)
         return eval_runtime_mem_alloc(ctx, fx, dst, call);
 
-      if (callee.fn->name == "mem_free")
+      if (callee.fn->name == "mem_free"sv)
         return eval_runtime_mem_free(ctx, fx, dst, call);
 
-      if (callee.fn->name == "exit")
+      if (callee.fn->name == "exit"sv)
         return eval_runtime_exit(ctx, fx, dst, call);
 
       ctx.diag.error("invalid compille time call", fx.scope, loc);
@@ -3512,6 +3658,38 @@ namespace
     return true;
   }
 
+  //|///////////////////// eval_injection ///////////////////////////////////
+  bool eval_injection(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::InjectionData const &injection)
+  {
+    auto &[expr, args, loc] = injection;
+
+    vector<Expr*> substitutions;
+
+    for(auto &arg : args)
+    {
+      auto value = make_expr(ctx, fx.locals[arg].alloc, fx.locals[arg].type, loc);
+
+      if (fx.locals[arg].type != ctx.intliteraltype && fx.locals[arg].type != ctx.floatliteraltype && fx.locals[arg].type != ctx.stringliteraltype && fx.locals[arg].type != ctx.ptrliteraltype && fx.locals[arg].type != ctx.voidtype && fx.locals[arg].type != ctx.booltype && fx.locals[arg].type != ctx.chartype)
+        value = ctx.make_expr<CastExpr>(fx.locals[arg].type, value, loc);
+
+      substitutions.push_back(value);
+    }
+
+    if (any_of(substitutions.begin(), substitutions.end(), [](auto &k) { return !k; }))
+      return false;
+
+    for(auto &decl : expr->decls)
+    {
+      auto fragment = copier(decl, substitutions, ctx.diag);
+
+      fragment->owner = ctx.dx.owner;
+
+      ctx.fragments.push_back(fragment);
+    }
+
+    return true;
+  }
+
   //|///////////////////// eval_assign_statement ////////////////////////////
   bool eval_assign_statement(EvalContext &ctx, FunctionContext &fx, MIR::Statement const &statement)
   {
@@ -3540,6 +3718,9 @@ namespace
 
       case MIR::RValue::Cast:
         return eval_cast(ctx, fx, dst, src.get<MIR::RValue::Cast>());
+
+      case MIR::RValue::Injection:
+        return eval_injection(ctx, fx, dst, src.get<MIR::RValue::Injection>());
 
       default:
         assert(false);
@@ -3731,140 +3912,6 @@ namespace
     return eval_call(ctx, fx, 0, MIR::RValue::call(callee, args, loc));
   }
 
-  //|///////////////////// eval_result //////////////////////////////////////
-  Expr *make_expr(EvalContext &ctx, void *alloc, Type *type, SourceLocation loc)
-  {
-    // TODO: this needs an allocator that is attached to the parent mir somehow
-
-    if (type == ctx.voidtype)
-    {
-      return ctx.make_expr<VoidLiteralExpr>(loc);
-    }
-    else if (type == ctx.ptrliteraltype)
-    {
-      return ctx.make_expr<PointerLiteralExpr>(loc);
-    }
-    else if (is_bool_type(type))
-    {
-      return ctx.make_expr<BoolLiteralExpr>(load_bool(ctx, alloc, type), loc);
-    }
-    else if (is_char_type(type))
-    {
-      return ctx.make_expr<CharLiteralExpr>(load_int(ctx, alloc, type), loc);
-    }
-    else if (is_int_type(type))
-    {
-      return ctx.make_expr<IntLiteralExpr>(load_int(ctx, alloc, type), loc);
-    }
-    else if (is_float_type(type))
-    {
-      return ctx.make_expr<FloatLiteralExpr>(load_float(ctx, alloc, type), loc);
-    }
-    else if (is_enum_type(type))
-    {
-      return ctx.make_expr<IntLiteralExpr>(load_int(ctx, alloc, type), loc);
-    }
-    else if (is_pointer_type(type))
-    {
-      auto ptr = load_ptr(ctx, alloc, type);
-
-      if (ptr == 0)
-        return ctx.make_expr<PointerLiteralExpr>(loc);
-
-      if (is_function_type(remove_const_type(remove_pointer_type(type))))
-        return static_cast<FunctionPointerExpr*>(ptr);
-
-      ctx.diag.error("invalid literal pointer", ctx.dx, loc);
-    }
-    else if (is_reference_type(type))
-    {
-      auto ptr = load_ptr(ctx, alloc, type);
-
-      if (is_function_type(remove_const_type(remove_reference_type(type))))
-        return static_cast<FunctionPointerExpr*>(ptr);
-
-      ctx.diag.error("invalid literal pointer", ctx.dx, loc);
-    }
-    else if (is_string_type(type))
-    {
-      return ctx.make_expr<StringLiteralExpr>(load_string(ctx, alloc, type), loc);
-    }
-    else if (is_declid_type(type))
-    {
-      return ctx.make_expr<IntLiteralExpr>(load_int(ctx, alloc, type), loc);
-    }
-    else if (is_span_type(type))
-    {
-      auto slicetype = type_cast<TupleType>(type_cast<ArrayType>(type)->type);
-      auto elemtype = remove_const_type(remove_pointference_type(slicetype->fields[0]));
-      auto elemsize = sizeof_type(elemtype);
-
-      auto span = load_range<void*>(ctx, alloc, slicetype);
-
-      if (slicetype->fields.size() == 3)
-        span.end = (void*)((size_t)span.end + elemsize);
-
-      auto arraylen = ((size_t)span.end - (size_t)span.beg) / elemsize;
-      auto sizetype = ctx.typetable.find_or_create<TypeLitType>(ctx.make_expr<IntLiteralExpr>(Numeric::int_literal(arraylen), loc));
-      auto elements = vector<Expr*>(arraylen);
-
-      for(size_t i = 0; i < arraylen; ++i)
-      {
-        elements[i] = make_expr(ctx, (void*)((size_t)span.beg + i * elemsize), elemtype, loc);
-      }
-
-      if (any_of(elements.begin(), elements.end(), [](auto &k) { return !k; }))
-        return nullptr;
-
-      return ctx.make_expr<ArrayLiteralExpr>(elements, sizetype, loc);
-    }
-    else if (is_array_type(type) && is_literal_copy_type(type))
-    {
-      auto elemtype = type_cast<ArrayType>(type)->type;
-      auto elemsize = sizeof_type(elemtype);
-      auto arraylen = array_len(type_cast<ArrayType>(type));
-      auto elements = vector<Expr*>(arraylen);
-
-      for(size_t i = 0; i < arraylen; ++i)
-      {
-        elements[i] = make_expr(ctx, (void*)((size_t)alloc + i * elemsize), elemtype, loc);
-      }
-
-      if (any_of(elements.begin(), elements.end(), [](auto &k) { return !k; }))
-        return nullptr;
-
-      return ctx.make_expr<ArrayLiteralExpr>(elements, type_cast<ArrayType>(type)->size, loc);
-    }
-    else if (is_compound_type(type) && is_literal_copy_type(type))
-    {
-      auto compoundtype = type_cast<CompoundType>(type);
-      auto fieldslen = compoundtype->fields.size();
-      auto fields = vector<Expr*>(fieldslen);
-
-      for(size_t i = 0; i < fieldslen; ++i)
-      {
-        auto alignment = alignof_field(compoundtype, i);
-
-        alloc = (void*)(((size_t)alloc + alignment - 1) & -alignment);
-
-        fields[i] = make_expr(ctx, alloc, compoundtype->fields[i], loc);
-
-        alloc = (void*)((size_t)alloc + sizeof_field(compoundtype, i));
-      }
-
-      if (any_of(fields.begin(), fields.end(), [](auto &k) { return !k; }))
-        return nullptr;
-
-      return ctx.make_expr<CompoundLiteralExpr>(fields, loc);
-    }
-    else
-    {
-      ctx.diag.error("invalid literal type", ctx.dx, loc);
-    }
-
-    return nullptr;
-  }
-
   EvalResult make_result(EvalContext &ctx, FunctionContext::Local &value, SourceLocation loc)
   {
     EvalResult result;
@@ -3880,6 +3927,14 @@ namespace
       auto sizetype = expr_cast<ArrayLiteralExpr>(result.value)->size;
 
       result.type = ctx.typetable.find_or_create<ArrayType>(elemtype, sizetype);
+    }
+
+    if (ctx.fragments.size() != 0)
+    {
+      if (result.type != ctx.voidtype)
+        ctx.diag.error("invalid fragment in non-void function", ctx.dx, loc);
+
+      result.value = ctx.make_expr<FragmentExpr>(ctx.fragments, loc);
     }
 
     return result;

@@ -34,7 +34,7 @@ ostream &operator <<(ostream &os, Scope const &scope)
 
   if (scope.goalpost)
   {
-    os << ' ' << *scope.goalpost;
+    os << ' ' << scope.goalpost;
   }
 
   return os;
@@ -110,7 +110,7 @@ Scope parent_scope(Scope scope)
         return arg.first->owner == scope.owner;
       }), scope.typeargs.end());
 
-      scope.goalpost = nullptr;
+      scope.goalpost = get<Decl*>(scope.owner);
       scope.owner = get<Decl*>(scope.owner)->owner;
       break;
 
@@ -179,7 +179,7 @@ ModuleDecl *get_module(Scope const &scope)
 }
 
 //|///////////////////// find_decl //////////////////////////////////////////
-void find_decl(Decl *decl, string_view name, long flags, vector<Decl*> &results)
+void find_decl(Decl *decl, Ident *name, long flags, vector<Decl*> &results)
 {
   using namespace QueryFlags;
 
@@ -271,7 +271,7 @@ void find_decl(Decl *decl, string_view name, long flags, vector<Decl*> &results)
 }
 
 //|///////////////////// find_decls /////////////////////////////////////////
-void find_decls(Scope const &scope, string_view name, long flags, vector<Decl*> &results)
+void find_decls(Scope const &scope, Ident *name, long flags, vector<Decl*> &results)
 {
   if (auto owner = get_if<Decl*>(&scope.owner); owner && *owner)
   {

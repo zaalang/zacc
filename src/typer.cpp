@@ -46,7 +46,7 @@ namespace
   void typer_statement(TyperContext &ctx, Stmt *stmt, Sema &sema);
 
   //|///////////////////// make_typearg /////////////////////////////////////
-  Decl *make_typearg(TyperContext &ctx, string_view name, SourceLocation loc, Sema &sema)
+  Decl *make_typearg(TyperContext &ctx, Ident *name, SourceLocation loc, Sema &sema)
   {
     auto arg = sema.make_typearg(name, loc);
 
@@ -56,7 +56,7 @@ namespace
   }
 
   //|///////////////////// child_scope //////////////////////////////////////
-  Scope child_scope(TyperContext &ctx, Scope const &parent, Decl *decl, vector<Decl*> const &declargs, size_t &k, vector<Type*> const &args, map<string, Type*> const &namedargs, Sema &sema)
+  Scope child_scope(TyperContext &ctx, Scope const &parent, Decl *decl, vector<Decl*> const &declargs, size_t &k, vector<Type*> const &args, map<Ident*, Type*> const &namedargs, Sema &sema)
   {
     Scope sx(decl, parent.typeargs);
 
@@ -134,13 +134,13 @@ namespace
   }
 
   template<typename T>
-  Scope child_scope(TyperContext &ctx, Scope const &parent, T *decl, size_t &k, vector<Type*> const &args, map<string, Type*> const &namedargs, Sema &sema)
+  Scope child_scope(TyperContext &ctx, Scope const &parent, T *decl, size_t &k, vector<Type*> const &args, map<Ident*, Type*> const &namedargs, Sema &sema)
   {
     return child_scope(ctx, parent, decl, decl->args, k, args, namedargs, sema);
   }
 
   //|///////////////////// decl_scope ///////////////////////////////////////
-  Scope decl_scope(TyperContext &ctx, Scope const &scope, Decl *decl, size_t &k, vector<Type*> const &args, map<string, Type*> const &namedargs, Sema &sema)
+  Scope decl_scope(TyperContext &ctx, Scope const &scope, Decl *decl, size_t &k, vector<Type*> const &args, map<Ident*, Type*> const &namedargs, Sema &sema)
   {
     if (decl->kind() == Decl::TypeAlias && (decl->flags & TypeAliasDecl::Implicit) && (!args.empty() || !namedargs.empty()))
     {
@@ -272,7 +272,7 @@ namespace
   }
 
   //|///////////////////// find_decls ////////////////////////////////////////
-  void find_decls(TyperContext &ctx, Scope const &scope, string_view name, long queryflags, vector<Decl*> &results, Sema &sema)
+  void find_decls(TyperContext &ctx, Scope const &scope, Ident *name, long queryflags, vector<Decl*> &results, Sema &sema)
   {
     find_decls(scope, name, queryflags, results);
 
@@ -357,7 +357,7 @@ namespace
     }
 
     results.erase(remove_if(results.begin(), results.end(), [&](auto &decl) {
-      return decl->kind() == Decl::If || decl->kind() == Decl::Using;
+      return decl->kind() == Decl::If || decl->kind() == Decl::Run || decl->kind() == Decl::Using;
     }), results.end());
   }
 
@@ -553,7 +553,7 @@ namespace
               auto argdecl = decl_cast<TypeArgDecl>(type_cast<TypeArgType>(type)->decl);
 
               if (!super_scope(scope, argdecl))
-                newargs.emplace_back(arg, resolve_typearg(ctx, make_typearg(ctx, "var", arg->loc(), sema), sema));
+                newargs.emplace_back(arg, resolve_typearg(ctx, make_typearg(ctx, Ident::kw_var, arg->loc(), sema), sema));
             }
           }
         }
@@ -723,7 +723,7 @@ namespace
         return;
       }
 
-      if (auto declref = decl_cast<DeclRefDecl>(scoped->decls[0]); declref->name != "::")
+      if (auto declref = decl_cast<DeclRefDecl>(scoped->decls[0]); declref->name != Ident::op_scope)
       {
         if (declref->args.size() != 0 || declref->namedargs.size() != 0)
         {
@@ -866,12 +866,12 @@ namespace
   {
     vector<Decl*> decls;
 
-    if (decl_cast<DeclRefDecl>(init->decl)->name == "this")
+    if (init->name == Ident::kw_this)
       return;
 
     for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
     {
-      find_decls(ctx, sx, decl_cast<DeclRefDecl>(init->decl)->name, QueryFlags::Fields, decls, sema);
+      find_decls(ctx, sx, init->name, QueryFlags::Fields, decls, sema);
 
       if (decls.empty())
       {
@@ -889,8 +889,6 @@ namespace
       ctx.diag.error("no such field found", init, init->loc());
       return;
     }
-
-    resolve_decl(ctx, scope, decl_cast<DeclRefDecl>(init->decl), sema);
   }
 
   //|///////////////////// resolve_decl /////////////////////////////////////
@@ -1085,7 +1083,7 @@ namespace
   //|///////////////////// resolve_concept //////////////////////////////////
   void resolve_type(TyperContext &ctx, Scope const &scope, ConceptDecl *koncept, TypeRefType *typeref, Type *&dst, Sema &sema)
   {
-    auto arg = make_typearg(ctx, "var", koncept->loc(), sema);
+    auto arg = make_typearg(ctx, Ident::kw_var, koncept->loc(), sema);
 
     dst = sema.make_typearg(arg, koncept, std::move(typeref->args));
   }
@@ -1164,7 +1162,7 @@ namespace
     if (scoped->decls[0]->kind() == Decl::TypeOf)
       return;
 
-    if (auto declref = decl_cast<DeclRefDecl>(scoped->decls[0]); declref->name != "::")
+    if (auto declref = decl_cast<DeclRefDecl>(scoped->decls[0]); declref->name != Ident::op_scope)
     {
       for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
       {
@@ -1540,14 +1538,23 @@ namespace
     {
       auto declref = decl_cast<DeclRefDecl>(declexpr->decl);
 
-      if (!declexpr->base && declref->name == "void" && declref->argless)
+      if (!declexpr->base && declref->name == Ident::kw_void && declref->argless)
         dst = sema.make_void_literal(declexpr->loc());
 
-      if (!declexpr->base && declref->name == "null" && declref->argless)
+      if (!declexpr->base && declref->name == Ident::kw_null && declref->argless)
         dst = sema.make_pointer_literal(declexpr->loc());
     }
 
     resolve_decl(ctx, scope, declexpr->decl, sema);
+  }
+
+  //|///////////////////// fragment_expression //////////////////////////////
+  void resolve_expr(TyperContext &ctx, Scope const &scope, FragmentExpr *fragment, Sema &sema)
+  {
+    for(auto &arg : fragment->args)
+    {
+      resolve_expr(ctx, scope, arg, sema);
+    }
   }
 
   //|///////////////////// resolve_expr ///////////////////////////////////////
@@ -1622,6 +1629,10 @@ namespace
 
       case Expr::DeclRef:
         resolve_expr(ctx, scope, expr_cast<DeclRefExpr>(expr), expr, sema);
+        break;
+
+      case Expr::Fragment:
+        resolve_expr(ctx, scope, expr_cast<FragmentExpr>(expr), sema);
         break;
 
       default:
@@ -1877,14 +1888,14 @@ namespace
       typer_decl(ctx, arg, sema);
     }
 
-    for(auto &init: fn->inits)
-    {
-      typer_decl(ctx, init, sema);
-    }
-
     for(auto &parm : fn->parms)
     {
       typer_decl(ctx, parm, sema);
+    }
+
+    if (fn->throws)
+    {
+      resolve_expr(ctx, ctx.stack.back(), fn->throws, sema);
     }
 
     if (fn->returntype)
@@ -1897,11 +1908,6 @@ namespace
       }
     }
 
-    if (fn->throws)
-    {
-      resolve_expr(ctx, ctx.stack.back(), fn->throws, sema);
-    }
-
     if (fn->match)
     {
       resolve_expr(ctx, ctx.stack.back(), fn->match, sema);
@@ -1910,6 +1916,11 @@ namespace
     if (fn->where)
     {
       resolve_expr(ctx, ctx.stack.back(), fn->where, sema);
+    }
+
+    for(auto &init : fn->inits)
+    {
+      typer_decl(ctx, init, sema);
     }
 
     if (fn->body)
@@ -2065,18 +2076,24 @@ namespace
     }
   }
 
-  //|///////////////////// typer_declaration_statement //////////////////////
-  void typer_declaration_statement(TyperContext &ctx, DeclStmt *stmt, Sema &sema)
+  //|///////////////////// injection_statement //////////////////////////////
+  void typer_injection_statement(TyperContext &ctx, InjectionStmt *injection, Sema &sema)
   {
-    typer_decl(ctx, stmt->decl, sema);
+    resolve_expr(ctx, ctx.stack.back(), injection->expr, sema);
+  }
+
+  //|///////////////////// typer_declaration_statement //////////////////////
+  void typer_declaration_statement(TyperContext &ctx, DeclStmt *declstmt, Sema &sema)
+  {
+    typer_decl(ctx, declstmt->decl, sema);
   }
 
   //|///////////////////// typer_expression_statement ///////////////////////
-  void typer_expression_statement(TyperContext &ctx, ExprStmt *stmt, Sema &sema)
+  void typer_expression_statement(TyperContext &ctx, ExprStmt *exprstmt, Sema &sema)
   {
-    if (stmt->expr)
+    if (exprstmt->expr)
     {
-      resolve_expr(ctx, ctx.stack.back(), stmt->expr, sema);
+      resolve_expr(ctx, ctx.stack.back(), exprstmt->expr, sema);
     }
   }
 
@@ -2130,7 +2147,7 @@ namespace
 
     typer_statement(ctx, fors->stmt, sema);
 
-    for(auto &iter: fors->iters)
+    for(auto &iter : fors->iters)
     {
       typer_statement(ctx, iter, sema);
     }
@@ -2159,7 +2176,7 @@ namespace
 
     typer_statement(ctx, rofs->stmt, sema);
 
-    for(auto &iter: rofs->iters)
+    for(auto &iter : rofs->iters)
     {
       typer_statement(ctx, iter, sema);
     }
@@ -2301,6 +2318,10 @@ namespace
       case Stmt::Continue:
         break;
 
+      case Stmt::Injection:
+        typer_injection_statement(ctx, stmt_cast<InjectionStmt>(stmt), sema);
+        break;
+
       case Stmt::Return:
         typer_return_statement(ctx, stmt_cast<ReturnStmt>(stmt), sema);
         break;
@@ -2348,7 +2369,7 @@ namespace
           case Decl::Concept:
           case Decl::Enum:
           case Decl::TypeAlias:
-            module->index[""].push_back(decl);
+            module->index[nullptr].push_back(decl);
             break;
 
           case Decl::DeclRef:
@@ -2379,6 +2400,10 @@ namespace
             if (ifd->flags & IfDecl::ResolvedFalse)
               index_decl(ctx, module, elseif, sema);
         }
+        break;
+
+      case Decl::Run:
+        module->index[nullptr].push_back(decl);
         break;
 
       default:

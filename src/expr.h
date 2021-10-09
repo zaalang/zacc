@@ -19,6 +19,7 @@
 
 class Type;
 class Decl;
+class Ident;
 
 //-------------------------- Expr -------------------------------------------
 //---------------------------------------------------------------------------
@@ -53,6 +54,7 @@ class Expr
       Requires,
       Match,
       Lambda,
+      Fragment,
     };
 
   public:
@@ -280,13 +282,15 @@ class UnaryOpExpr : public Expr
       Unpack
     };
 
-    static const char *name(UnaryOpExpr::OpCode op);
+    static Ident *unaryop_idents[];
+
+    static Ident *name(UnaryOpExpr::OpCode op) { return unaryop_idents[op]; }
 
   public:
     UnaryOpExpr(OpCode op, Expr *subexpr, SourceLocation loc);
 
-    const char *name() const;
     OpCode op() const { return m_op; }
+    Ident *name() const { return name(m_op); }
 
     Expr *subexpr;
 
@@ -341,13 +345,15 @@ class BinaryOpExpr : public Expr
       RangeEq,
     };
 
-    static const char *name(BinaryOpExpr::OpCode op);
+    static Ident *binaryop_idents[];
+
+    static Ident *name(BinaryOpExpr::OpCode op) { return binaryop_idents[op]; }
 
   public:
     BinaryOpExpr(OpCode op, Expr *lhs, Expr *rhs, SourceLocation loc);
 
-    const char *name() const;
     OpCode op() const { return m_op; }
+    Ident *name() const { return name(m_op); }
 
     Expr *lhs, *rhs;
 
@@ -397,12 +403,12 @@ class CallExpr : public Expr
 {
   public:
     CallExpr(Decl *callee, SourceLocation loc);
-    CallExpr(Decl *callee, std::vector<Expr*> const &parms, std::map<std::string, Expr*> const &namedparms, SourceLocation loc);
-    CallExpr(Expr *base, Decl *callee, std::vector<Expr*> const &parms, std::map<std::string, Expr*> const &namedparms, SourceLocation loc);
+    CallExpr(Decl *callee, std::vector<Expr*> const &parms, std::map<Ident*, Expr*> const &namedparms, SourceLocation loc);
+    CallExpr(Expr *base, Decl *callee, std::vector<Expr*> const &parms, std::map<Ident*, Expr*> const &namedparms, SourceLocation loc);
 
     Decl *callee;
     std::vector<Expr*> parms;
-    std::map<std::string, Expr*> namedparms;
+    std::map<Ident*, Expr*> namedparms;
 
     Expr *base = nullptr;
 
@@ -448,10 +454,10 @@ class AlignofExpr : public Expr
 class OffsetofExpr : public Expr
 {
   public:
-    OffsetofExpr(Type *type, std::string_view name, SourceLocation loc);
+    OffsetofExpr(Type *type, Ident *field, SourceLocation loc);
 
     Type *type;
-    std::string name;
+    Ident *field;
 
     void dump(int indent) const override;
 };
@@ -479,12 +485,12 @@ class NewExpr : public Expr
 {
   public:
     NewExpr(Type *type, Expr *address, SourceLocation loc);
-    NewExpr(Type *type, Expr *address, std::vector<Expr*> const &parms, std::map<std::string, Expr*> const &namedparms, SourceLocation loc);
+    NewExpr(Type *type, Expr *address, std::vector<Expr*> const &parms, std::map<Ident*, Expr*> const &namedparms, SourceLocation loc);
 
     Type *type;
     Expr *address;
     std::vector<Expr*> parms;
-    std::map<std::string, Expr*> namedparms;
+    std::map<Ident*, Expr*> namedparms;
 
     void dump(int indent) const override;
 };
@@ -532,6 +538,21 @@ class LambdaExpr : public Expr
 };
 
 
+//---------------------- FragmentExpr ---------------------------------------
+//---------------------------------------------------------------------------
+
+class FragmentExpr : public Expr
+{
+  public:
+    FragmentExpr(std::vector<Expr*> const &args, std::vector<Decl*> const &decls, SourceLocation loc);
+    FragmentExpr(std::vector<Decl*> const &decls, SourceLocation loc);
+
+    std::vector<Expr*> args;
+    std::vector<Decl*> decls;
+
+    void dump(int indent) const override;
+};
+
 //
 // misc functions
 //
@@ -569,3 +590,4 @@ template<> inline auto expr_cast<NewExpr>(Expr *expr) { assert(expr && expr->kin
 template<> inline auto expr_cast<RequiresExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Requires); return static_cast<RequiresExpr*>(expr); };
 template<> inline auto expr_cast<MatchExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Match); return static_cast<MatchExpr*>(expr); };
 template<> inline auto expr_cast<LambdaExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Lambda); return static_cast<LambdaExpr*>(expr); };
+template<> inline auto expr_cast<FragmentExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Fragment); return static_cast<FragmentExpr*>(expr); };

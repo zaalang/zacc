@@ -91,6 +91,10 @@ std::ostream &operator <<(std::ostream &os, Stmt const &stmt)
       os << "Throw";
       break;
 
+    case Stmt::Injection:
+      os << "Injection";
+      break;
+
     case Stmt::Return:
       os << "Return";
       break;
@@ -458,12 +462,45 @@ void ContinueStmt::dump(int indent) const
 }
 
 
+//|--------------------- InjectionStmt --------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// InjectionStmt::Constructor /////////////////////////
+InjectionStmt::InjectionStmt(SourceLocation loc)
+  : Stmt(Injection, loc)
+{
+}
+
+InjectionStmt::InjectionStmt(Expr *expr, SourceLocation loc)
+  : Stmt(Injection, loc),
+    expr(expr)
+{
+}
+
+//|///////////////////// InjectionStmt::dump ////////////////////////////////
+void InjectionStmt::dump(int indent) const
+{
+  cout << spaces(indent) << "InjectionStmt " << this << " <" << m_loc << ">\n";
+
+  if (expr)
+  {
+    expr->dump(indent + 2);
+  }
+}
+
+
 //|--------------------- ReturnStmt -----------------------------------------
 //|--------------------------------------------------------------------------
 
 //|///////////////////// ReturnStmt::Constructor ////////////////////////////
-ReturnStmt::ReturnStmt( SourceLocation loc)
+ReturnStmt::ReturnStmt(SourceLocation loc)
   : Stmt(Return, loc)
+{
+}
+
+ReturnStmt::ReturnStmt(Expr *expr, SourceLocation loc)
+  : Stmt(Return, loc),
+    expr(expr)
 {
 }
 

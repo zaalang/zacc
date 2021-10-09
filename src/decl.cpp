@@ -71,19 +71,19 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
     case Decl::Module:
       if (auto &module = static_cast<ModuleDecl const &>(decl); true)
       {
-        os << module.name;
+        os << *module.name;
       }
       break;
 
     case Decl::Import:
       if (auto &imprt = static_cast<ImportDecl const &>(decl); true)
       {
-        os << imprt.alias;
+        os << *imprt.alias;
       }
       break;
 
     case Decl::Using:
-      if (auto &usein = static_cast<UsingDecl const &>(decl); usein.decl)
+      if (auto &usein = static_cast<UsingDecl const &>(decl); true)
       {
         os << *usein.decl;
       }
@@ -106,7 +106,7 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
       {
         os << '"';
 
-        os << ref.name;
+        os << *ref.name;
 
         if (ref.args.size() != 0 || ref.namedargs.size() != 0)
         {
@@ -117,7 +117,7 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
 
           int i = 0;
           for(auto &[name, arg] : ref.namedargs)
-            os << (!i++ ? "" : ", ") << name << ": " << *arg;
+            os << (!i++ ? "" : ", ") << *name << ": " << *arg;
 
           os << '>';
         }
@@ -129,7 +129,7 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
     case Decl::Function:
       if (auto &fn = static_cast<FunctionDecl const &>(decl); true)
       {
-        os << fn.name;
+        os << *fn.name;
 
         if (fn.args.size() != 0)
         {
@@ -159,7 +159,7 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
     case Decl::TypeAlias:
       if (auto &alias = static_cast<TypeAliasDecl const &>(decl); true)
       {
-        os << alias.name;
+        os << *alias.name;
 
         if (alias.args.size() != 0)
         {
@@ -181,7 +181,7 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
     case Decl::Enum:
       if (auto &tag = static_cast<TagDecl const &>(decl); true)
       {
-        os << tag.name;
+        os << *tag.name;
 
         if (tag.args.size() != 0)
         {
@@ -201,90 +201,39 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
         if (arg.flags & TypeArgDecl::Pack)
           os << "...";
 
-        os << arg.name;
+        os << *arg.name;
       }
       break;
 
     case Decl::VoidVar:
-      if (auto &var = static_cast<VoidVarDecl const &>(decl); var.type)
-      {
-        os << *var.type << ' ' << var.name;
-      }
-      break;
-
     case Decl::StmtVar:
-      if (auto &var = static_cast<StmtVarDecl const &>(decl); true)
-      {
-        os << var.name;
-      }
-      break;
-
     case Decl::ParmVar:
-      if (auto &var = static_cast<ParmVarDecl const &>(decl); var.type)
-      {
-        os << *var.type;
-
-        if (!var.name.empty())
-          os << ' ' << var.name;
-      }
-      break;
-
     case Decl::ThisVar:
-      if (auto &var = static_cast<ThisVarDecl const &>(decl); var.type)
-      {
-        os << *var.type << ' ' << var.name;
-      }
-      break;
-
     case Decl::FieldVar:
-      if (auto &var = static_cast<FieldVarDecl const &>(decl); var.type)
-      {
-        os << *var.type << ' ' << var.name;
-      }
-      break;
-
     case Decl::RangeVar:
-      if (auto &var = static_cast<RangeVarDecl const &>(decl); true)
-      {
-        os << var.name;
-      }
-      break;
-
     case Decl::ErrorVar:
-      if (auto &var = static_cast<ErrorVarDecl const &>(decl); var.type)
-      {
-        os << *var.type << ' ' << var.name;
-      }
-      break;
-
     case Decl::LambdaVar:
-      if (auto &var = static_cast<LambdaVarDecl const &>(decl); var.type)
+    case Decl::CaseVar:
+      if (auto &var = static_cast<VarDecl const &>(decl); true)
       {
         os << *var.type;
 
-        if (!var.name.empty())
-          os << ' ' << var.name;
+        if (var.name)
+          os << ' ' << *var.name;
       }
       break;
 
     case Decl::Initialiser:
-      if (auto &init = static_cast<InitialiserDecl const &>(decl); init.decl)
+      if (auto &init = static_cast<InitialiserDecl const &>(decl); true)
       {
-        os << *init.decl;
+        os << *init.name;
       }
       break;
 
     case Decl::Case:
-      if (auto &casse = static_cast<CaseDecl const &>(decl); casse.label)
+      if (auto &casse = static_cast<CaseDecl const &>(decl); true)
       {
         os << *casse.label;
-      }
-      break;
-
-    case Decl::CaseVar:
-      if (auto &var = static_cast<CaseVarDecl const &>(decl); true)
-      {
-        os << var.name;
       }
       break;
 
@@ -298,7 +247,7 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
     case Decl::EnumConstant:
       if (auto &var = static_cast<EnumConstantDecl const &>(decl); true)
       {
-        os << var.name;
+        os << *var.name;
       }
       break;
 
@@ -362,7 +311,7 @@ void TranslationUnitDecl::dump(int indent) const
 //|--------------------------------------------------------------------------
 
 //|///////////////////// ModuleDecl::Constructor ////////////////////////////
-ModuleDecl::ModuleDecl(string_view name, string_view file)
+ModuleDecl::ModuleDecl(Ident *name, string_view file)
   : Decl(Module),
     name(name),
     m_file(file)
@@ -444,7 +393,12 @@ void DeclScopedDecl::dump(int indent) const
 //|--------------------------------------------------------------------------
 
 //|///////////////////// DeclRefDecl::Constructor ///////////////////////////
-DeclRefDecl::DeclRefDecl(string_view name, SourceLocation loc)
+DeclRefDecl::DeclRefDecl(SourceLocation loc)
+  : Decl(DeclRef, loc)
+{
+}
+
+DeclRefDecl::DeclRefDecl(Ident *name, SourceLocation loc)
   : Decl(DeclRef, loc),
     name(name)
 {
@@ -552,7 +506,7 @@ TagDecl::TagDecl(Kind kind, SourceLocation loc)
 //|--------------------------------------------------------------------------
 
 //|///////////////////// TypeArgDecl::Constructor ///////////////////////////
-TypeArgDecl::TypeArgDecl(string_view name, SourceLocation loc)
+TypeArgDecl::TypeArgDecl(Ident *name, SourceLocation loc)
   : Decl(TypeArg, loc),
     name(name)
 {
@@ -738,7 +692,7 @@ void VTableDecl::dump(int indent) const
 LambdaDecl::LambdaDecl(SourceLocation loc)
   : TagDecl(Lambda, loc)
 {
-  name = "#lambda";
+  name = Ident::type_lambda;
 }
 
 //|///////////////////// LambdaDecl::dump ///////////////////////////////////

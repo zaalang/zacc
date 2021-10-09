@@ -92,7 +92,7 @@ std::ostream &operator <<(std::ostream &os, FnSig const &fn)
   os << "&fn ";
 
   if (fn.fn)
-    os << fn.fn->name;
+    os << *fn.fn->name;
 
   os << "()";
 
@@ -202,7 +202,8 @@ std::ostream &operator <<(std::ostream &os, MIR::RValue::CallData const &call)
 {
   auto &[callee, args, loc] = call;
 
-  os << callee.fn->name;
+  if (callee.fn->name)
+    os << *callee.fn->name;
 
 #if 1
   if (callee.typeargs.size() != 0)
@@ -248,6 +249,28 @@ std::ostream &operator <<(std::ostream &os, MIR::RValue::CastData const &cast)
 }
 
 //|///////////////////// print //////////////////////////////////////////////
+std::ostream &operator <<(std::ostream &os, MIR::RValue::InjectionData const &injection)
+{
+  auto &[decl, args, loc] = injection;
+
+  os << "-> " << *decl;
+
+  os << '(';
+
+  for(auto &arg : args)
+  {
+    os << '_' << arg;
+
+    if (&arg != &args.back())
+      os << ", ";
+  }
+
+  os << ')';
+
+  return os;
+}
+
+//|///////////////////// print //////////////////////////////////////////////
 std::ostream &operator <<(std::ostream &os, MIR::RValue const &rvalue)
 {
   switch(rvalue.kind())
@@ -270,6 +293,10 @@ std::ostream &operator <<(std::ostream &os, MIR::RValue const &rvalue)
 
     case MIR::RValue::Cast:
       os << rvalue.get<MIR::RValue::Cast>();
+      break;
+
+    case MIR::RValue::Injection:
+      os << rvalue.get<MIR::RValue::Injection>();
       break;
   }
 
@@ -428,6 +455,9 @@ SourceLocation MIR::RValue::loc() const
     case MIR::RValue::Cast:
       return std::get<1>(get<MIR::RValue::Cast>());
 
+    case MIR::RValue::Injection:
+      return std::get<2>(get<MIR::RValue::Injection>());
+
     default:
       return {};
   }
@@ -531,7 +561,7 @@ void MIR::dump() const
     switch (fn->flags & FunctionDecl::DeclType)
     {
       case FunctionDecl::ConstDecl:
-        cout << "const " << fn->name;
+        cout << "const " << *fn->name;
         break;
 
       case FunctionDecl::RequiresDecl:
@@ -539,7 +569,7 @@ void MIR::dump() const
         break;
 
       default:
-        cout << "fn " << fn->name;
+        cout << "fn " << *fn->name;
     }
   }
 

@@ -8,6 +8,7 @@
 //
 
 #include "mangle.h"
+#include "ident.h"
 #include "decl.h"
 #include "stmt.h"
 #include "expr.h"
@@ -18,6 +19,122 @@ using namespace std;
 
 namespace
 {
+  //|///////////////////// mangle_type //////////////////////////////////////
+  void mangle_type(string &name, Type const *type)
+  {
+    switch (type->klass())
+    {
+      case Type::Builtin:
+        switch (type_cast<BuiltinType>(type)->kind())
+        {
+          case BuiltinType::Void:
+            name += 'v';
+            break;
+
+          case BuiltinType::Bool:
+            name += 'b';
+            break;
+
+          case BuiltinType::Char:
+            name += "Di";
+            break;
+
+          case BuiltinType::I8:
+            name += 'a';
+            break;
+
+          case BuiltinType::I16:
+            name += 's';
+            break;
+
+          case BuiltinType::I32:
+            name += 'i';
+            break;
+
+          case BuiltinType::I64:
+            name += 'x';
+            break;
+
+          case BuiltinType::ISize:
+            name += 'x';
+            break;
+
+          case BuiltinType::U8:
+            name += 'h';
+            break;
+
+          case BuiltinType::U16:
+            name += 't';
+            break;
+
+          case BuiltinType::U32:
+            name += 'j';
+            break;
+
+          case BuiltinType::U64:
+            name += 'y';
+            break;
+
+          case BuiltinType::USize:
+            name += 'y';
+            break;
+
+          case BuiltinType::F32:
+            name += 'f';
+            break;
+
+          case BuiltinType::F64:
+            name += 'd';
+            break;
+
+          case BuiltinType::StringLiteral:
+          case BuiltinType::IntLiteral:
+          case BuiltinType::FloatLiteral:
+          case BuiltinType::DeclidLiteral:
+          case BuiltinType::PtrLiteral:
+            name += "Da";
+            break;
+        }
+        break;
+
+      case Type::Const:
+        name += 'K';
+        mangle_type(name, type_cast<ConstType>(type)->type);
+        break;
+
+      case Type::QualArg:
+        mangle_type(name, type_cast<QualArgType>(type)->type);
+        break;
+
+      case Type::Pointer:
+        name += 'P';
+        mangle_type(name, type_cast<PointerType>(type)->type);
+        break;
+
+      case Type::Reference:
+        name += 'R';
+        mangle_type(name, type_cast<ReferenceType>(type)->type);
+        break;
+
+      case Type::Array:
+        name += 'A';
+        name += '_';
+        mangle_type(name, type_cast<ArrayType>(type)->type);
+        break;
+
+      case Type::Tuple:
+      case Type::Tag:
+      case Type::Function:
+      case Type::TypeArg:
+      case Type::TypeRef:
+        name += "Da";
+        break;
+
+      default:
+        assert(false);
+    }
+  }
+
   //|///////////////////// mangle_name //////////////////////////////////////
   string mangle_name(string_view name)
   {
@@ -61,6 +178,8 @@ namespace
 
     if (name == "~#array") return "5arrayD0";
     if (name == "~#tuple") return "5tupleD0";
+    if (name == "~#lambda") return "6lambdaD0";
+    if (name == "~#vtable") return "6vtableD0";
     if (name == "#builtin") return "St7builtin";
 
     if (name.front() == '~') return "D0";
@@ -75,8 +194,11 @@ namespace
   {
     string result;
 
-    // add parameter types (just v for none to distinguish functions from types)
-    result += 'v';
+    for(auto parm : fn->args)
+    {
+      (void)parm;
+      result += "Da";
+    }
 
     return result;
   }
@@ -86,11 +208,21 @@ namespace
   {
     string result;
 
-    // return type
     if (!(fn->flags & FunctionDecl::Destructor))
-      result += "v";
+    {
+      if (fn->returntype)
+        mangle_type(result, fn->returntype);
+      else
+        result += 'v';
+    }
 
-    result += "v";
+    for(auto parm : fn->parms)
+    {
+      mangle_type(result, decl_cast<ParmVarDecl>(parm)->type);
+    }
+
+    if (fn->parms.empty())
+      result += "v";
 
     return result;
   }
@@ -100,21 +232,19 @@ namespace
   {
     switch (decl->kind())
     {
-      case Decl::Module:
-      {
-        auto name = decl_cast<ModuleDecl>(decl)->name;
+      case Decl::Module: {
+        auto module = decl_cast<ModuleDecl>(decl);
 
-        if (isdigit(name[0]))
-          name.insert(0, "_");
+        if (isdigit(module->name->sv()[0]))
+          return mangle_name("_" + module->name->str());
 
-        return mangle_name(name);
+        return mangle_name(module->name->sv());
       }
 
-      case Decl::Function:
-      {
+      case Decl::Function: {
         auto fn = decl_cast<FunctionDecl>(decl);
 
-        return mangle_scope(fn->owner) + mangle_name(fn->name + "I" + type_parameters(fn) + "EE" + function_parameters(fn));
+        return mangle_scope(fn->owner) + mangle_name(fn->name->sv());
       }
 
       case Decl::Struct:
@@ -122,11 +252,13 @@ namespace
       case Decl::VTable:
       case Decl::Lambda:
       case Decl::Concept:
-      case Decl::Enum:
-      {
+      case Decl::Enum: {
         auto strct = decl_cast<TagDecl>(decl);
 
-        return mangle_scope(strct->owner) + mangle_name(strct->name);
+        if (!strct->name)
+          return mangle_scope(strct->owner) + "9anonymous";
+
+        return mangle_scope(strct->owner) + mangle_name(strct->name->sv());
       }
 
       case Decl::Case:
@@ -189,7 +321,13 @@ string mangle_scope(variant<Decl*, Stmt*> const &scope)
 string get_mangled_name(FunctionDecl const *fn)
 {
   if (fn->flags & FunctionDecl::ExternMask)
-    return fn->name;
+    return fn->name->str();
 
-  return "_ZN" + mangle_scope(fn->owner) + mangle_name(fn->name) + "I" + type_parameters(fn) + "EE" + function_parameters(fn);
+  return "_ZN" + mangle_scope(fn->owner) + mangle_name(fn->name->str()) + "I" + type_parameters(fn) + "EE" + function_parameters(fn);
+}
+
+//|///////////////////// get_mangled_name /////////////////////////////////
+string get_mangled_name(FunctionDecl const *fn, std::string_view name)
+{
+  return "_ZZ" + mangle_scope(fn->owner) + mangle_name(fn->name->str()) + "I" + type_parameters(fn) + "EE" + mangle_name(name);
 }

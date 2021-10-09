@@ -15,6 +15,60 @@
 
 using namespace std;
 
+Ident *UnaryOpExpr::unaryop_idents[] = {
+  /* Plus,      */ Ident::from("+"),
+  /* Minus,     */ Ident::from("-"),
+  /* Not,       */ Ident::from("~"),
+  /* LNot,      */ Ident::from("!"),
+  /* PreInc,    */ Ident::from("++"),
+  /* PreDec,    */ Ident::from("--"),
+  /* PostInc,   */ Ident::from("++"),
+  /* PostDec,   */ Ident::from("--"),
+  /* Begin,     */ Ident::from("begin"),
+  /* End,       */ Ident::from("end"),
+  /* Ref,       */ Ident::from("&"),
+  /* Fer,       */ Ident::from("*"),
+  /* Fwd,       */ Ident::from("&&"),
+  /* Literal,   */ Ident::from("#"),
+  /* Extern,    */ Ident::from("extern"),
+  /* Unpack     */ Ident::from("..."),
+};
+
+Ident *BinaryOpExpr::binaryop_idents[] = {
+  /* Add,       */ Ident::from("+"),
+  /* Sub,       */ Ident::from("-"),
+  /* Div,       */ Ident::from("/"),
+  /* Mul,       */ Ident::from("*"),
+  /* Rem,       */ Ident::from("%"),
+  /* Shl,       */ Ident::from("<<"),
+  /* Shr,       */ Ident::from(">>"),
+  /* And,       */ Ident::from("&"),
+  /* Or,        */ Ident::from("|"),
+  /* Xor,       */ Ident::from("^"),
+  /* LAnd,      */ Ident::from("&&"),
+  /* LOr,       */ Ident::from("||"),
+  /* LT,        */ Ident::from("<"),
+  /* GT,        */ Ident::from(">"),
+  /* LE,        */ Ident::from("<="),
+  /* GE,        */ Ident::from(">="),
+  /* EQ,        */ Ident::from("=="),
+  /* NE,        */ Ident::from("!="),
+  /* Cmp,       */ Ident::from("<=>"),
+  /* Assign,    */ Ident::from("="),
+  /* AddAssign, */ Ident::from("+="),
+  /* SubAssign, */ Ident::from("-="),
+  /* DivAssign, */ Ident::from("/="),
+  /* MulAssign, */ Ident::from("*="),
+  /* RemAssign, */ Ident::from("%="),
+  /* ShlAssign, */ Ident::from("<<="),
+  /* ShrAssign, */ Ident::from(">>="),
+  /* AndAssign, */ Ident::from("&="),
+  /* OrAssign,  */ Ident::from("|="),
+  /* XorAssign, */ Ident::from("^="),
+  /* Range,     */ Ident::from(".."),
+  /* RangeEq,   */ Ident::from("..="),
+};
+
 namespace
 {
   struct spaces
@@ -92,11 +146,11 @@ std::ostream &operator <<(std::ostream &os, Expr const &expr)
       break;
 
     case Expr::UnaryOp:
-      os << static_cast<UnaryOpExpr const &>(expr).name();
+      os << *static_cast<UnaryOpExpr const &>(expr).name();
       break;
 
     case Expr::BinaryOp:
-      os << static_cast<BinaryOpExpr const &>(expr).name();
+      os << *static_cast<BinaryOpExpr const &>(expr).name();
       break;
 
     case Expr::TernaryOp:
@@ -120,7 +174,7 @@ std::ostream &operator <<(std::ostream &os, Expr const &expr)
       break;
 
     case Expr::Offsetof:
-      os << "offsetof " << static_cast<OffsetofExpr const &>(expr).name;
+      os << "offsetof " << *static_cast<OffsetofExpr const &>(expr).field;
       break;
 
     case Expr::Cast:
@@ -142,10 +196,15 @@ std::ostream &operator <<(std::ostream &os, Expr const &expr)
     case Expr::Lambda:
       os << "fn";
       break;
+
+    case Expr::Fragment:
+      os << "fragment";
+      break;
   }
 
   return os;
 }
+
 
 
 //|--------------------- Expr -----------------------------------------------
@@ -398,38 +457,6 @@ UnaryOpExpr::UnaryOpExpr(OpCode op, Expr *subexpr, SourceLocation loc)
 {
 }
 
-//|///////////////////// UnaryOpExpr::name //////////////////////////////////
-const char *UnaryOpExpr::name(UnaryOpExpr::OpCode op)
-{
-  switch (op)
-  {
-    case Plus: return "+";
-    case Minus: return "-";
-    case Not: return "~";
-    case LNot: return "!";
-    case PreInc: return "++";
-    case PreDec: return "--";
-    case PostInc: return "++";
-    case PostDec: return "--";
-    case Begin: return "begin";
-    case End: return "end";
-    case Ref: return "&";
-    case Fer: return "*";
-    case Fwd: return "&&";
-    case Literal: return "#";
-    case Extern: return "extern";
-    case Unpack: return "...";
-  }
-
-  throw logic_error("invalid unary op");
-}
-
-//|///////////////////// UnaryOpExpr::name //////////////////////////////////
-const char *UnaryOpExpr::name() const
-{
-  return name(m_op);
-}
-
 //|///////////////////// UnaryOpExpr::dump //////////////////////////////////
 void UnaryOpExpr::dump(int indent) const
 {
@@ -452,54 +479,6 @@ BinaryOpExpr::BinaryOpExpr(OpCode op, Expr *lhs, Expr *rhs, SourceLocation loc)
     rhs(rhs),
     m_op(op)
 {
-}
-
-//|///////////////////// BinaryOpExpr::name /////////////////////////////////
-const char *BinaryOpExpr::name(BinaryOpExpr::OpCode op)
-{
-  switch (op)
-  {
-    case Add: return "+";
-    case Sub: return "-";
-    case Div: return  "/";
-    case Mul: return "*";
-    case Rem: return "%";
-    case Shl: return "<<";
-    case Shr: return ">>";
-    case And: return "&";
-    case Or: return "|";
-    case Xor: return "^";
-    case LAnd: return "&&";
-    case LOr: return "||";
-    case LT: return "<";
-    case GT: return ">";
-    case LE: return "<=";
-    case GE: return ">=";
-    case EQ: return "==";
-    case NE: return "!=";
-    case Cmp: return "<=>";
-    case Assign: return "=";
-    case MulAssign: return "*=";
-    case DivAssign: return "/=";
-    case RemAssign: return "%=";
-    case AddAssign: return "+=";
-    case SubAssign: return "-=";
-    case ShlAssign: return "<<=";
-    case ShrAssign: return ">>=";
-    case AndAssign: return "&=";
-    case XorAssign: return "^=";
-    case OrAssign: return "|=";
-    case Range: return "..";
-    case RangeEq: return "..=";
-  }
-
-  throw logic_error("invalid binary op");
-}
-
-//|///////////////////// BinaryOpExpr::name /////////////////////////////////
-const char *BinaryOpExpr::name() const
-{
-  return name(m_op);
 }
 
 //|///////////////////// BinaryOpExpr::dump //////////////////////////////////
@@ -639,7 +618,7 @@ CallExpr::CallExpr(Decl *callee, SourceLocation loc)
 }
 
 //|///////////////////// CallExpr::Constructor //////////////////////////////
-CallExpr::CallExpr(Decl *callee, vector<Expr*> const &parms, map<string, Expr*> const &namedparms, SourceLocation loc)
+CallExpr::CallExpr(Decl *callee, vector<Expr*> const &parms, map<Ident*, Expr*> const &namedparms, SourceLocation loc)
   : Expr(Call, loc),
     callee(callee),
     parms(parms),
@@ -648,7 +627,7 @@ CallExpr::CallExpr(Decl *callee, vector<Expr*> const &parms, map<string, Expr*> 
 }
 
 //|///////////////////// CallExpr::Constructor //////////////////////////////
-CallExpr::CallExpr(Expr *base, Decl *callee, vector<Expr*> const &parms, map<string, Expr*> const &namedparms, SourceLocation loc)
+CallExpr::CallExpr(Expr *base, Decl *callee, vector<Expr*> const &parms, map<Ident*, Expr*> const &namedparms, SourceLocation loc)
   : Expr(Call, loc),
     callee(callee),
     parms(parms),
@@ -751,10 +730,10 @@ void AlignofExpr::dump(int indent) const
 //|--------------------------------------------------------------------------
 
 //|///////////////////// OffsetofExpr::Constructor //////////////////////////
-OffsetofExpr::OffsetofExpr(Type *type, string_view name, SourceLocation loc)
+OffsetofExpr::OffsetofExpr(Type *type, Ident *field, SourceLocation loc)
   : Expr(Offsetof, loc),
     type(type),
-    name(name)
+    field(field)
 {
 }
 
@@ -807,7 +786,7 @@ NewExpr::NewExpr(Type *type, Expr *address, SourceLocation loc)
 }
 
 //|///////////////////// NewExpr::Constructor ///////////////////////////////
-NewExpr::NewExpr(Type *type, Expr *address, vector<Expr*> const &parms, map<std::string, Expr*> const &namedparms, SourceLocation loc)
+NewExpr::NewExpr(Type *type, Expr *address, vector<Expr*> const &parms, map<Ident*, Expr*> const &namedparms, SourceLocation loc)
   : Expr(New, loc),
     type(type),
     address(address),
@@ -897,6 +876,41 @@ void LambdaExpr::dump(int indent) const
   cout << spaces(indent) << "LambdaExpr " << this << " <" << m_loc << "> " << *this << "\n";
 
   if (decl)
+  {
+    decl->dump(indent + 2);
+  }
+}
+
+
+//|--------------------- FragmentExpr ---------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// FragmentExpr::Constructor //////////////////////////
+FragmentExpr::FragmentExpr(vector<Expr*> const &args, vector<Decl*> const &decls, SourceLocation loc)
+  : Expr(Fragment, loc),
+    args(args),
+    decls(decls)
+{
+}
+
+FragmentExpr::FragmentExpr(vector<Decl*> const &decls, SourceLocation loc)
+  : Expr(Fragment, loc),
+    decls(decls)
+{
+}
+
+
+//|///////////////////// FragmentExpr::dump /////////////////////////////////
+void FragmentExpr::dump(int indent) const
+{
+  cout << spaces(indent) << "FragmentExpr " << this << " <" << m_loc << "> " << *this << "\n";
+
+  for(auto &arg : args)
+  {
+    arg->dump(indent + 2);
+  }
+
+  for(auto &decl : decls)
   {
     decl->dump(indent + 2);
   }

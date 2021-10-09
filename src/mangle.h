@@ -10,6 +10,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <variant>
 
 class Decl;
@@ -20,6 +21,7 @@ class FunctionDecl;
 //---------------------------------------------------------------------------
 
 std::string get_mangled_name(FunctionDecl const *fn);
+std::string get_mangled_name(FunctionDecl const *fn, std::string_view name);
 
 std::string mangle_scope(std::variant<Decl*, Stmt*> const &scope);
 

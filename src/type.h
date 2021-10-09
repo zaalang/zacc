@@ -10,6 +10,7 @@
 #pragma once
 
 #include "decl.h"
+#include "ident.h"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -48,7 +49,7 @@ class Type
       Resolved = 0x2,
       Unresolved = 0x4,
       ZeroSized = 0x8,
-      TrivialCopy = 0x010,
+      TrivialCopy = 0x10,
       TrivialAssign = 0x20,
       TrivialDestroy = 0x40,
       LiteralCopy = 0x080,
@@ -92,12 +93,15 @@ class BuiltinType : public Type
       PtrLiteral,
     };
 
+    static Ident *builtintype_idents[];
+
+    static Ident *name(Kind kind) { return builtintype_idents[kind]; }
+
   public:
     BuiltinType(Kind kind);
 
     Kind kind() const { return m_kind; }
-
-    const char *name() const;
+    Ident *name() const { return name(m_kind); }
 
     bool is_void_type() const
     {
@@ -136,8 +140,8 @@ class BuiltinType : public Type
     Kind m_kind;
 };
 
-bool literal_valid(BuiltinType::Kind kind, Numeric::Int const &value);
-bool literal_valid(BuiltinType::Kind kind, Numeric::Float const &value);
+bool is_literal_valid(BuiltinType::Kind kind, Numeric::Int const &value);
+bool is_literal_valid(BuiltinType::Kind kind, Numeric::Float const &value);
 
 
 //-------------------------- ConstType --------------------------------------
@@ -330,7 +334,6 @@ class TagType : public CompoundType
 {
   public:
     TagType(Decl *decl, std::vector<std::pair<Decl*, Type*>> const &args);
-    TagType(Decl *decl, std::vector<std::pair<Decl*, Type*>> const &args, std::vector<Decl*> &&resolved_decls);
 
     Decl *decl;
     std::vector<std::pair<Decl*, Type*>> args;
@@ -338,6 +341,7 @@ class TagType : public CompoundType
     std::vector<Decl*> decls;
     std::vector<Decl*> fieldvars;
 
+    void resolve(std::vector<Decl*> &&resolved_decls);
     void resolve(std::vector<Type*> &&resolved_fields);
 
     void dump(int indent) const override;

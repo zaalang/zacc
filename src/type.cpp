@@ -14,6 +14,29 @@
 
 using namespace std;
 
+Ident *BuiltinType::builtintype_idents[] = {
+  /* Void,          */ Ident::from("void"),
+  /* Bool,          */ Ident::from("bool"),
+  /* Char,          */ Ident::from("char"),
+  /* I8,            */ Ident::from("i8"),
+  /* I16,           */ Ident::from("i16"),
+  /* I32,           */ Ident::from("i32"),
+  /* I64,           */ Ident::from("i64"),
+  /* ISize,         */ Ident::from("isize"),
+  /* U8,            */ Ident::from("u8"),
+  /* U16,           */ Ident::from("u16"),
+  /* U32,           */ Ident::from("u32"),
+  /* U64,           */ Ident::from("u64"),
+  /* USize,         */ Ident::from("usize"),
+  /* F32,           */ Ident::from("f32"),
+  /* F64,           */ Ident::from("f64"),
+  /* IntLiteral,    */ Ident::from("#int"),
+  /* FloatLiteral,  */ Ident::from("#float"),
+  /* StringLiteral, */ Ident::from("#string"),
+  /* DeclidLiteral, */ Ident::from("#declid"),
+  /* PtrLiteral,    */ Ident::from("null"),
+};
+
 namespace
 {
   struct spaces
@@ -366,7 +389,7 @@ std::ostream &operator <<(std::ostream &os, Type const &type)
   switch (type.klass())
   {
     case Type::Builtin:
-      os << static_cast<BuiltinType const &>(type).name();
+      os << *static_cast<BuiltinType const &>(type).name();
       break;
 
     case Type::Const:
@@ -509,39 +532,8 @@ BuiltinType::BuiltinType(Kind kind)
     flags |= Type::ZeroSized;
 }
 
-
-//|///////////////////// BuiltinType::name //////////////////////////////////
-const char *BuiltinType::name() const
-{
-  switch (m_kind)
-  {
-    case Void: return "void";
-    case Bool: return "bool";
-    case Char: return "char";
-    case I8: return "i8";
-    case I16: return "i16";
-    case I32: return "i32";
-    case I64: return "i64";
-    case ISize: return "isize";
-    case U8: return "u8";
-    case U16: return "u16";
-    case U32: return "u32";
-    case U64: return "u64";
-    case USize: return "usize";
-    case F32: return "f32";
-    case F64: return "f64";
-    case IntLiteral: return "#int";
-    case FloatLiteral: return "#float";
-    case StringLiteral: return "#string";
-    case DeclidLiteral: return "#declid";
-    case PtrLiteral: return "null";
-  }
-
-  throw logic_error("invalid builtin type");
-}
-
-//|///////////////////// literal_valid //////////////////////////////////////
-bool literal_valid(BuiltinType::Kind kind, Numeric::Int const &value)
+//|///////////////////// is-literal_valid ///////////////////////////////////
+bool is_literal_valid(BuiltinType::Kind kind, Numeric::Int const &value)
 {
   if (value.overflowed)
     return false;
@@ -589,8 +581,8 @@ bool literal_valid(BuiltinType::Kind kind, Numeric::Int const &value)
   return false;
 }
 
-//|///////////////////// literal_valid //////////////////////////////////////
-bool literal_valid(BuiltinType::Kind kind, Numeric::Float const &value)
+//|///////////////////// is_literal_valid ///////////////////////////////////
+bool is_literal_valid(BuiltinType::Kind kind, Numeric::Float const &value)
 {
   if (value.overflowed)
     return false;
@@ -1037,43 +1029,34 @@ TagType::TagType(Decl *decl, vector<pair<Decl*, Type*>> const &args)
     decl(decl),
     args(args)
 {
-}
-
-//|///////////////////// TagType::Constructor ///////////////////////////////
-TagType::TagType(Decl *decl, vector<pair<Decl*, Type*>> const &args, vector<Decl*> &&resolved_decls)
-  : CompoundType(Tag),
-    decl(decl),
-    args(args),
-    decls(std::move(resolved_decls))
-{
   flags |= Type::Concrete; // assume concrete until resolve (for self ref)
   flags |= Type::Resolved; // assume resolved until resolve (for self ref)
 
-  for(auto attr : decl_cast<TagDecl>(decl)->attributes)
-  {
-    auto attribute = decl_cast<AttributeDecl>(attr);
+  if (decl->flags & TagDecl::Packed)
+    flags |= Type::Packed;
+}
 
-    if (attribute->name == "packed")
-      flags |= Type::Packed;
-  }
+//|///////////////////// TagType::resolve ///////////////////////////////////
+void TagType::resolve(vector<Decl*> &&resolved_decls)
+{
+  decls = std::move(resolved_decls);
 }
 
 //|///////////////////// TagType::resolve ///////////////////////////////////
 void TagType::resolve(vector<Type*> &&resolved_fields)
 {
-  // Maybe we should resolve all the subtypes in this pass so that pointers/references/consts can update
-  // their concrete (and others?) flags appropriately. The above concrete assumption could be resolved.
-  // For now pointers/references don't abide their concrete flags, just pass along the subtype.
+  flags &= ~Type::Concrete;
+  flags &= ~Type::Resolved;
 
   fields = std::move(resolved_fields);
 
   if (decl->kind() == Decl::Struct || decl->kind() == Decl::Union || decl->kind() == Decl::VTable || decl->kind() == Decl::Lambda)
   {
-    if (any_of(fields.begin(), fields.end(), [](auto k) { return !is_concrete_type(k); }))
-      flags &= ~Type::Concrete;
+    if (all_of(fields.begin(), fields.end(), [](auto k) { return is_concrete_type(k); }))
+      flags |= Type::Concrete;
 
-    if (any_of(fields.begin(), fields.end(), [](auto k) { return !is_resolved_type(k); }))
-      flags &= ~Type::Resolved;
+    if (all_of(fields.begin(), fields.end(), [](auto k) { return is_resolved_type(k); }))
+      flags |= Type::Resolved;
 
     if (any_of(fields.begin(), fields.end(), [](auto k) { return is_unresolved_type(k); }))
       flags |= Type::Unresolved;
@@ -1511,4 +1494,3 @@ size_t offsetof_field(CompoundType const *type, size_t index)
 
   return offset;
 }
-

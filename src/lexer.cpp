@@ -542,6 +542,11 @@ namespace
         }
         break;
 
+      case '$':
+        ptr += 1;
+        type = Token::dollar;
+        break;
+
       case ',':
         ptr += 1;
         type = Token::comma;
@@ -691,8 +696,6 @@ namespace
           type = Token::kw_typedef;
         else if (identifier == "typeof")
           type = Token::kw_typeof;
-        else if (identifier == "this")
-          type = Token::kw_this;
         else if (identifier == "try")
           type = Token::kw_try;
         else if (identifier == "throw")
@@ -854,6 +857,9 @@ auto lex(SourceText const &src, LexCursor cursor, Token &tok) -> LexCursor
         return lex_identifier(src, cursor, tok);
 
       case '#':
+        return lex_punctuators(src, cursor, tok);
+
+      case '$':
         return lex_punctuators(src, cursor, tok);
 
       default:

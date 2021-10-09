@@ -28,7 +28,7 @@ class Sema
 
     TranslationUnitDecl *translation_unit(std::string_view file);
 
-    ModuleDecl *module_declaration(std::string_view name, std::string_view file);
+    ModuleDecl *module_declaration(Ident *name, std::string_view file);
 
     FunctionDecl *function_declaration(SourceLocation loc);
     CompoundStmt *compound_statement(SourceLocation loc);
@@ -44,7 +44,8 @@ class Sema
     ThrowStmt *throw_statement(SourceLocation loc);
     BreakStmt *break_statement(SourceLocation loc);
     ContinueStmt *continue_statement(SourceLocation loc);
-    ReturnStmt *return_statement( SourceLocation loc);
+    InjectionStmt *injection_statement(SourceLocation loc);
+    ReturnStmt *return_statement(SourceLocation loc);
     ImportDecl *import_declaration(SourceLocation loc);
     UsingDecl *using_declaration(SourceLocation loc);
     TypeAliasDecl *alias_declaration(SourceLocation loc);
@@ -72,10 +73,10 @@ class Sema
     RunDecl *run_declaration(SourceLocation loc);
     IfDecl *if_declaration(SourceLocation loc);
 
-    DeclRefDecl *make_declref(std::string_view name, SourceLocation loc);
+    DeclRefDecl *make_declref(Ident *name, SourceLocation loc);
     DeclScopedDecl *make_declref(std::vector<Decl*> const &decls, SourceLocation loc);
     TypeOfDecl *make_decltype(Expr *expr, SourceLocation loc);
-    TypeArgDecl *make_typearg(std::string_view name, SourceLocation loc);
+    TypeArgDecl *make_typearg(Ident *name, SourceLocation loc);
 
     Expr *make_bool_literal(bool value, SourceLocation loc);
     Expr *make_char_literal(std::string_view value, SourceLocation loc);
@@ -92,19 +93,20 @@ class Sema
     Expr *make_declref_expression(Decl *decl, SourceLocation loc);
     Expr *make_declref_expression(Expr *base, Decl *decl, SourceLocation loc);
     Expr *make_call_expression(Decl *decl, SourceLocation loc);
-    Expr *make_call_expression(Decl *decl, std::vector<Expr*> const &parms, std::map<std::string, Expr*> const &namedparms, SourceLocation loc);
-    Expr *make_call_expression(Expr *base, Decl *decl, std::vector<Expr*> const &parms, std::map<std::string, Expr*> const &namedparms, SourceLocation loc);
+    Expr *make_call_expression(Decl *decl, std::vector<Expr*> const &parms, std::map<Ident*, Expr*> const &namedparms, SourceLocation loc);
+    Expr *make_call_expression(Expr *base, Decl *decl, std::vector<Expr*> const &parms, std::map<Ident*, Expr*> const &namedparms, SourceLocation loc);
     Expr *make_sizeof_expression(Type *type, SourceLocation loc);
     Expr *make_sizeof_expression(Expr *expr, SourceLocation loc);
     Expr *make_alignof_expression(Type *type, SourceLocation loc);
     Expr *make_alignof_expression(Expr *expr, SourceLocation loc);
-    Expr *make_offsetof_expression(Type *type, std::string_view name, SourceLocation loc);
+    Expr *make_offsetof_expression(Type *type, Ident *field, SourceLocation loc);
     Expr *make_cast_expression(Type *type, Expr *expr, SourceLocation loc);
     Expr *make_new_expression(Type *type, Expr *address, SourceLocation loc);
-    Expr *make_new_expression(Type *type, Expr *address, std::vector<Expr*> const &parms, std::map<std::string, Expr*> const &namedparms, SourceLocation loc);
+    Expr *make_new_expression(Type *type, Expr *address, std::vector<Expr*> const &parms, std::map<Ident*, Expr*> const &namedparms, SourceLocation loc);
     Expr *make_requires_expression(Decl *decl, SourceLocation loc);
     Expr *make_match_expression(Decl *decl, SourceLocation loc);
     Expr *make_lambda_expression(Decl *decl, SourceLocation loc);
+    Expr *make_fragment_expression(std::vector<Expr*> const &args, std::vector<Decl*> const &decls, SourceLocation loc);
 
     Type *make_const(Type *type);
     Type *make_pointer(Type *type);
@@ -122,7 +124,7 @@ class Sema
     Type *make_pack(Type *type);
     Type *make_unpack(Type *type);
 
-    ModuleDecl *lookup_module(std::string_view name);
+    ModuleDecl *lookup_module(Ident *name);
 
     void add_cfg(std::string_view str);
     void add_include_path(std::string_view path);

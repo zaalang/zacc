@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include "ident.h"
 #include "decl.h"
 #include "expr.h"
 #include "stmt.h"

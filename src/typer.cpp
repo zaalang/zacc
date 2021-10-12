@@ -1701,7 +1701,7 @@ namespace
     resolve_decl(ctx, ctx.stack.back(), declref, sema);
   }
 
-  //|///////////////////// scoped ///////////////////////////////////////////
+  //|///////////////////// declscoped ///////////////////////////////////////
   void typer_decl(TyperContext &ctx, DeclScopedDecl *scoped, Sema &sema)
   {
     for(auto &decl : scoped->decls)
@@ -1832,6 +1832,11 @@ namespace
   void typer_decl(TyperContext &ctx, FieldVarDecl *field, Sema &sema)
   {
     resolve_type(ctx, ctx.stack.back(), field->type, sema);
+
+    if (field->defult)
+    {
+      resolve_expr(ctx, ctx.stack.back(), field->defult, sema);
+    }
   }
 
   //|///////////////////// initialiser //////////////////////////////////////

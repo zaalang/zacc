@@ -463,7 +463,7 @@ namespace
     return result;
   }
 
-  //|///////////////////// scoped ///////////////////////////////////////////
+  //|///////////////////// declscoped ///////////////////////////////////////
   Decl *copier_decl(CopierContext &ctx, DeclScopedDecl *scoped)
   {
     auto result = new DeclScopedDecl(scoped->loc());
@@ -647,6 +647,9 @@ namespace
     result->flags = field->flags;
     result->name = copier_name(ctx, field->name);
     result->type = copier_type(ctx, field->type);
+
+    if (field->defult)
+      result->defult = copier_expr(ctx, field->defult);
 
     return result;
   }

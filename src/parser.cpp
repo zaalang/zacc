@@ -3115,6 +3115,11 @@ namespace
 
     field->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
+    if (ctx.try_consume_token(Token::equal))
+    {
+      field->defult = parse_expression(ctx, sema);
+    }
+
     ctx.try_consume_token(Token::semi) || ctx.try_consume_token(Token::comma);
 
     return field;

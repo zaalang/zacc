@@ -127,6 +127,7 @@ namespace
       case Type::Function:
       case Type::TypeArg:
       case Type::TypeRef:
+      case Type::Pack:
         name += "Da";
         break;
 

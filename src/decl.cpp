@@ -772,6 +772,11 @@ void FieldVarDecl::dump(int indent) const
   {
     type->dump(indent + 2);
   }
+
+  if (defult)
+  {
+    defult->dump(indent+ 2);
+  }
 }
 
 

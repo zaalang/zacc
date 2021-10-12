@@ -428,7 +428,7 @@ namespace
     semantic_expr(ctx, var->range, sema);
   }
 
-  //|///////////////////// semantic_decl ////////////////////////////////////
+  //|///////////////////// declref //////////////////////////////////////////
   void semantic_decl(SemanticContext &ctx, DeclRefDecl *declref, Sema &sema)
   {
     for(auto &arg : declref->args)
@@ -442,7 +442,7 @@ namespace
     }
   }
 
-  //|///////////////////// semantic_decl ////////////////////////////////////
+  //|///////////////////// declscoped ///////////////////////////////////////
   void semantic_decl(SemanticContext &ctx, DeclScopedDecl *scoped, Sema &sema)
   {
     for(auto &decl : scoped->decls)
@@ -918,6 +918,11 @@ namespace
   void semantic_decl(SemanticContext &ctx, FieldVarDecl *field, Sema &sema)
   {
     semantic_type(ctx, field->type, sema);
+
+    if (field->defult)
+    {
+      semantic_expr(ctx, field->defult, sema);
+    }
   }
 
   //|///////////////////// initialiser //////////////////////////////////////

@@ -527,6 +527,8 @@ class FieldVarDecl : public VarDecl
   public:
     FieldVarDecl(SourceLocation loc);
 
+    Expr *defult = nullptr;
+
     void dump(int indent) const override;
 };
 

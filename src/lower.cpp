@@ -7890,6 +7890,14 @@ namespace
         vector<Expr*> parms;
         map<Ident*, Expr*> namedparms;
 
+        if (is_tag_type(thistype))
+        {
+          auto fieldvar = decl_cast<FieldVarDecl>(type_cast<TagType>(thistype)->fieldvars[index]);
+
+          if (fieldvar->defult)
+            parms.push_back(fieldvar->defult);
+        }
+
         lower_new(ctx, result, address, type, parms, namedparms, decl->loc());
       }
     }
@@ -8006,6 +8014,19 @@ namespace
         map<Ident*, MIR::Fragment> namedparms;
 
         auto type = thistype->fields[index];
+
+        if (is_tag_type(thistype))
+        {
+          auto fieldvar = decl_cast<FieldVarDecl>(type_cast<TagType>(thistype)->fieldvars[index]);
+
+          if (fieldvar->defult)
+          {
+            parms.resize(1);
+
+            if (!lower_expr(ctx, parms[0], fieldvar->defult))
+              return;
+          }
+        }
 
         if (allocator)
           namedparms.emplace(Ident::kw_opt_allocator, allocator);

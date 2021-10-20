@@ -26,7 +26,7 @@ $ git clone https://github.com/zaalang/zrt
 $ git clone https://github.com/zaalang/std
 ```
 
-Further, requires LLVM 10.x/11.x. This can be installed from the os repositories or compiled from source. See https://llvm.org/docs/GettingStarted.html
+Further, requires LLVM 12.x. This can be installed from the os repositories or compiled from source. See https://llvm.org/docs/GettingStarted.html
 
 #### Building with GCC, MinGW64 or Clang.
 ```

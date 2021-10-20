@@ -23,8 +23,16 @@ std::ostream &operator <<(std::ostream &os, Ident const &ident)
       os << ident.sv();
       break;
 
+    case Ident::Index:
+      os << '#' << static_cast<IndexIdent const &>(ident).value();
+      break;
+
     case Ident::Hash:
-      os << '#' << static_cast<HashIdent const &>(ident).value()->sv();
+      os << ident.sv();
+      break;
+
+    case Ident::Dollar:
+      os << ident.sv();
       break;
 
     default:
@@ -68,9 +76,8 @@ HashIdent::HashIdent(Ident *value)
 //|--------------------------------------------------------------------------
 
 //|///////////////////// DollarIdent::Constructor ///////////////////////////
-DollarIdent::DollarIdent(string_view type, uintptr_t value)
+DollarIdent::DollarIdent(uintptr_t value)
   : Ident(Dollar),
-    m_type(type),
     m_value(value)
 {
 }
@@ -117,7 +124,7 @@ Ident *Ident::make_hash_ident(string_view value)
 }
 
 //|///////////////////// make_dollar_ident //////////////////////////////////
-Ident *Ident::make_dollar_ident(string_view type, uintptr_t value)
+Ident *Ident::make_dollar_ident(uintptr_t value)
 {
-  return new DollarIdent(type, value);
+  return new DollarIdent(value);
 }

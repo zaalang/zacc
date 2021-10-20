@@ -33,7 +33,7 @@ class Ident
     static Ident *from(std::string_view value);
     static Ident *make_index_ident(std::string_view value);
     static Ident *make_hash_ident(std::string_view value);
-    static Ident *make_dollar_ident(std::string_view type, uintptr_t value);
+    static Ident *make_dollar_ident(uintptr_t value);
 
     static inline Ident *kw_var = from("var");
     static inline Ident *kw_this = from("this");
@@ -43,6 +43,8 @@ class Ident
     static inline Ident *kw_kind = from("kind");
     static inline Ident *kw_allocator = from("allocator");
     static inline Ident *kw_opt_allocator = from("allocator?");
+    static inline Ident *kw_import = from("import");
+    static inline Ident *kw_using = from("using");
     static inline Ident *kw_main = from("main");
 
     static inline Ident *op_call = from("()");
@@ -52,6 +54,8 @@ class Ident
     static inline Ident *op_equality = from("==");
     static inline Ident *op_compare = from("<=>");
     static inline Ident *op_deref = from("*");
+    static inline Ident *op_run = from("#run");
+    static inline Ident *op_requires = from("#requires");
 
     static inline Ident *type_ptr = from("#ptr");
     static inline Ident *type_ref = from("#ref");
@@ -109,7 +113,7 @@ class HashIdent : public Ident
   public:
     HashIdent(Ident *value);
 
-    virtual std::string str() const override { return "#" + m_value->str(); }
+    virtual std::string str() const override { return "#"; }
     virtual std::string_view sv() const override { return "#"; }
 
     Ident *value() const { return m_value; }
@@ -122,17 +126,15 @@ class HashIdent : public Ident
 class DollarIdent : public Ident
 {
   public:
-    DollarIdent(std::string_view type, uintptr_t value);
+    DollarIdent(uintptr_t value);
 
-    virtual std::string str() const override { return m_type; }
-    virtual std::string_view sv() const override { return m_type; }
+    virtual std::string str() const override { return "$"; }
+    virtual std::string_view sv() const override { return "$"; }
 
-    std::string_view type() const { return m_type; }
     uintptr_t value() const { return m_value; }
 
   private:
 
-    std::string m_type;
     uintptr_t m_value;
 };
 

@@ -359,10 +359,22 @@ DeclScopedDecl *Sema::make_declref(vector<Decl*> const &decls, SourceLocation lo
   return ast->make_decl<DeclScopedDecl>(decls, loc);
 }
 
+//|///////////////////// make_typename //////////////////////////////////////
+TypeNameDecl *Sema::make_typename(Type *type, SourceLocation loc)
+{
+  return ast->make_decl<TypeNameDecl>(type, loc);
+}
+
+//|///////////////////// make_declname //////////////////////////////////////
+DeclNameDecl *Sema::make_declname(Ident *name, SourceLocation loc)
+{
+  return ast->make_decl<DeclNameDecl>(name, loc);
+}
+
 //|///////////////////// make_decltype //////////////////////////////////////
 TypeOfDecl *Sema::make_decltype(Expr *expr, SourceLocation loc)
 {
-  return ast->make_stmt<TypeOfDecl>(expr, loc);
+  return ast->make_decl<TypeOfDecl>(expr, loc);
 }
 
 //|///////////////////// make_typearg ///////////////////////////////////////
@@ -516,6 +528,12 @@ Expr *Sema::make_alignof_expression(Expr *expr, SourceLocation loc)
 Expr *Sema::make_offsetof_expression(Type *type, Ident *field, SourceLocation loc)
 {
   return ast->make_expr<OffsetofExpr>(type, field, loc);
+}
+
+//|///////////////////// make_typeid_expression /////////////////////////////
+Expr *Sema::make_typeid_expression(Decl *decl, SourceLocation loc)
+{
+  return ast->make_expr<TypeidExpr>(decl, loc);
 }
 
 //|///////////////////// make_cast_expression ///////////////////////////////

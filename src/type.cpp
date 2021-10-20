@@ -34,6 +34,7 @@ Ident *BuiltinType::builtintype_idents[] = {
   /* FloatLiteral,  */ Ident::from("#float"),
   /* StringLiteral, */ Ident::from("#string"),
   /* DeclidLiteral, */ Ident::from("#declid"),
+  /* TypeidLiteral, */ Ident::from("#typeid"),
   /* PtrLiteral,    */ Ident::from("null"),
 };
 
@@ -104,6 +105,12 @@ bool is_null_type(Type const *type)
 bool is_declid_type(Type const *type)
 {
   return type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->kind() == BuiltinType::DeclidLiteral;
+}
+
+//|///////////////////// is_typeid_type /////////////////////////////////////
+bool is_typeid_type(Type const *type)
+{
+  return type->klass() == Type::Builtin && type_cast<BuiltinType>(type)->kind() == BuiltinType::TypeidLiteral;
 }
 
 //|///////////////////// is_signed_type /////////////////////////////////////
@@ -522,10 +529,10 @@ BuiltinType::BuiltinType(Kind kind)
   flags |= Type::TrivialAssign;
   flags |= Type::TrivialDestroy;
 
-  if (!(m_kind == IntLiteral || m_kind == FloatLiteral || m_kind == DeclidLiteral))
+  if (!(m_kind == IntLiteral || m_kind == FloatLiteral || m_kind == DeclidLiteral || m_kind == TypeidLiteral))
     flags |= Type::Concrete;
 
-  if (!(m_kind == IntLiteral || m_kind == FloatLiteral || m_kind == PtrLiteral || m_kind == DeclidLiteral))
+  if (!(m_kind == IntLiteral || m_kind == FloatLiteral || m_kind == PtrLiteral || m_kind == DeclidLiteral || m_kind == TypeidLiteral))
     flags |= Type::Resolved;
 
   if (sizeof_type(this) == 0)
@@ -572,6 +579,7 @@ bool is_literal_valid(BuiltinType::Kind kind, Numeric::Int const &value)
 
     case BuiltinType::IntLiteral:
     case BuiltinType::DeclidLiteral:
+    case BuiltinType::TypeidLiteral:
       return true;
 
     default:
@@ -1301,6 +1309,7 @@ size_t sizeof_type(Type const *type)
 
         case BuiltinType::IntLiteral:
         case BuiltinType::DeclidLiteral:
+        case BuiltinType::TypeidLiteral:
           return sizeof(Numeric::Int);
 
         case BuiltinType::FloatLiteral:
@@ -1413,6 +1422,7 @@ size_t alignof_type(Type const *type)
 
         case BuiltinType::IntLiteral:
         case BuiltinType::DeclidLiteral:
+        case BuiltinType::TypeidLiteral:
           return alignof(Numeric::Int);
 
         case BuiltinType::FloatLiteral:

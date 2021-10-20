@@ -27,6 +27,8 @@ namespace
 
     vector<Expr*> const &substitutions;
 
+    unordered_map<Decl*, Decl*> typetable;
+
     CopierContext(vector<Expr*> const &substitutions, Diag &diag)
       : diag(diag), substitutions(substitutions)
     {
@@ -48,6 +50,9 @@ namespace
   //|///////////////////// copyier_name /////////////////////////////////////
   Ident *copier_name(CopierContext &ctx, Ident *name)
   {
+    if (!name)
+      return nullptr;
+
     if (name->kind() == Ident::Dollar)
     {
       auto expr = ctx.get(static_cast<DollarIdent*>(name)->value());
@@ -59,6 +64,32 @@ namespace
     }
 
     return name;
+  }
+
+  //|///////////////////// typeref //////////////////////////////////////////
+  Type *copier_type(CopierContext &ctx, TypeRefType *typeref)
+  {
+    assert(typeref->args.empty());
+
+    if (typeref->decl->kind() == Decl::DeclRef && decl_cast<DeclRefDecl>(typeref->decl)->argless)
+    {
+      auto name = decl_cast<DeclRefDecl>(typeref->decl)->name;
+
+      if (name->kind() == Ident::Dollar)
+      {
+        auto expr = ctx.get(static_cast<DollarIdent*>(name)->value());
+
+        if (expr->kind() == Expr::Cast && expr_cast<CastExpr>(expr)->type == Builtin::type(Builtin::Type_TypeidLiteral))
+        {
+          return reinterpret_cast<Type*>(expr_cast<IntLiteralExpr>(expr_cast<CastExpr>(expr)->expr)->value().value);
+        }
+      }
+    }
+
+    if (auto j = ctx.typetable.find(typeref->decl); j != ctx.typetable.end())
+      return new TypeRefType(j->second);
+
+    return new TypeRefType(copier_decl(ctx, typeref->decl));
   }
 
   //|///////////////////// copyier_type /////////////////////////////////////
@@ -91,18 +122,17 @@ namespace
         return new TupleType(fields);
       }
 
-      case Type::Tag: {
-        auto args = type_cast<TagType>(type)->args;
-        for(auto &[decl, type] : args)
-          type = copier_type(ctx, type);
-        return new TagType(type_cast<TagType>(type)->decl, args);
-      }
-
       case Type::TypeRef:
-        return new TypeRefType(copier_decl(ctx, type_cast<TypeRefType>(type)->decl));
+        return copier_type(ctx, type_cast<TypeRefType>(type));
+
+      case Type::TypeLit:
+        return new TypeLitType(copier_expr(ctx, type_cast<TypeLitType>(type)->value));
+
+      case Type::TypeArg:
+        return type;
 
       default:
-        break;
+        assert(false);
     }
 
     return type;
@@ -187,6 +217,12 @@ namespace
     return new OffsetofExpr(copier_type(ctx, call->type), copier_name(ctx, call->field), call->loc());
   }
 
+  //|///////////////////// typeid_expression ////////////////////////////////
+  Expr *copier_expr(CopierContext &ctx, TypeidExpr *call)
+  {
+    return new TypeidExpr(copier_decl(ctx, call->decl), call->loc());
+  }
+
   //|///////////////////// cast_expression //////////////////////////////////
   Expr *copier_expr(CopierContext &ctx, CastExpr *call)
   {
@@ -238,7 +274,9 @@ namespace
       auto name = decl_cast<DeclRefDecl>(declexpr->decl)->name;
 
       if (name->kind() == Ident::Dollar)
+      {
         return ctx.get(static_cast<DollarIdent*>(name)->value());
+      }
     }
 
     return new DeclRefExpr(copier_decl(ctx, declexpr->decl), declexpr->loc());
@@ -298,6 +336,9 @@ namespace
 
       case Expr::Offsetof:
         return copier_expr(ctx, expr_cast<OffsetofExpr>(expr));
+
+      case Expr::Typeid:
+        return copier_expr(ctx, expr_cast<TypeidExpr>(expr));
 
       case Expr::Cast:
         return copier_expr(ctx, expr_cast<CastExpr>(expr));
@@ -464,14 +505,116 @@ namespace
   }
 
   //|///////////////////// declscoped ///////////////////////////////////////
-  Decl *copier_decl(CopierContext &ctx, DeclScopedDecl *scoped)
+  Decl *copier_decl(CopierContext &ctx, DeclScopedDecl *declref)
   {
-    auto result = new DeclScopedDecl(scoped->loc());
+    auto result = new DeclScopedDecl(declref->loc());
 
-    result->flags = scoped->flags;
+    result->flags = declref->flags;
 
-    for(auto &decl : scoped->decls)
+    for(auto &decl : declref->decls)
       result->decls.push_back(copier_decl(ctx, decl));
+
+    return result;
+  }
+
+  //|///////////////////// typename /////////////////////////////////////////
+  Decl *copier_decl(CopierContext &ctx, TypeNameDecl *declref)
+  {
+    auto result = new TypeNameDecl(declref->loc());
+
+    result->flags = declref->flags;
+    result->type = copier_type(ctx, declref->type);
+
+    return result;
+  }
+
+  //|///////////////////// declname /////////////////////////////////////////
+  Decl *copier_decl(CopierContext &ctx, DeclNameDecl *declref)
+  {
+    auto result = new DeclRefDecl(declref->loc());
+
+    result->flags = declref->flags;
+
+    if (auto expr = ctx.get(static_cast<DollarIdent*>(declref->name)->value()))
+    {
+      if (expr->kind() == Expr::Cast && expr_cast<CastExpr>(expr)->type == Builtin::type(Builtin::Type_DeclidLiteral))
+      {
+        auto declid = reinterpret_cast<Decl*>(expr_cast<IntLiteralExpr>(expr_cast<CastExpr>(expr)->expr)->value().value);
+
+        switch (declid->kind())
+        {
+          case Decl::TranslationUnit:
+            result->name = Ident::op_scope;
+            break;
+
+          case Decl::Module:
+            result->name = decl_cast<ModuleDecl>(declid)->name;
+            break;
+
+          case Decl::Function:
+            result->name = decl_cast<FunctionDecl>(declid)->name;
+            break;
+
+          case Decl::Struct:
+          case Decl::Union:
+          case Decl::VTable:
+          case Decl::Concept:
+          case Decl::Enum:
+            result->name = decl_cast<TagDecl>(declid)->name;
+            break;
+
+          case Decl::VoidVar:
+          case Decl::StmtVar:
+          case Decl::ParmVar:
+          case Decl::FieldVar:
+          case Decl::RangeVar:
+          case Decl::ThisVar:
+          case Decl::ErrorVar:
+            result->name = decl_cast<VarDecl>(declid)->name;
+            break;
+
+          case Decl::EnumConstant:
+            result->name = decl_cast<EnumConstantDecl>(declid)->name;
+            break;
+
+          case Decl::TypeAlias:
+            result->name = decl_cast<TypeAliasDecl>(declid)->name;
+            break;
+
+          case Decl::TypeArg:
+            result->name = decl_cast<TypeArgDecl>(declid)->name;
+            break;
+
+          default:
+            break;
+        }
+      }
+
+      if (expr->kind() == Expr::StringLiteral)
+      {
+        result->name = Ident::from(expr_cast<StringLiteralExpr>(expr)->value());
+      }
+    }
+
+    for(auto &arg : declref->args)
+      result->args.push_back(copier_type(ctx, arg));
+
+    for(auto &[name, arg] : declref->namedargs)
+      result->namedargs.emplace(name, copier_type(ctx, arg));
+
+    result->argless = declref->argless;
+
+    return result;
+  }
+
+  //|///////////////////// typeof ///////////////////////////////////////////
+  Decl *copier_decl(CopierContext &ctx, TypeOfDecl *typedecl)
+  {
+    auto result = new TypeOfDecl(typedecl->loc());
+
+    result->flags = typedecl->flags;
+
+    result->expr = copier_expr(ctx, typedecl->expr);
 
     return result;
   }
@@ -484,7 +627,7 @@ namespace
     result->flags = typealias->flags;
     result->name = copier_name(ctx, typealias->name);
 
-    ctx.stack.emplace_back(typealias);
+    ctx.stack.emplace_back(result);
 
     for(auto &arg : typealias->args)
       result->args.push_back(copier_decl(ctx, arg));
@@ -499,6 +642,8 @@ namespace
   //|///////////////////// tagdecl //////////////////////////////////////////
   void copier_decl(CopierContext &ctx, TagDecl *result, TagDecl *tagdecl)
   {
+    ctx.typetable.emplace(tagdecl, result);
+
     result->flags = tagdecl->flags;
     result->name = copier_name(ctx, tagdecl->name);
 
@@ -517,7 +662,7 @@ namespace
   {
     auto result = new StructDecl(strct->loc());
 
-    ctx.stack.emplace_back(strct);
+    ctx.stack.emplace_back(result);
 
     copier_decl(ctx, result, decl_cast<TagDecl>(strct));
 
@@ -531,7 +676,7 @@ namespace
   {
     auto result = new UnionDecl(unnion->loc());
 
-    ctx.stack.emplace_back(unnion);
+    ctx.stack.emplace_back(result);
 
     copier_decl(ctx, result, decl_cast<TagDecl>(unnion));
 
@@ -545,7 +690,7 @@ namespace
   {
     auto result = new VTableDecl(vtable->loc());
 
-    ctx.stack.emplace_back(vtable);
+    ctx.stack.emplace_back(result);
 
     copier_decl(ctx, result, decl_cast<TagDecl>(vtable));
 
@@ -559,7 +704,7 @@ namespace
   {
     auto result = new ConceptDecl(koncept->loc());
 
-    ctx.stack.emplace_back(koncept);
+    ctx.stack.emplace_back(result);
 
     copier_decl(ctx, result, decl_cast<TagDecl>(koncept));
 
@@ -575,7 +720,7 @@ namespace
 
     result->flags = reqires->flags;
 
-    ctx.stack.emplace_back(reqires);
+    ctx.stack.emplace_back(result);
 
     result->fn = copier_decl(ctx, reqires->fn);
 
@@ -592,7 +737,7 @@ namespace
   {
     auto result = new LambdaDecl(lambda->loc());
 
-    ctx.stack.emplace_back(lambda);
+    ctx.stack.emplace_back(result);
 
     copier_decl(ctx, result, decl_cast<TagDecl>(lambda));
 
@@ -613,7 +758,7 @@ namespace
   {
     auto result = new EnumDecl(enumm->loc());
 
-    ctx.stack.emplace_back(enumm);
+    ctx.stack.emplace_back(result);
 
     copier_decl(ctx, result, decl_cast<TagDecl>(enumm));
 
@@ -684,7 +829,7 @@ namespace
     if (casse->parm)
       result->parm = copier_decl(ctx, casse->parm);
 
-    ctx.stack.emplace_back(casse);
+    ctx.stack.emplace_back(result);
 
     if (casse->body)
       result->body = copier_stmt(ctx, casse->body);
@@ -703,7 +848,7 @@ namespace
     result->decl = imprt->decl;
     result->alias = imprt->alias;
 
-    ctx.stack.emplace_back(imprt);
+    ctx.stack.emplace_back(result);
 
     for(auto &usein : imprt->usings)
       result->usings.push_back(copier_decl(ctx, usein));
@@ -731,8 +876,9 @@ namespace
 
     result->flags = fn->flags;
     result->name = copier_name(ctx, fn->name);
+    result->builtin = fn->builtin;
 
-    ctx.stack.emplace_back(fn);
+    ctx.stack.emplace_back(result);
 
     for(auto &arg : fn->args)
       result->args.push_back(copier_decl(ctx, arg));
@@ -838,6 +984,18 @@ namespace
 
       case Decl::DeclScoped:
         decl = copier_decl(ctx, decl_cast<DeclScopedDecl>(decl));
+        break;
+
+      case Decl::TypeName:
+        decl = copier_decl(ctx, decl_cast<TypeNameDecl>(decl));
+        break;
+
+      case Decl::DeclName:
+        decl = copier_decl(ctx, decl_cast<DeclNameDecl>(decl));
+        break;
+
+      case Decl::TypeOf:
+        decl = copier_decl(ctx, decl_cast<TypeOfDecl>(decl));
         break;
 
       case Decl::TypeAlias:
@@ -955,7 +1113,7 @@ namespace
 
     result->flags = ifs->flags;
 
-    ctx.stack.emplace_back(ifs);
+    ctx.stack.emplace_back(result);
 
     for(auto &init : ifs->inits)
       result->inits.push_back(copier_stmt(ctx, init));
@@ -980,7 +1138,7 @@ namespace
 
     result->flags = fors->flags;
 
-    ctx.stack.emplace_back(fors);
+    ctx.stack.emplace_back(result);
 
     for(auto &init : fors->inits)
       result->inits.push_back(copier_stmt(ctx, init));
@@ -1005,7 +1163,7 @@ namespace
 
     result->flags = rofs->flags;
 
-    ctx.stack.emplace_back(rofs);
+    ctx.stack.emplace_back(result);
 
     for(auto &init : rofs->inits)
       result->inits.push_back(copier_stmt(ctx, init));
@@ -1028,7 +1186,7 @@ namespace
   {
     auto result = new WhileStmt(wile->loc());
 
-    ctx.stack.emplace_back(wile);
+    ctx.stack.emplace_back(result);
 
     for(auto &init : wile->inits)
       result->inits.push_back(copier_stmt(ctx, init));
@@ -1046,7 +1204,7 @@ namespace
   {
     auto result = new SwitchStmt(swtch->loc());
 
-    ctx.stack.emplace_back(swtch);
+    ctx.stack.emplace_back(result);
 
     for(auto &init : swtch->inits)
       result->inits.push_back(copier_stmt(ctx, init));
@@ -1066,7 +1224,7 @@ namespace
   {
     auto result = new TryStmt(trys->loc());
 
-    ctx.stack.emplace_back(trys);
+    ctx.stack.emplace_back(result);
 
     result->body = copier_stmt(ctx, trys->body);
     result->errorvar = copier_decl(ctx, trys->errorvar);
@@ -1115,7 +1273,7 @@ namespace
   {
     auto result = new CompoundStmt(compound->loc());
 
-    ctx.stack.emplace_back(compound);
+    ctx.stack.emplace_back(result);
 
     for(auto &stmt : compound->stmts)
       result->stmts.push_back(copier_stmt(ctx, stmt));

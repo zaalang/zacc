@@ -49,6 +49,7 @@ namespace Builtin
     Type_FloatLiteral,
     Type_StringLiteral,
     Type_DeclidLiteral,
+    Type_TypeidLiteral,
     Type_PtrLiteral,
 
     Default_Constructor,
@@ -232,8 +233,9 @@ namespace Builtin
     decl_parent,
     decl_children,
     type_decl,
-    type_fields,
-    type_enumerators,
+    type_name,
+    type_children,
+    type_query,
 
     __argc__,
     __argv__,

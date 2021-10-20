@@ -329,6 +329,7 @@ void find_decls(Scope const &scope, Ident *name, long flags, vector<Decl*> &resu
       case Decl::DeclRef:
       case Decl::DeclScoped:
       case Decl::Requires:
+      case Decl::Run:
         break;
 
       default:

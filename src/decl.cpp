@@ -89,6 +89,14 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
       }
       break;
 
+    case Decl::TypeName:
+      os << "typename";
+      break;
+
+    case Decl::DeclName:
+      os << "declname";
+      break;
+
     case Decl::TypeOf:
       os << "typeof";
       break;
@@ -201,7 +209,8 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
         if (arg.flags & TypeArgDecl::Pack)
           os << "...";
 
-        os << *arg.name;
+        if (arg.name)
+          os << *arg.name;
       }
       break;
 
@@ -389,6 +398,50 @@ void DeclScopedDecl::dump(int indent) const
 }
 
 
+//|--------------------- TypeNameDecl ---------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// TypeNameDecl::Constructor //////////////////////////
+TypeNameDecl::TypeNameDecl(SourceLocation loc)
+  : Decl(TypeName, loc)
+{
+}
+
+TypeNameDecl::TypeNameDecl(Type *type, SourceLocation loc)
+  : Decl(TypeName, loc),
+    type(type)
+{
+}
+
+//|///////////////////// TypeNameDecl::dump /////////////////////////////////
+void TypeNameDecl::dump(int indent) const
+{
+  cout << spaces(indent) << "TypeNameDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
+}
+
+
+//|--------------------- DeclNameDecl ---------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// DeclNameDecl::Constructor //////////////////////////
+DeclNameDecl::DeclNameDecl(SourceLocation loc)
+  : Decl(DeclName, loc)
+{
+}
+
+DeclNameDecl::DeclNameDecl(Ident *name, SourceLocation loc)
+  : Decl(DeclName, loc),
+    name(name)
+{
+}
+
+//|///////////////////// DeclNameDecl::dump /////////////////////////////////
+void DeclNameDecl::dump(int indent) const
+{
+  cout << spaces(indent) << "DeclNameDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
+}
+
+
 //|--------------------- DeclRefDecl ----------------------------------------
 //|--------------------------------------------------------------------------
 
@@ -467,6 +520,7 @@ UsingDecl::UsingDecl(Decl *decl, SourceLocation loc)
   : Decl(Using, loc),
     decl(decl)
 {
+  flags |= UsingDecl::Resolved;
 }
 
 //|///////////////////// UsingDecl::dump ////////////////////////////////////

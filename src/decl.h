@@ -38,6 +38,8 @@ class Decl
       Function,
       DeclScoped,
       DeclRef,
+      TypeName,
+      DeclName,
       TypeOf,
       Import,
       Using,
@@ -228,6 +230,39 @@ class DeclRefDecl : public Decl
   public:
     DeclRefDecl(SourceLocation loc);
     DeclRefDecl(Ident *name, SourceLocation loc);
+
+    Ident *name = nullptr;
+    std::vector<Type*> args;
+    std::map<Ident*, Type*> namedargs;
+    bool argless = true;
+
+    void dump(int indent) const override;
+};
+
+
+//---------------------- TypeNameDecl ---------------------------------------
+//---------------------------------------------------------------------------
+
+class TypeNameDecl : public Decl
+{
+  public:
+    TypeNameDecl(SourceLocation loc);
+    TypeNameDecl(Type *type, SourceLocation loc);
+
+    Type *type = nullptr;
+
+    void dump(int indent) const override;
+};
+
+
+//---------------------- DeclNameDecl ---------------------------------------
+//---------------------------------------------------------------------------
+
+class DeclNameDecl : public Decl
+{
+  public:
+    DeclNameDecl(SourceLocation loc);
+    DeclNameDecl(Ident *name, SourceLocation loc);
 
     Ident *name = nullptr;
     std::vector<Type*> args;
@@ -749,6 +784,8 @@ template<> inline auto decl_cast<ModuleDecl>(Decl *decl) { assert(decl && decl->
 template<> inline auto decl_cast<FunctionDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Function); return static_cast<FunctionDecl*>(decl); };
 template<> inline auto decl_cast<DeclScopedDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::DeclScoped); return static_cast<DeclScopedDecl*>(decl); };
 template<> inline auto decl_cast<DeclRefDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::DeclRef); return static_cast<DeclRefDecl*>(decl); };
+template<> inline auto decl_cast<TypeNameDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::TypeName); return static_cast<TypeNameDecl*>(decl); };
+template<> inline auto decl_cast<DeclNameDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::DeclName); return static_cast<DeclNameDecl*>(decl); };
 template<> inline auto decl_cast<TypeOfDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::TypeOf); return static_cast<TypeOfDecl*>(decl); };
 template<> inline auto decl_cast<ImportDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Import); return static_cast<ImportDecl*>(decl); };
 template<> inline auto decl_cast<UsingDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Using); return static_cast<UsingDecl*>(decl); };

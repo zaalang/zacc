@@ -45,9 +45,11 @@ namespace Builtin
     static inline BuiltinType floatliteraltype = BuiltinType(BuiltinType::FloatLiteral);
     static inline BuiltinType stringliteraltype = BuiltinType(BuiltinType::StringLiteral);
     static inline BuiltinType declidliteraltype = BuiltinType(BuiltinType::DeclidLiteral);
+    static inline BuiltinType typeidliteraltype = BuiltinType(BuiltinType::TypeidLiteral);
     static inline BuiltinType ptrliteraltype = BuiltinType(BuiltinType::PtrLiteral);
 
     static inline Type *declidspantype = new ArrayType(new TupleType(vector<Type*>{ new PointerType(&declidliteraltype), new PointerType(&declidliteraltype) }), new TypeLitType(new IntLiteralExpr(Numeric::int_literal(1), {})));
+    static inline Type *typeidspantype = new ArrayType(new TupleType(vector<Type*>{ new PointerType(&typeidliteraltype), new PointerType(&typeidliteraltype) }), new TypeLitType(new IntLiteralExpr(Numeric::int_literal(1), {})));
 
     Decl *make_typealias(string_view name, Type *type, long flags, int line)
     {
@@ -108,10 +110,12 @@ namespace Builtin
         if (name == "#int") return &intliteraltype;
         if (name == "#float") return &floatliteraltype;
         if (name == "#string") return &stringliteraltype;
-        if (name == "##string") return &stringliteraltype;
         if (name == "#declid") return &declidliteraltype;
         if (name == "#declspan") return declidspantype;
+        if (name == "#typeid") return &typeidliteraltype;
+        if (name == "#typespan") return typeidspantype;
         if (name == "null") return &ptrliteraltype;
+        if (name == "var") return new TypeArgType(new TypeArgDecl(Ident::kw_var, {}));
         if (auto j = typeargs.find(name); j != typeargs.end()) return j->second;
         throw logic_error("invalid type");
       };
@@ -406,6 +410,7 @@ namespace Builtin
     make_function(Type_FloatLiteral, "pub const fn #float(#float = 0.0) -> #float", __LINE__);
     make_function(Type_StringLiteral, "pub const fn #string(#string = \"\") -> #string", __LINE__);
     make_function(Type_DeclidLiteral, "pub const fn #declid(#declid = cast(0)) -> #declid", __LINE__);
+    make_function(Type_TypeidLiteral, "pub const fn #typeid(#typeid = cast(0)) -> #typeid", __LINE__);
     make_function(Type_PtrLiteral, "pub const fn null<T = null>(null = null) -> T", __LINE__);
 
     make_function(Type_Ptr, "pub fn #ptr<T>(T = null) -> T", __LINE__);
@@ -493,14 +498,14 @@ namespace Builtin
     make_function(ArrayBegin, "pub fn begin<T, N>(T[N] mut &) -> T mut *", __LINE__);
     make_function(ArrayEnd, "pub fn end<T, N>(T[N]&) -> T*", __LINE__);
     make_function(ArrayEnd, "pub fn end<T, N>(T[N] mut &) -> T mut *", __LINE__);
-    make_function(ArrayEq, "pub fn ==<T, N>(T[N]&, T[N]&) -> bool", FunctionDecl::Defaulted, __LINE__);
-    make_function(ArrayCmp, "pub fn <=><T, N>(T[N]&, T[N]&) -> int", FunctionDecl::Defaulted, __LINE__);
+    make_function(ArrayEq, "pub const fn ==<T, N>(T[N]&, T[N]&) -> bool", FunctionDecl::Defaulted, __LINE__);
+    make_function(ArrayCmp, "pub const fn <=><T, N>(T[N]&, T[N]&) -> int", FunctionDecl::Defaulted, __LINE__);
 
     make_function(TupleLen, "pub const fn len<T>(T&) -> usize", __LINE__);
-    make_function(TupleEq, "pub fn ==<T>(T&, T&) -> bool", FunctionDecl::Defaulted, __LINE__);
-    make_function(TupleEqEx, "pub fn ==<T, U>(T&, U&) -> bool", FunctionDecl::Defaulted, __LINE__);
-    make_function(TupleCmp, "pub fn <=><T>(T&, T&) -> int", FunctionDecl::Defaulted, __LINE__);
-    make_function(TupleCmpEx, "pub fn <=><T, U>(T&, U&) -> int", FunctionDecl::Defaulted, __LINE__);
+    make_function(TupleEq, "pub const fn ==<T>(T&, T&) -> bool", FunctionDecl::Defaulted, __LINE__);
+    make_function(TupleEqEx, "pub const fn ==<T, U>(T&, U&) -> bool", FunctionDecl::Defaulted, __LINE__);
+    make_function(TupleCmp, "pub const fn <=><T>(T&, T&) -> int", FunctionDecl::Defaulted, __LINE__);
+    make_function(TupleCmpEx, "pub const fn <=><T, U>(T&, U&) -> int", FunctionDecl::Defaulted, __LINE__);
 
     make_function(StringLen, "pub const fn len(#string) -> usize", __LINE__);
     make_function(StringData, "pub fn data(#string) -> u8*", __LINE__);
@@ -586,14 +591,15 @@ namespace Builtin
     make_function(relax, "pub fn __relax() -> void", __LINE__);
     make_function(inline_asm, "pub fn __asm<V>(##string, ##string, V...) -> uintptr", __LINE__);
 
-    make_function(decl_kind, "pub const fn __decl_kind(#declid) -> u64", __LINE__);
+    make_function(decl_kind, "pub const fn __decl_kind(#declid) -> #int", __LINE__);
     make_function(decl_name, "pub const fn __decl_name(#declid) -> #string", __LINE__);
-    make_function(decl_flags, "pub const fn __decl_flags(#declid) -> u64", __LINE__);
+    make_function(decl_flags, "pub const fn __decl_flags(#declid) -> #int", __LINE__);
     make_function(decl_parent, "pub const fn __decl_parent(#declid) -> #declid", __LINE__);
-    make_function(decl_children, "pub const fn __decl_children(#declid, u64 = 0) -> #declspan", __LINE__);
-    make_function(type_decl, "pub const fn __type_decl<T>() -> #declid", __LINE__);
-    make_function(type_fields, "pub const fn __type_fields<T>() -> #declspan", __LINE__);
-    make_function(type_enumerators, "pub const fn __type_enumerators<T>() -> #declspan", __LINE__);
+    make_function(decl_children, "pub const fn __decl_children(#declid, #int = 0) -> #declspan", __LINE__);
+    make_function(type_decl, "pub const fn #declid(#typeid) -> #declid", __LINE__);
+    make_function(type_name, "pub const fn __type_name(#typeid) -> #string", __LINE__);
+    make_function(type_children, "pub const fn __type_children(#typeid, #int = 0) -> #declspan", __LINE__);
+    make_function(type_query, "pub const fn __type_query(#int, var ...) -> #typeid", __LINE__);
 
     make_function(__argc__, "pub fn __argc__() -> int", __LINE__);
     make_function(__argv__, "pub fn __argv__() -> u8**", __LINE__);
@@ -670,6 +676,9 @@ namespace Builtin
       case Builtin::Type_DeclidLiteral:
         return &BuiltinModule::declidliteraltype;
 
+      case Builtin::Type_TypeidLiteral:
+        return &BuiltinModule::typeidliteraltype;
+
       case Builtin::Type_PtrLiteral:
         return &BuiltinModule::ptrliteraltype;
 
@@ -714,6 +723,7 @@ namespace Builtin
     auto is_int_literal = [](Type *type) { return type == &BuiltinModule::intliteraltype; };
     auto is_float_literal = [](Type *type) { return type == &BuiltinModule::floatliteraltype; };
     auto is_declid_literal = [](Type *type) { return type == &BuiltinModule::declidliteraltype; };
+    auto is_typeid_literal = [](Type *type) { return type == &BuiltinModule::typeidliteraltype; };
     auto is_ptr_literal = [](Type *type) { return type == &BuiltinModule::ptrliteraltype; };
 
     auto is_int = [&](Type *type) { return is_int_type(type) || is_int_literal(type); };
@@ -784,7 +794,7 @@ namespace Builtin
 
       case Builtin::Bool:
         if (auto T = find_type(fn->args[0]); T != typeargs.end())
-          return is_bool(T->second) || is_pointer(T->second) || is_reference(T->second) || is_ptr_literal(T->second) || is_int_literal(T->second) || is_declid_literal(T->second);
+          return is_bool(T->second) || is_pointer(T->second) || is_reference(T->second) || is_ptr_literal(T->second) || is_int_literal(T->second) || is_declid_literal(T->second) || is_typeid_literal(T->second);
         break;
 
       case Builtin::Plus:
@@ -892,11 +902,6 @@ namespace Builtin
         if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_tuple_type(T->second);
         break;
-
-      case Builtin::type_decl:
-      case Builtin::type_fields:
-      case Builtin::type_enumerators:
-        return typeargs.size() == 1;
 
       default:
         return true;

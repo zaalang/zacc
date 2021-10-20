@@ -172,6 +172,7 @@ namespace
         break;
 
       case Decl::TypeArg:
+      case Decl::Run:
         break;
 
       default:
@@ -357,7 +358,7 @@ namespace
     }
 
     results.erase(remove_if(results.begin(), results.end(), [&](auto &decl) {
-      return decl->kind() == Decl::If || decl->kind() == Decl::Run || decl->kind() == Decl::Using;
+      return decl->kind() == Decl::If || decl->kind() == Decl::Using;
     }), results.end());
   }
 
@@ -637,11 +638,31 @@ namespace
   }
 
   //|///////////////////// resolve_decl /////////////////////////////////////
-  void resolve_decl(TyperContext &ctx, Scope const &scope, DeclScopedDecl *scoped, Sema &sema)
+  void resolve_decl(TyperContext &ctx, Scope const &scope, DeclScopedDecl *declref, Sema &sema)
   {
-    for(auto &decl : scoped->decls)
+    for(auto &decl : declref->decls)
     {
       resolve_decl(ctx, scope, decl, sema);
+    }
+  }
+
+  //|///////////////////// resolve_typename /////////////////////////////////
+  void resolve_decl(TyperContext &ctx, Scope const &scope, TypeNameDecl *declref, Sema &sema)
+  {
+    resolve_type(ctx, scope, declref->type, sema);
+  }
+
+  //|///////////////////// resolve_declname /////////////////////////////////
+  void resolve_decl(TyperContext &ctx, Scope const &scope, DeclNameDecl *declref, Sema &sema)
+  {
+    for(auto &arg : declref->args)
+    {
+      resolve_type(ctx, scope, arg, sema);
+    }
+
+    for(auto &[name, arg] : declref->namedargs)
+    {
+      resolve_type(ctx, scope, arg, sema);
     }
   }
 
@@ -688,7 +709,7 @@ namespace
 
       if (decls.size() == 0)
       {
-        ctx.diag.error("no such declaration found", usein, usein->loc());
+        ctx.diag.error("no such declaration", usein, usein->loc());
         return;
       }
 
@@ -747,7 +768,7 @@ namespace
 
         if (decls.size() != 1)
         {
-          ctx.diag.error("no such scope found", usein, declref->loc());
+          ctx.diag.error("no such scope", usein, declref->loc());
           return;
         }
 
@@ -771,7 +792,7 @@ namespace
 
         if (decls.size() != 1)
         {
-          ctx.diag.error("no such scope found", usein, declref->loc());
+          ctx.diag.error("no such scope", usein, declref->loc());
           return;
         }
 
@@ -797,7 +818,7 @@ namespace
 
         if (decls.size() == 0)
         {
-          ctx.diag.error("no such declaration found", usein, usein->loc());
+          ctx.diag.error("no such declaration", usein, usein->loc());
           return;
         }
 
@@ -886,7 +907,7 @@ namespace
 
     if (decls.empty())
     {
-      ctx.diag.error("no such field found", init, init->loc());
+      ctx.diag.error("no such field", init, init->loc());
       return;
     }
   }
@@ -902,6 +923,14 @@ namespace
 
       case Decl::DeclScoped:
         resolve_decl(ctx, scope, decl_cast<DeclScopedDecl>(decl), sema);
+        break;
+
+      case Decl::TypeName:
+        resolve_decl(ctx, scope, decl_cast<TypeNameDecl>(decl), sema);
+        break;
+
+      case Decl::DeclName:
+        resolve_decl(ctx, scope, decl_cast<DeclNameDecl>(decl), sema);
         break;
 
       case Decl::TypeOf:
@@ -1126,27 +1155,31 @@ namespace
       decls.clear();
     }
 
-    if (decls.empty())
+    if (any_of(decls.begin(), decls.end(), [](auto k) { return k->kind() == Decl::Run; }))
     {
-      ctx.diag.error("no such type found", scope, declref->loc());
-      ctx.diag << "  type: '" << *declref << "'\n";
+      decls.erase(remove_if(decls.begin(), decls.end(), [&](auto &decl) { return decl->kind() == Decl::Run; }), decls.end());
+
+      if (decls.empty())
+        return;
+    }
+
+    if (any_of(decls.begin(), decls.end(), [](auto k) { return k->flags & Decl::Conditional; }))
+      return;
+
+    if (decls.size() != 1)
+    {
+      if (decls.empty())
+        ctx.diag.error("no such type", scope, declref->loc());
+      else
+        ctx.diag.error("ambiguous type reference", scope, declref->loc());
+
+      for(auto &decl : decls)
+        ctx.diag << "  type: '" << *decl << "'\n";
+
       return;
     }
 
-    if (!any_of(decls.begin(), decls.end(), [](auto k) { return k->flags & Decl::Conditional; }))
-    {
-      if (decls.size() != 1)
-      {
-        ctx.diag.error("ambiguous reference", scope, declref->loc());
-
-        for(auto &decl : decls)
-          ctx.diag << "  type: '" << *decl << "'\n";
-
-        return;
-      }
-
-      resolve_type(ctx, parent_scope(decls[0]), decls[0], declref, typeref, dst, sema);
-    }
+    resolve_type(ctx, parent_scope(decls[0]), decls[0], declref, typeref, dst, sema);
   }
 
   //|///////////////////// resolve_typeref //////////////////////////////////
@@ -1162,6 +1195,9 @@ namespace
     if (scoped->decls[0]->kind() == Decl::TypeOf)
       return;
 
+    if (scoped->decls[0]->kind() == Decl::TypeName)
+      return;
+
     if (auto declref = decl_cast<DeclRefDecl>(scoped->decls[0]); declref->name != Ident::op_scope)
     {
       for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
@@ -1170,6 +1206,9 @@ namespace
 
         if (decls.empty())
           continue;
+
+        if (decls[0]->kind() == Decl::Run)
+          return;
 
         if (decls[0]->kind() == Decl::TypeArg)
           return;
@@ -1192,7 +1231,7 @@ namespace
 
       if (decls.size() != 1)
       {
-        ctx.diag.error("no such scope found", scope, declref->loc());
+        ctx.diag.error("no such scope", scope, declref->loc());
         return;
       }
 
@@ -1208,9 +1247,20 @@ namespace
 
       find_decls(ctx, declscope, declref->name, QueryFlags::Modules | QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Usings | queryflags, decls, sema);
 
+      if (any_of(decls.begin(), decls.end(), [](auto k) { return k->kind() == Decl::Run; }))
+      {
+        decls.erase(remove_if(decls.begin(), decls.end(), [&](auto &decl) { return decl->kind() == Decl::Run; }), decls.end());
+
+        if (decls.empty())
+          return;
+      }
+
+      if (any_of(decls.begin(), decls.end(), [](auto k) { return k->flags & Decl::Conditional; }))
+        return;
+
       if (decls.size() != 1)
       {
-        ctx.diag.error("no such scope found", scope, declref->loc());
+        ctx.diag.error("no such scope", scope, declref->loc());
         return;
       }
 
@@ -1247,27 +1297,31 @@ namespace
         decls.clear();
       }
 
-      if (decls.empty())
+      if (any_of(decls.begin(), decls.end(), [](auto k) { return k->kind() == Decl::Run; }))
       {
-        ctx.diag.error("no such type found", scope, declref->loc());
-        ctx.diag << "  type: '" << *declref << "'\n";
+        decls.erase(remove_if(decls.begin(), decls.end(), [&](auto &decl) { return decl->kind() == Decl::Run; }), decls.end());
+
+        if (decls.empty())
+          return;
+      }
+
+      if (any_of(decls.begin(), decls.end(), [](auto k) { return k->flags & Decl::Conditional; }))
+        return;
+
+      if (decls.size() != 1)
+      {
+        if (decls.empty())
+          ctx.diag.error("no such type", scope, declref->loc());
+        else
+          ctx.diag.error("ambiguous type reference", scope, declref->loc());
+
+        for(auto &decl : decls)
+          ctx.diag << "  type: '" << *decl << "'\n";
+
         return;
       }
 
-      if (!any_of(decls.begin(), decls.end(), [](auto k) { return k->flags & Decl::Conditional; }))
-      {
-        if (decls.size() != 1)
-        {
-          ctx.diag.error("ambiguous reference", scope, declref->loc());
-
-          for(auto &decl : decls)
-            ctx.diag << "  type: '" << *decl << "'\n";
-
-          return;
-        }
-
-        resolve_type(ctx, declscope, decls[0], declref, typeref, dst, sema);
-      }
+      resolve_type(ctx, declscope, decls[0], declref, typeref, dst, sema);
     }
   }
 
@@ -1482,6 +1536,12 @@ namespace
     resolve_type(ctx, scope, call->type, sema);
   }
 
+  //|///////////////////// typeid_expression ////////////////////////////////
+  void resolve_expr(TyperContext &ctx, Scope const &scope, TypeidExpr *call, Sema &sema)
+  {
+    resolve_decl(ctx, scope, call->decl, sema);
+  }
+
   //|///////////////////// cast_expression //////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, CastExpr *call, Sema &sema)
   {
@@ -1605,6 +1665,10 @@ namespace
 
       case Expr::Offsetof:
         resolve_expr(ctx, scope, expr_cast<OffsetofExpr>(expr), sema);
+        break;
+
+      case Expr::Typeid:
+        resolve_expr(ctx, scope, expr_cast<TypeidExpr>(expr), sema);
         break;
 
       case Expr::Cast:

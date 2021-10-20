@@ -256,8 +256,16 @@ namespace
         break;
 
       case '[':
-        ptr += 1;
-        type = Token::l_square;
+        if (ptr[1] == ':')
+        {
+          ptr += 2;
+          type = Token::l_squarecolon;
+        }
+        else
+        {
+          ptr += 1;
+          type = Token::l_square;
+        }
         break;
 
       case ']':
@@ -521,6 +529,11 @@ namespace
         {
           ptr += 2;
           type = Token::coloncolon;
+        }
+        else if (ptr[1] == ']')
+        {
+          ptr += 2;
+          type = Token::r_squarecolon;
         }
         else
         {
@@ -880,6 +893,10 @@ void dump_token(Token const &tok)
       cout << "unknown\n";
       break;
 
+    case Token::hash:
+      cout << "hash '" << tok.text << "' Loc=<" << tok.loc << ">\n";
+      break;
+
     case Token::question:
       cout << "question '" << tok.text << "' Loc=<" << tok.loc << ">\n";
       break;
@@ -1078,6 +1095,18 @@ void dump_token(Token const &tok)
 
     case Token::equal:
       cout << "equal '" << tok.text << "' Loc=<" << tok.loc << ">\n";
+      break;
+
+    case Token::dollar:
+      cout << "dollar '" << tok.text << "' Loc=<" << tok.loc << ">\n";
+      break;
+
+    case Token::l_squarecolon:
+      cout << "l_squarecolon '" << tok.text << "' Loc=<" << tok.loc << ">\n";
+      break;
+
+    case Token::r_squarecolon:
+      cout << "r_squarecolon '" << tok.text << "' Loc=<" << tok.loc << ">\n";
       break;
 
     case Token::comma:

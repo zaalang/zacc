@@ -90,6 +90,7 @@ class BuiltinType : public Type
       FloatLiteral,
       StringLiteral,
       DeclidLiteral,
+      TypeidLiteral,
       PtrLiteral,
     };
 
@@ -300,8 +301,6 @@ class ConstantType : public Type
   public:
     ConstantType(Decl *decl, Type *type);
 
-    std::string value() const;
-
     Decl *decl;
     Type *type;
     Type *expr = nullptr;
@@ -403,6 +402,7 @@ bool is_string_type(Type const *type);
 bool is_bool_type(Type const *type);
 bool is_null_type(Type const *type);
 bool is_declid_type(Type const *type);
+bool is_typeid_type(Type const *type);
 bool is_signed_type(Type const *type);
 
 bool is_const_type(Type const *type);

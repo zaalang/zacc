@@ -221,6 +221,12 @@ namespace
     semantic_type(ctx, call->type, sema);
   }
 
+  //|///////////////////// typeid_expression ////////////////////////////////
+  void semantic_expr(SemanticContext &ctx, TypeidExpr *call, Sema &sema)
+  {
+    semantic_decl(ctx, call->decl, sema);
+  }
+
   //|///////////////////// cast_expression //////////////////////////////////
   void semantic_expr(SemanticContext &ctx, CastExpr *cast, Sema &sema)
   {
@@ -345,6 +351,10 @@ namespace
         semantic_expr(ctx, expr_cast<OffsetofExpr>(expr), sema);
         break;
 
+      case Expr::Typeid:
+        semantic_expr(ctx, expr_cast<TypeidExpr>(expr), sema);
+        break;
+
       case Expr::Cast:
         semantic_expr(ctx, expr_cast<CastExpr>(expr), sema);
         break;
@@ -443,11 +453,31 @@ namespace
   }
 
   //|///////////////////// declscoped ///////////////////////////////////////
-  void semantic_decl(SemanticContext &ctx, DeclScopedDecl *scoped, Sema &sema)
+  void semantic_decl(SemanticContext &ctx, DeclScopedDecl *declref, Sema &sema)
   {
-    for(auto &decl : scoped->decls)
+    for(auto &decl : declref->decls)
     {
       semantic_decl(ctx, decl, sema);
+    }
+  }
+
+  //|///////////////////// typename /////////////////////////////////////////
+  void semantic_decl(SemanticContext &ctx, TypeNameDecl *declref, Sema &sema)
+  {
+    semantic_type(ctx, declref->type, sema);
+  }
+
+  //|///////////////////// declname /////////////////////////////////////////
+  void semantic_decl(SemanticContext &ctx, DeclNameDecl *declref, Sema &sema)
+  {
+    for(auto &arg : declref->args)
+    {
+      semantic_type(ctx, arg, sema);
+    }
+
+    for(auto &[name, arg] : declref->namedargs)
+    {
+      semantic_type(ctx, arg, sema);
     }
   }
 
@@ -888,6 +918,7 @@ namespace
     {
       auto basefield = sema.field_declaration(enumm->loc());
 
+      basefield->name = Ident::type_enum;
       basefield->type = enumm->representation;
 
       if (!basefield->type)
@@ -1327,6 +1358,14 @@ namespace
 
       case Decl::DeclScoped:
         semantic_decl(ctx, decl_cast<DeclScopedDecl>(decl), sema);
+        break;
+
+      case Decl::TypeName:
+        semantic_decl(ctx, decl_cast<TypeNameDecl>(decl), sema);
+        break;
+
+      case Decl::DeclName:
+        semantic_decl(ctx, decl_cast<DeclNameDecl>(decl), sema);
         break;
 
       case Decl::TypeOf:

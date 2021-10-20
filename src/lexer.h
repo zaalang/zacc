@@ -113,6 +113,8 @@ struct Token
     equal,
     equalequal,
     dollar,
+    l_squarecolon,
+    r_squarecolon,
     comma,
     semi,
     char_constant,

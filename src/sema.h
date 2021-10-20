@@ -75,6 +75,8 @@ class Sema
 
     DeclRefDecl *make_declref(Ident *name, SourceLocation loc);
     DeclScopedDecl *make_declref(std::vector<Decl*> const &decls, SourceLocation loc);
+    TypeNameDecl *make_typename(Type *type, SourceLocation loc);
+    DeclNameDecl *make_declname(Ident *name, SourceLocation loc);
     TypeOfDecl *make_decltype(Expr *expr, SourceLocation loc);
     TypeArgDecl *make_typearg(Ident *name, SourceLocation loc);
 
@@ -100,6 +102,7 @@ class Sema
     Expr *make_alignof_expression(Type *type, SourceLocation loc);
     Expr *make_alignof_expression(Expr *expr, SourceLocation loc);
     Expr *make_offsetof_expression(Type *type, Ident *field, SourceLocation loc);
+    Expr *make_typeid_expression(Decl *decl, SourceLocation loc);
     Expr *make_cast_expression(Type *type, Expr *expr, SourceLocation loc);
     Expr *make_new_expression(Type *type, Expr *address, SourceLocation loc);
     Expr *make_new_expression(Type *type, Expr *address, std::vector<Expr*> const &parms, std::map<Ident*, Expr*> const &namedparms, SourceLocation loc);

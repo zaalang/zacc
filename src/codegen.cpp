@@ -201,6 +201,7 @@ namespace
           case BuiltinType::IntLiteral:
           case BuiltinType::FloatLiteral:
           case BuiltinType::DeclidLiteral:
+          case BuiltinType::TypeidLiteral:
             return TypeCategory::Unresolved;
 
           case BuiltinType::PtrLiteral:
@@ -527,6 +528,7 @@ namespace
           case BuiltinType::IntLiteral:
           case BuiltinType::FloatLiteral:
           case BuiltinType::DeclidLiteral:
+          case BuiltinType::TypeidLiteral:
             break;
         }
         break;
@@ -4182,7 +4184,10 @@ namespace
     }
     else if (is_int_type(type) || is_char_type(type) || is_enum_type(type))
     {
-      auto value = ctx.builder.CreateSExt(cond, ctx.builder.getInt64Ty());
+      if (is_enum_type(type))
+        type = type_cast<TagType>(type)->fields[0];
+
+      auto value = ctx.builder.CreateIntCast(cond, ctx.builder.getInt64Ty(), is_signed_type(type));
       auto swtch = ctx.builder.CreateSwitch(value, fx.blocks[blockid].bx, targets.size());
 
       for(auto &[k, v] : targets)

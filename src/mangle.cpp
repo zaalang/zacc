@@ -91,6 +91,7 @@ namespace
           case BuiltinType::IntLiteral:
           case BuiltinType::FloatLiteral:
           case BuiltinType::DeclidLiteral:
+          case BuiltinType::TypeidLiteral:
           case BuiltinType::PtrLiteral:
             name += "Da";
             break;
@@ -244,6 +245,9 @@ namespace
 
       case Decl::Function: {
         auto fn = decl_cast<FunctionDecl>(decl);
+
+        if (!fn->name)
+          return mangle_scope(fn->owner);
 
         return mangle_scope(fn->owner) + mangle_name(fn->name->sv());
       }

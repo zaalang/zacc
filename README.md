@@ -74,3 +74,35 @@ $ zacc/bin/zacc -I ./std -L ./zrt/lib test.zaa -lzrt
 ```
 > zacc\bin\zacc.exe -I .\std -L .\zrt\lib test.zaa -lzrt -lkernel32
 ```
+
+## Another Example
+
+```
+  import std.stdio;
+  
+  struct as_tuple_t<T>
+  {
+    #{                                    // compile time block in declaritive context
+      var tuple = $typename ();           // type reflection of empty tuple
+  
+      #for(const k : std::meta::fields_of($T))
+        tuple = std::meta::tuple_append(tuple, $T::#k);  // append reflection of field
+  
+      -> { using type = $(tuple); }       // injection of type alias into struct scope
+    }
+  }
+  
+  using as_tuple<T> = as_tuple_t<T>::type;
+  
+  fn main
+  {
+    struct X
+    {
+      i32 i;
+      f64 j;
+      bool k;
+    }
+  
+    std::assert(std::is_same<as_tuple<X>, (i32, f64, bool)>);
+  }
+```

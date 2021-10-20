@@ -354,7 +354,6 @@ namespace
     if (!ctx.try_consume_token(Token::l_paren))
     {
       ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-      return;
     }
 
     auto expr = parse_expression(ctx, sema);
@@ -448,20 +447,9 @@ namespace
 
       case Token::dollar:
         ctx.consume_token();
-
-        if (ctx.tok == Token::identifier)
-        {
-          if (ctx.tok.text.begin() != tok.text.end())
-            ctx.diag.error("extra characters within identifier", ctx.text, ctx.tok.loc);
-
-          tok.text = string_view(tok.text.data(), tok.text.length() + ctx.tok.text.length());
-
-          ctx.consume_token(Token::identifier);
-        }
-
         consume_substitution(ctx, sema);
 
-        return Ident::make_dollar_ident(tok.text, ctx.substitutions.size() - 1);
+        return Ident::make_dollar_ident(ctx.substitutions.size() - 1);
 
       default:
         break;
@@ -928,12 +916,54 @@ namespace
         return decls.back();
     }
 
+    if (ctx.tok.text == "declname")
+    {
+       if (auto nexttok = ctx.token(1); nexttok == Token::dollar)
+       {
+         ctx.consume_token();
+
+         auto name = parse_ident(ctx, IdentUsage::ScopedName, sema);
+
+         if (!name)
+         {
+           ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+           return nullptr;
+         }
+
+         decls.push_back(sema.make_declname(name, loc));
+
+         if (!ctx.try_consume_token(Token::coloncolon))
+           return decls.back();
+       }
+    }
+
+    if (ctx.tok.text == "typename")
+    {
+       if (auto nexttok = ctx.token(1); nexttok == Token::identifier || nexttok == Token::kw_void || nexttok == Token::kw_null || nexttok == Token::l_paren || nexttok == Token::dollar)
+       {
+         ctx.consume_token();
+
+         auto type = parse_type(ctx, sema);
+
+         if (!type)
+         {
+           ctx.diag.error("expected type", ctx.text, ctx.tok.loc);
+           return nullptr;
+         }
+
+         decls.push_back(sema.make_typename(type, loc));
+
+         if (!ctx.try_consume_token(Token::coloncolon))
+           return decls.back();
+       }
+    }
+
     while (true)
     {
       auto loc = ctx.tok.loc;
       auto name = parse_ident(ctx, IdentUsage::ScopedName, sema);
 
-      auto ref = sema.make_declref(name, loc);
+      auto declref = sema.make_declref(name, loc);
 
       if ((ctx.tok == Token::coloncolon && ctx.token(1) == Token::less) || (ctx.tok == Token::less && !std::isspace(ctx.tok.text.data()[-1])))
       {
@@ -942,9 +972,9 @@ namespace
 
         ctx.consume_token(Token::less);
 
-        ref->args = parse_typearg_list(ctx, sema);
-        ref->namedargs = parse_named_typearg_list(ctx, sema);
-        ref->argless = false;
+        declref->args = parse_typearg_list(ctx, sema);
+        declref->namedargs = parse_named_typearg_list(ctx, sema);
+        declref->argless = false;
 
         if (ctx.tok != Token::greater && ctx.tok != Token::greatergreater)
         {
@@ -958,7 +988,7 @@ namespace
           ctx.consume_token();
       }
 
-      decls.push_back(ref);
+      decls.push_back(declref);
 
       if (!ctx.try_consume_token(Token::coloncolon))
         break;
@@ -1059,6 +1089,11 @@ namespace
 
     auto outer_const = ctx.try_consume_token(Token::kw_const);
 
+    if (ctx.tok == Token::identifier && ctx.tok.text == "typename")
+    {
+      ctx.consume_token(Token::identifier);
+    }
+
     if (ctx.try_consume_token(Token::l_paren))
     {
       auto fields = parse_typearg_list(ctx, sema);
@@ -1078,7 +1113,7 @@ namespace
       type = sema.make_typeref(name);
     }
 
-    while (ctx.tok == Token::kw_mut || ctx.tok == Token::kw_const || ctx.tok == Token::star || ctx.tok == Token::amp || ctx.tok == Token::ampamp || ctx.tok == Token::l_square || ctx.tok == Token::l_paren)
+    while (ctx.tok == Token::kw_mut || ctx.tok == Token::kw_const || ctx.tok == Token::star || ctx.tok == Token::amp || ctx.tok == Token::ampamp || ctx.tok == Token::l_square || ctx.tok == Token::kw_fn)
     {
       auto kw_mut = ctx.try_consume_token(Token::kw_mut);
       auto kw_const = ctx.try_consume_token(Token::kw_const);
@@ -1131,8 +1166,14 @@ namespace
 
         type = sema.make_array(type, size);
       }
-      else if (ctx.try_consume_token(Token::l_paren))
+      else if (ctx.try_consume_token(Token::kw_fn))
       {
+        if (!ctx.try_consume_token(Token::l_paren))
+        {
+          ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+          return nullptr;
+        }
+
         auto fields = parse_typearg_list(ctx, sema);
 
         if (!ctx.try_consume_token(Token::r_paren))
@@ -1177,6 +1218,11 @@ namespace
 
 //      return sema.make_typelit(expr);
 //    }
+
+    if (ctx.tok == Token::identifier && ctx.tok.text == "typename")
+    {
+      return parse_type(ctx, sema);
+    }
 
     auto tok = ctx.tok;
     auto lexcursor = ctx.lexcursor;
@@ -1223,6 +1269,7 @@ namespace
         case Token::char_constant:
         case Token::numeric_constant:
         case Token::string_literal:
+        case Token::dollar:
           maybe = true;
           leftid = false;
           break;
@@ -1238,7 +1285,6 @@ namespace
 
         case Token::identifier:
         case Token::coloncolon:
-        case Token::dollar:
           leftid = true;
           break;
 
@@ -1272,7 +1318,8 @@ namespace
 
             lexcursor = lex(ctx.text, lexcursor, tok);
           }
-          maybe = true;
+          if (!leftid)
+            maybe = true;
           break;
 
         case Token::less:
@@ -1539,6 +1586,21 @@ namespace
     }
 
     return sema.make_offsetof_expression(type, name, loc);
+  }
+
+  //|///////////////////// parse_typeid /////////////////////////////////////
+  Expr *parse_typeid(ParseContext &ctx, Sema &sema)
+  {
+    auto loc = ctx.tok.loc;
+
+    ctx.consume_token(Token::dollar);
+
+    auto decl = parse_qualified_name(ctx, sema);
+
+    if (!decl)
+      return nullptr;
+
+    return sema.make_typeid_expression(decl, loc);
   }
 
   //|///////////////////// parse_extern /////////////////////////////////////
@@ -2027,10 +2089,14 @@ namespace
       case Token::kw_extern:
         return parse_extern(ctx, sema);
 
+      case Token::dollar:
+        if (ctx.token(1) != Token::l_paren)
+          return parse_typeid(ctx, sema);
+        [[fallthrough]];
+
       case Token::kw_typeof:
       case Token::coloncolon:
       case Token::identifier:
-      case Token::dollar:
         return parse_expression_post(ctx, parse_callee(ctx, sema), sema);
 
       case Token::exclaim:
@@ -2151,6 +2217,7 @@ namespace
 
     auto fn = sema.function_declaration(ctx.tok.loc);
 
+    fn->name = Ident::op_run;
     fn->flags |= FunctionDecl::RunDecl;
 
     fn->returntype = Builtin::type(Builtin::Type_Void);
@@ -2330,6 +2397,12 @@ namespace
     ctx.consume_token(Token::kw_using);
 
     usein->decl = parse_qualified_name(ctx, sema);
+
+    if (!usein->decl)
+      return nullptr;
+
+    if (usein->decl->kind() == Decl::TypeName)
+      ctx.diag.error("invalid use of typename", ctx.text, ctx.tok.loc);
 
     if (!ctx.try_consume_token(Token::semi))
     {
@@ -2514,6 +2587,7 @@ namespace
 
     ctx.consume_token(Token::kw_requires);
 
+    fn->name = Ident::op_requires;
     fn->flags |= FunctionDecl::RequiresDecl;
 
     if (ctx.try_consume_token(Token::less))
@@ -4247,13 +4321,48 @@ namespace
           case Token::kw_null:
           case Token::kw_typeof:
           case Token::l_paren:
-          case Token::identifier:
-          case Token::dollar:
             decl = parse_field_declaration(ctx, sema);
             break;
 
-          case Token::tilde:
-            decl = parse_destructor_declaration(ctx, sema);
+          case Token::identifier:
+          case Token::dollar:
+            if (tok == Token::dollar)
+            {
+              for(int indent = 0; tok != Token::eof; )
+              {
+                if (tok == Token::l_paren)
+                  indent += 1;
+
+                if (tok == Token::r_paren)
+                  if (--indent <= 0)
+                    break;
+
+                tok = ctx.token(nexttok++);
+              }
+            }
+
+            switch (ctx.token(nexttok).type)
+            {
+              case Token::comma:
+              case Token::equal:
+              case Token::r_brace:
+              case Token::semi:
+                decl = parse_constant_declaration(ctx, sema);
+                break;
+
+              case Token::l_paren:
+                decl = parse_subject_declaration(ctx, sema);
+                break;
+
+              default:
+                decl = parse_field_declaration(ctx, sema);
+                break;
+            }
+
+            break;
+
+          case Token::kw_requires:
+            decl = parse_requires_declaration(ctx, sema);
             break;
 
           case Token::eof:
@@ -4284,9 +4393,12 @@ namespace
       }
     }
 
-    injection->expr = sema.make_fragment_expression(std::move(ctx.substitutions), decls, injection->loc());
-
     std::swap(ctx.substitutions, substitutions);
+
+    if (any_of(substitutions.begin(), substitutions.end(), [](auto &k) { return !k; }))
+      return nullptr;
+
+    injection->expr = sema.make_fragment_expression(std::move(substitutions), decls, injection->loc());
 
     return injection;
 

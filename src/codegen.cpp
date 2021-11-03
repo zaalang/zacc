@@ -4500,7 +4500,7 @@ namespace
 
       if (is_passarg_pointer(ctx, sig, fx.mir.locals[i]))
       {
-        attrbuilder.addByValAttr(argtype);
+        attrbuilder.addByRefAttr(argtype);
 
         argtype = argtype->getPointerTo();
 

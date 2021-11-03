@@ -1699,6 +1699,15 @@ namespace
         {
           return resolve_deref(ctx, resolve_type(ctx, stack.back(), decl_cast<VarDecl>(vardecl)), vardecl->type);
         }
+
+        if (declref->name == Ident::kw_this)
+        {
+          for(auto sx = stack.rbegin(); sx != stack.rend(); ++sx)
+          {
+            if (auto owner = get_if<Decl*>(&sx->owner); owner && *owner && is_tag_decl(*owner))
+              return resolve_type(ctx, scope, *owner);
+          }
+        }
       }
     }
 
@@ -4449,7 +4458,7 @@ namespace
         default:
         boolinvalid:
           ctx.diag.error("invalid literal cast", ctx.stack.back(), literal->loc());
-          ctx.diag << "  source type: '#bool' destination type: '" << *type << "'\n";
+          ctx.diag << "  cast type: '" << *type << "' from: '#bool'\n";
           break;
       }
     }
@@ -4501,7 +4510,7 @@ namespace
         default:
         charinvalid:
           ctx.diag.error("invalid literal cast", ctx.stack.back(), literal->loc());
-          ctx.diag << "  source type: '#char' destination type: '" << *type << "'\n";
+          ctx.diag << "  cast type: '" << *type << "' from: '#char'\n";
           break;
       }
     }
@@ -4576,7 +4585,7 @@ namespace
         default:
         intinvalid:
           ctx.diag.error("invalid literal cast", ctx.stack.back(), literal->loc());
-          ctx.diag << "  source type: '#int' destination type: '" << *type << "'\n";
+          ctx.diag << "  cast type: '" << *type << "' from: '#int'\n";
           break;
       }
     }
@@ -4632,7 +4641,7 @@ namespace
         default:
         fltinvalid:
           ctx.diag.error("invalid literal cast", ctx.stack.back(), literal->loc());
-          ctx.diag << "  source type: '#float' destination type: '" << *type << "'\n";
+          ctx.diag << "  cast type: '" << *type << "' from: '#float'\n";
           break;
       }
     }
@@ -4664,8 +4673,8 @@ namespace
 
         default:
         ptrinvalid:
-          ctx.diag.error("invalid cast", ctx.stack.back(), literal->loc());
-          ctx.diag << "  source type: 'null' destination type: '" << *type << "'\n";
+          ctx.diag.error("invalid literal cast", ctx.stack.back(), literal->loc());
+          ctx.diag << "  cast type: '" << *type << "' from: 'null'\n";
           break;
       }
     }
@@ -7383,6 +7392,7 @@ namespace
       if (!is_builtin_type(source.type.type) && !is_enum_type(source.type.type) && !is_pointer_type(source.type.type) && !is_reference_type(source.type.type))
       {
         ctx.diag.error("invalid cast", ctx.stack.back(), cast->loc());
+        ctx.diag << "  cast type: '" << *result.type.type << "' from: '" << *source.type.type << "'\n";
         return;
       }
 

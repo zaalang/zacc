@@ -8,9 +8,11 @@
 //
 
 #include "interp.h"
+#include "sema.h"
 #include "diag.h"
 #include "copier.h"
 #include "numeric.h"
+#include "semantic.h"
 #include <iostream>
 #include <algorithm>
 #include <cstring>
@@ -151,6 +153,9 @@ namespace
 
       return kind == BuiltinType::IntLiteral || kind == BuiltinType::FloatLiteral || kind == BuiltinType::StringLiteral || kind == BuiltinType::PtrLiteral || kind == BuiltinType::Void || kind == BuiltinType::Bool || kind == BuiltinType::Char;
     }
+
+    if (is_span_type(type))
+      return true;
 
     return false;
   }
@@ -2949,17 +2954,6 @@ namespace
 
     switch (typid->klass())
     {
-      case Type::Builtin:
-        if (auto unit = decl_cast<TranslationUnitDecl>(get<Decl*>(get_module(fx.scope)->owner)))
-        {
-          for(auto &decl : decl_cast<ModuleDecl>(unit->builtins)->decls)
-          {
-            if (decl->kind() == Decl::TypeAlias && decl_cast<TypeAliasDecl>(decl)->type == typid)
-              result = decl;
-          }
-        }
-        break;
-
       case Type::Tag:
         result = type_cast<TagType>(typid)->decl;
         break;
@@ -3808,6 +3802,8 @@ namespace
     if (any_of(substitutions.begin(), substitutions.end(), [](auto &k) { return !k; }))
       return false;
 
+    Sema sema;
+
     for(auto &decl : expr->decls)
     {
       auto fragment = copier(decl, substitutions, ctx.diag);
@@ -3830,7 +3826,7 @@ namespace
         continue;
       }
 
-      fragment->owner = ctx.dx.owner;
+      semantic(ctx.dx, fragment, sema, ctx.diag);
 
       ctx.fragments.push_back(fragment);
     }

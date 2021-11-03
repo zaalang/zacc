@@ -294,11 +294,6 @@ namespace
     {
       semantic_expr(ctx, arg, sema);
     }
-
-    for(auto &decl : fragment->decls)
-    {
-      semantic_decl(ctx, decl, sema);
-    }
   }
 
   //|///////////////////// expression ///////////////////////////////////////
@@ -1126,6 +1121,8 @@ namespace
 
         if ((*owner)->kind() == Decl::Struct || (*owner)->kind() == Decl::Union)
         {
+          fn->name = decl_cast<TagDecl>(*owner)->name;
+
           if (fn->flags & FunctionDecl::Defaulted)
           {
             if (fn->parms.size() == 0 || (fn->parms.size() == 1 && decl_cast<ParmVarDecl>(fn->parms[0])->name == Ident::kw_allocator))
@@ -1163,12 +1160,17 @@ namespace
 
         fn->returntype = type(Builtin::Type_Void);
 
-        if (fn->flags & FunctionDecl::Defaulted)
+        if ((*owner)->kind() == Decl::Struct || (*owner)->kind() == Decl::Union)
         {
-          if (fn->parms.size() != 1)
-            ctx.diag.error("invalid defaulted destructor parameters", ctx.file, fn->loc());
+          fn->name = Ident::from("~" + decl_cast<TagDecl>(*owner)->name->str());
 
-          fn->builtin = Builtin::Default_Destructor;
+          if (fn->flags & FunctionDecl::Defaulted)
+          {
+            if (fn->parms.size() != 1)
+              ctx.diag.error("invalid defaulted destructor parameters", ctx.file, fn->loc());
+
+            fn->builtin = Builtin::Default_Destructor;
+          }
         }
       }
     }
@@ -1806,6 +1808,17 @@ void semantic(ModuleDecl *module, Sema &sema, Diag &diag)
   ctx.stack.emplace_back(get<Decl*>(module->owner));
 
   semantic_module(ctx, module, sema);
+
+  ctx.stack.pop_back();
+}
+
+void semantic(Scope const &scope, Decl *decl, Sema &sema, Diag &diag)
+{
+  SemanticContext ctx(diag);
+
+  ctx.stack.emplace_back(scope);
+
+  semantic_decl(ctx, decl, sema);
 
   ctx.stack.pop_back();
 }

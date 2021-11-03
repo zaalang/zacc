@@ -3034,9 +3034,9 @@ namespace
     if (ctx.try_consume_token(Token::kw_const))
       fn->flags |= FunctionDecl::Const;
 
-    fn->name = parse_ident(ctx, IdentUsage::TagName, sema);
-
     fn->attributes = std::move(ctx.attributes);
+
+    ctx.consume_token(Token::identifier);
 
     if (ctx.tok == Token::coloncolon && ctx.token(1) != Token::identifier)
       ctx.consume_token();
@@ -3118,8 +3118,6 @@ namespace
       fn->flags |= FunctionDecl::Public;
 
     fn->attributes = std::move(ctx.attributes);
-
-    fn->name = Ident::from(string_view(ctx.tok.text.data(), ctx.token(1).text.length() + 1));
 
     ctx.consume_token(Token::tilde);
     ctx.consume_token(Token::identifier);
@@ -3321,7 +3319,7 @@ namespace
           case Token::l_paren:
           case Token::identifier:
           case Token::dollar:
-            if (strct->name == tok.text)
+            if (strct->name == tok.text || tok.text == "this")
             {
               auto tok = ctx.tok;
               auto lexcursor = ctx.lexcursor;
@@ -3599,7 +3597,7 @@ namespace
 
           case Token::identifier:
           case Token::dollar:
-            if (unnion->name == tok.text)
+            if (unnion->name == tok.text || tok.text == "this")
             {
               decl = parse_constructor_declaration(ctx, sema);
               break;
@@ -4341,6 +4339,12 @@ namespace
               }
             }
 
+            if (tok.text == "this")
+            {
+              decl = parse_constructor_declaration(ctx, sema);
+              break;
+            }
+
             switch (ctx.token(nexttok).type)
             {
               case Token::comma:
@@ -4363,6 +4367,10 @@ namespace
 
           case Token::kw_requires:
             decl = parse_requires_declaration(ctx, sema);
+            break;
+
+          case Token::tilde:
+            decl = parse_destructor_declaration(ctx, sema);
             break;
 
           case Token::eof:

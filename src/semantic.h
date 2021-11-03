@@ -10,8 +10,10 @@
 #pragma once
 
 #include "ast.h"
+#include "query.h"
 
 //-------------------------- semantic ---------------------------------------
 //---------------------------------------------------------------------------
 
 void semantic(ModuleDecl *module, class Sema &sema, class Diag &diag);
+void semantic(Scope const &scope, Decl *decl, class Sema &sema, class Diag &diag);

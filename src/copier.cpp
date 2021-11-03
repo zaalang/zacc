@@ -23,8 +23,6 @@ namespace
   {
     Diag &diag;
 
-    vector<Scope> stack;
-
     vector<Expr*> const &substitutions;
 
     unordered_map<Decl*, Decl*> typetable;
@@ -627,14 +625,10 @@ namespace
     result->flags = typealias->flags;
     result->name = copier_name(ctx, typealias->name);
 
-    ctx.stack.emplace_back(result);
-
     for(auto &arg : typealias->args)
       result->args.push_back(copier_decl(ctx, arg));
 
     result->type = copier_type(ctx, typealias->type);
-
-    ctx.stack.pop_back();
 
     return result;
   }
@@ -662,11 +656,7 @@ namespace
   {
     auto result = new StructDecl(strct->loc());
 
-    ctx.stack.emplace_back(result);
-
     copier_decl(ctx, result, decl_cast<TagDecl>(strct));
-
-    ctx.stack.pop_back();
 
     return result;
   }
@@ -676,11 +666,7 @@ namespace
   {
     auto result = new UnionDecl(unnion->loc());
 
-    ctx.stack.emplace_back(result);
-
     copier_decl(ctx, result, decl_cast<TagDecl>(unnion));
-
-    ctx.stack.pop_back();
 
     return result;
   }
@@ -690,11 +676,7 @@ namespace
   {
     auto result = new VTableDecl(vtable->loc());
 
-    ctx.stack.emplace_back(result);
-
     copier_decl(ctx, result, decl_cast<TagDecl>(vtable));
-
-    ctx.stack.pop_back();
 
     return result;
   }
@@ -704,11 +686,7 @@ namespace
   {
     auto result = new ConceptDecl(koncept->loc());
 
-    ctx.stack.emplace_back(result);
-
     copier_decl(ctx, result, decl_cast<TagDecl>(koncept));
-
-    ctx.stack.pop_back();
 
     return result;
   }
@@ -720,14 +698,10 @@ namespace
 
     result->flags = reqires->flags;
 
-    ctx.stack.emplace_back(result);
-
     result->fn = copier_decl(ctx, reqires->fn);
 
     if (reqires->requirestype)
       result->requirestype = copier_type(ctx, reqires->requirestype);
-
-    ctx.stack.pop_back();
 
     return result;
   }
@@ -736,8 +710,6 @@ namespace
   Decl *copier_decl(CopierContext &ctx, LambdaDecl *lambda)
   {
     auto result = new LambdaDecl(lambda->loc());
-
-    ctx.stack.emplace_back(result);
 
     copier_decl(ctx, result, decl_cast<TagDecl>(lambda));
 
@@ -748,8 +720,6 @@ namespace
     for(auto &capture : lambda->captures)
       result->captures.push_back(copier_decl(ctx, capture));
 
-    ctx.stack.pop_back();
-
     return result;
   }
 
@@ -758,14 +728,10 @@ namespace
   {
     auto result = new EnumDecl(enumm->loc());
 
-    ctx.stack.emplace_back(result);
-
     copier_decl(ctx, result, decl_cast<TagDecl>(enumm));
 
     if (enumm->representation)
       result->representation = copier_type(ctx, enumm->representation);
-
-    ctx.stack.pop_back();
 
     return result;
   }
@@ -829,12 +795,8 @@ namespace
     if (casse->parm)
       result->parm = copier_decl(ctx, casse->parm);
 
-    ctx.stack.emplace_back(result);
-
     if (casse->body)
       result->body = copier_stmt(ctx, casse->body);
-
-    ctx.stack.pop_back();
 
     return result;
   }
@@ -848,12 +810,8 @@ namespace
     result->decl = imprt->decl;
     result->alias = imprt->alias;
 
-    ctx.stack.emplace_back(result);
-
     for(auto &usein : imprt->usings)
       result->usings.push_back(copier_decl(ctx, usein));
-
-    ctx.stack.pop_back();
 
     return result;
   }
@@ -878,8 +836,6 @@ namespace
     result->name = copier_name(ctx, fn->name);
     result->builtin = fn->builtin;
 
-    ctx.stack.emplace_back(result);
-
     for(auto &arg : fn->args)
       result->args.push_back(copier_decl(ctx, arg));
 
@@ -903,8 +859,6 @@ namespace
 
     if (fn->body)
       result->body = copier_stmt(ctx, fn->body);
-
-    ctx.stack.pop_back();
 
     return result;
   }
@@ -1070,8 +1024,6 @@ namespace
         assert(false);
     }
 
-    decl->owner = ctx.stack.back().owner;
-
     return decl;
   }
 
@@ -1113,8 +1065,6 @@ namespace
 
     result->flags = ifs->flags;
 
-    ctx.stack.emplace_back(result);
-
     for(auto &init : ifs->inits)
       result->inits.push_back(copier_stmt(ctx, init));
 
@@ -1126,8 +1076,6 @@ namespace
     if (ifs->stmts[1])
       result->stmts[1] = copier_stmt(ctx, ifs->stmts[1]);
 
-    ctx.stack.pop_back();
-
     return result;
   }
 
@@ -1137,8 +1085,6 @@ namespace
     auto result = new ForStmt(fors->loc());
 
     result->flags = fors->flags;
-
-    ctx.stack.emplace_back(result);
 
     for(auto &init : fors->inits)
       result->inits.push_back(copier_stmt(ctx, init));
@@ -1151,8 +1097,6 @@ namespace
     for(auto &iter : fors->iters)
       result->iters.push_back(copier_stmt(ctx, iter));
 
-    ctx.stack.pop_back();
-
     return result;
   }
 
@@ -1162,8 +1106,6 @@ namespace
     auto result = new RofStmt(rofs->loc());
 
     result->flags = rofs->flags;
-
-    ctx.stack.emplace_back(result);
 
     for(auto &init : rofs->inits)
       result->inits.push_back(copier_stmt(ctx, init));
@@ -1176,8 +1118,6 @@ namespace
     for(auto &iter : rofs->iters)
       result->iters.push_back(copier_stmt(ctx, iter));
 
-    ctx.stack.pop_back();
-
     return result;
   }
 
@@ -1186,15 +1126,11 @@ namespace
   {
     auto result = new WhileStmt(wile->loc());
 
-    ctx.stack.emplace_back(result);
-
     for(auto &init : wile->inits)
       result->inits.push_back(copier_stmt(ctx, init));
 
     result->cond = copier_expr(ctx, wile->cond);
     result->stmt = copier_stmt(ctx, wile->stmt);
-
-    ctx.stack.pop_back();
 
     return result;
   }
@@ -1204,8 +1140,6 @@ namespace
   {
     auto result = new SwitchStmt(swtch->loc());
 
-    ctx.stack.emplace_back(result);
-
     for(auto &init : swtch->inits)
       result->inits.push_back(copier_stmt(ctx, init));
 
@@ -1213,8 +1147,6 @@ namespace
 
     for(auto &decl : swtch->decls)
       result->decls.push_back(copier_decl(ctx, decl));
-
-    ctx.stack.pop_back();
 
     return result;
   }
@@ -1224,13 +1156,9 @@ namespace
   {
     auto result = new TryStmt(trys->loc());
 
-    ctx.stack.emplace_back(result);
-
     result->body = copier_stmt(ctx, trys->body);
     result->errorvar = copier_decl(ctx, trys->errorvar);
     result->handler = copier_stmt(ctx, trys->handler);
-
-    ctx.stack.pop_back();
 
     return result;
   }
@@ -1273,12 +1201,8 @@ namespace
   {
     auto result = new CompoundStmt(compound->loc());
 
-    ctx.stack.emplace_back(result);
-
     for(auto &stmt : compound->stmts)
       result->stmts.push_back(copier_stmt(ctx, stmt));
-
-    ctx.stack.pop_back();
 
     return result;
   }
@@ -1352,8 +1276,6 @@ namespace
         assert(false);
     }
 
-    stmt->owner = ctx.stack.back().owner;
-
     return stmt;
   }
 }
@@ -1365,8 +1287,6 @@ namespace
 Decl *copier(Decl *root, vector<Expr*> const &substitutions, Diag &diag)
 {
   CopierContext ctx(substitutions, diag);
-
-  ctx.stack.emplace_back(Scope());
 
   return copier_decl(ctx, root);
 }

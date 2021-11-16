@@ -168,7 +168,8 @@ class FunctionDecl : public Decl
 
       NoReturn = 0x100,
       Inhibited = 0x200,
-      Weak = 0x400,
+      Lifetimed = 0x400,
+      Weak = 0x800,
 
       ExternC = 0x1000,
       ExternWin64 = 0x2000,

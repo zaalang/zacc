@@ -3303,7 +3303,7 @@ namespace
         results.push_back(Builtin::fn(ctx.translationunit->builtins, Builtin::Type_Lit, enumm, type_cast<ConstantType>(value)->expr));
       }
 
-      if (decl->kind() == Decl::Struct || decl->kind() == Decl::Union || decl->kind() == Decl::VTable)
+      if (decl->kind() == Decl::Struct || decl->kind() == Decl::Union || decl->kind() == Decl::Enum || decl->kind() == Decl::VTable)
       {
         FindContext ttx(ctx, tx.name, QueryFlags::Functions);
 
@@ -3674,7 +3674,9 @@ namespace
       find_overloads(ctx, tx, scopeof_type(ctx, type), parms, namedparms, overloads);
     }
 
-    find_overloads(ctx, tx, parent_scope(typearg->koncept), parms, namedparms, overloads);
+    auto declscope = Scope(typearg->koncept, super_scope(scope, typearg->koncept).typeargs);
+
+    find_overloads(ctx, tx, parent_scope(declscope), parms, namedparms, overloads);
 
     for(auto &fx: overloads)
     {
@@ -3999,7 +4001,7 @@ namespace
       ctx.diag << "  " << &parm - &parms[0] << ": " << parm.type << '\n';
 
     for(auto &[name, parm] : namedparms)
-      ctx.diag << "  " << name << ": " << parm.type << '\n';
+      ctx.diag << "  " << *name << ": " << parm.type << '\n';
   }
 
   //|///////////////////// find_destructor //////////////////////////////////
@@ -7007,8 +7009,6 @@ namespace
 
         result.type = MIR::Local(ctx.booltype, MIR::Local::RValue);
         result.value = MIR::RValue::local(MIR::RValue::Val, dst, binaryop->loc());
-
-        ctx.retire_barrier(rm);
 
         return;
       }
@@ -10431,7 +10431,7 @@ namespace
       {
         auto &[op, arg, fields, loc] = result.value.get<MIR::RValue::Variable>();
 
-        if (op == MIR::RValue::Ref && ctx.mir.args_end <= arg && all_of(fields.begin(), fields.end(), [](auto k){ return k.op != MIR::RValue::Val; }))
+        if (op == MIR::RValue::Ref && all_of(fields.begin(), fields.end(), [](auto k){ return k.op != MIR::RValue::Val; }))
           result.type.flags |= MIR::Local::RValue;
       }
 

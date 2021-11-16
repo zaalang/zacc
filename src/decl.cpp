@@ -137,7 +137,10 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
     case Decl::Function:
       if (auto &fn = static_cast<FunctionDecl const &>(decl); true)
       {
-        os << *fn.name;
+        os << "fn ";
+
+        if (fn.name)
+          os << *fn.name;
 
         if (fn.args.size() != 0)
         {

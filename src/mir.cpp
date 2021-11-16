@@ -568,6 +568,14 @@ void MIR::dump() const
         cout << "requires";
         break;
 
+      case FunctionDecl::MatchDecl:
+        cout << "match";
+        break;
+
+      case FunctionDecl::RunDecl:
+        cout << "run";
+        break;
+
       default:
         cout << "fn " << *fn->name;
     }

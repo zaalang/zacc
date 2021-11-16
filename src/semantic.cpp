@@ -524,10 +524,13 @@ namespace
       semantic_type(ctx, tagdecl->basetype, sema);
     }
 
+    for(size_t i = 0; i < tagdecl->decls.size(); ++i)
+    {
+      semantic_decl(ctx, tagdecl->decls[i], sema);
+    }
+
     for(auto &decl : tagdecl->decls)
     {
-      semantic_decl(ctx, decl, sema);
-
       if (!(tagdecl->flags & Decl::Public))
         decl->flags |= Decl::Public;
     }
@@ -1255,6 +1258,11 @@ namespace
           fn->flags |= FunctionDecl::Inhibited;
       }
 
+      if (attribute->name == "lifetime")
+      {
+        fn->flags |= FunctionDecl::Lifetimed;
+      }
+
       if (attribute->name == "weak")
       {
         fn->flags |= FunctionDecl::Weak;
@@ -1309,9 +1317,9 @@ namespace
 
     semantic_expr(ctx, ifd->cond, sema);
 
-    for(auto &decl : ifd->decls)
+    for(size_t i = 0; i < ifd->decls.size(); ++i)
     {
-      semantic_decl(ctx, decl, sema);
+      semantic_decl(ctx, ifd->decls[i], sema);
     }
 
     if (ifd->elseif)
@@ -1600,9 +1608,9 @@ namespace
 
     semantic_expr(ctx, swtch->cond, sema);
 
-    for(auto &decl : swtch->decls)
+    for(size_t i = 0; i < swtch->decls.size(); ++i)
     {
-      semantic_decl(ctx, decl, sema);
+      semantic_decl(ctx, swtch->decls[i], sema);
     }
 
     ctx.stack.pop_back();
@@ -1754,9 +1762,9 @@ namespace
         case 1:
           ifd->flags |= IfDecl::ResolvedTrue;
 
-          for(auto &decl : ifd->decls)
+          for(size_t i = 0; i < ifd->decls.size(); ++i)
           {
-            semantic_toplevel_declaration(ctx, decl, sema);
+            semantic_toplevel_declaration(ctx, ifd->decls[i], sema);
           }
 
           break;

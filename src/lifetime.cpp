@@ -24,6 +24,7 @@ namespace
     struct Storage
     {
       bool live = false;
+      bool consumed = false;
       unordered_set<MIR::local_t> depends_upon;
     };
 
@@ -92,12 +93,18 @@ namespace
   {
     auto &[callee, args, loc] = call;
 
+    if (callee.fn->flags & FunctionDecl::Destructor)
+      return;
+
     for(auto arg : args)
     {
       for(auto i : ctx.threads[0].locals[arg].depends_upon)
       {
         if (!ctx.threads[0].locals[i].live)
           ctx.diag.error("potentially dangling variable access", mir.fx.fn, loc);
+
+        if (ctx.threads[0].locals[i].consumed)
+          ctx.diag.error("potentially consumed variable access", mir.fx.fn, loc);
       }
     }
 
@@ -134,6 +141,23 @@ namespace
 
         default:
           break;
+      }
+    }
+
+    if (callee.fn->flags & FunctionDecl::Lifetimed)
+    {
+      for(auto attr : callee.fn->attributes)
+      {
+        auto attribute = decl_cast<AttributeDecl>(attr);
+
+        if (attribute->name == "lifetime")
+        {
+          if (attribute->options.substr(1, 7) == "consume")
+          {
+            for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
+              ctx.threads[0].locals[dep].consumed = true;
+          }
+        }
       }
     }
   }

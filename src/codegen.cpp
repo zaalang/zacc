@@ -4318,14 +4318,17 @@ namespace
 
       if (fx.locals[i].info && fx.locals[i].alloca)
       {
-        auto loc = fx.locals[i].info->vardecl->loc();
-        auto name = fx.locals[i].info->vardecl->name->sv();
-        auto ditype = llvm_ditype(ctx, fx.mir.locals[i]);
-        auto autovar = ctx.di.createAutoVariable(fx.discopes.back(), name, fx.difile, loc.lineno, ditype);
+        if (fx.locals[i].info->vardecl->name)
+        {
+          auto loc = fx.locals[i].info->vardecl->loc();
+          auto name = fx.locals[i].info->vardecl->name->sv();
+          auto ditype = llvm_ditype(ctx, fx.mir.locals[i]);
+          auto autovar = ctx.di.createAutoVariable(fx.discopes.back(), name, fx.difile, loc.lineno, ditype);
 
-        fx.discopes.push_back(ctx.di.createLexicalBlock(fx.discopes.back(), fx.difile, loc.lineno, loc.charpos));
+          fx.discopes.push_back(ctx.di.createLexicalBlock(fx.discopes.back(), fx.difile, loc.lineno, loc.charpos));
 
-        ctx.di.insertDeclare(fx.locals[i].alloca, autovar, ctx.di.createExpression(), llvm_diloc(ctx, fx, loc), ctx.builder.GetInsertBlock());
+          ctx.di.insertDeclare(fx.locals[i].alloca, autovar, ctx.di.createExpression(), llvm_diloc(ctx, fx, loc), ctx.builder.GetInsertBlock());
+        }
       }
     }
   }
@@ -4831,14 +4834,14 @@ namespace
     {
       for(size_t i = fx.mir.args_beg, end = fx.mir.args_end; i != end; ++i)
       {
-        if (!fx.locals[i].info->vardecl->name)
-          continue;
+        if (fx.locals[i].info->vardecl->name)
+        {
+          auto loc = fx.locals[i].info->vardecl->loc();
+          auto name = fx.locals[i].info->vardecl->name->sv();
+          auto parmvar = ctx.di.createParameterVariable(fx.discopes.back(), name, i, fx.difile, loc.lineno, llvm_ditype(ctx, fx.mir.locals[i]));
 
-        auto loc = fx.locals[i].info->vardecl->loc();
-        auto name = fx.locals[i].info->vardecl->name->sv();
-        auto parmvar = ctx.di.createParameterVariable(fx.discopes.back(), name, i, fx.difile, loc.lineno, llvm_ditype(ctx, fx.mir.locals[i]));
-
-        ctx.di.insertDeclare(fx.locals[i].alloca, parmvar, ctx.di.createExpression(), llvm_diloc(ctx, fx, fx.fn->loc()), fx.blocks[0].bx);
+          ctx.di.insertDeclare(fx.locals[i].alloca, parmvar, ctx.di.createExpression(), llvm_diloc(ctx, fx, fx.fn->loc()), fx.blocks[0].bx);
+        }
       }
     }
 
@@ -5069,6 +5072,9 @@ namespace
         {
           if (auto constant = ctx.typetable.find<ConstantType>(field, type))
           {
+            if (!decl_cast<EnumConstantDecl>(field)->name)
+              continue;
+
             auto name = decl_cast<EnumConstantDecl>(field)->name->sv();
             auto value = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(constant->expr)->value)->value().value;
 

@@ -1211,6 +1211,9 @@ size_t sizeof_type(TagType const *type)
 
   if (is_union_type(type))
   {
+    if (type->fields.empty())
+      return 0;
+
     auto tagsize = sizeof_type(type->fields[0]);
 
     for(size_t i = 1; i < type->fields.size(); ++i)

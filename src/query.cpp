@@ -388,6 +388,14 @@ void find_decls(Scope const &scope, Ident *name, long flags, vector<Decl*> &resu
         break;
 
       case Stmt::Switch:
+        for(auto init : stmt_cast<SwitchStmt>(*owner)->inits)
+        {
+          if (init == scope.goalpost)
+            break;
+
+          if (init->kind() == Stmt::Declaration)
+            find_decl(stmt_cast<DeclStmt>(init)->decl, name, flags, results);
+        }
         break;
 
       case Stmt::Try:

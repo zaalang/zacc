@@ -16,11 +16,6 @@
 
 using namespace std;
 
-namespace
-{
-
-}
-
 namespace Numeric
 {
   //|--------------------- Numeric ------------------------------------------

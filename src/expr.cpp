@@ -367,6 +367,14 @@ ArrayLiteralExpr::ArrayLiteralExpr(vector<Expr*> const &elements, Type *size, So
 {
 }
 
+ArrayLiteralExpr::ArrayLiteralExpr(Type *elementtype, vector<Expr*> const &elements, Type *size, SourceLocation loc)
+  : Expr(ArrayLiteral, loc),
+    size(size),
+    elements(elements),
+    coercedtype(elementtype)
+{
+}
+
 //|///////////////////// ArrayLiteralExpr::value ////////////////////////////
 string ArrayLiteralExpr::value() const
 {

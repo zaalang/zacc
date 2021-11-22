@@ -920,7 +920,7 @@ namespace
         if (scope.goalpost == decl)
           break;
 
-        sx.goalpost = decl;
+        sx.goalpost = ifd->root;
 
         if ((ifd->flags & IfDecl::ResolvedTrue) || (!(ifd->flags & IfDecl::ResolvedFalse) && eval(ctx, sx, ifd->cond) == 1))
           find_decls(decl, name, queryflags, results);
@@ -2165,9 +2165,10 @@ namespace
     {
       sig.typeargs = get<0>(j->second);
       type = get<1>(j->second);
-      return true;
+      return get<2>(j->second);
     }
 
+    bool match = true;
     Diag diag(ctx.diag.leader());
 
     for(auto &decl : koncept->decls)
@@ -2191,7 +2192,7 @@ namespace
         auto result = evaluate(sx, expr, ctx.symbols, ctx.typetable, diag, reqires->loc());
 
         if (result.type != ctx.booltype || !expr_cast<BoolLiteralExpr>(result.value)->value())
-          return false;
+          match = false;
       }
 
       if (reqires->flags & RequiresDecl::Expression)
@@ -2204,19 +2205,22 @@ namespace
         auto &mir = lower(fx, ctx.typetable, diag);
 
         if (diag.has_errored())
-          return false;
+          match = false;
 
-        if (reqires->requirestype)
+        if (match && reqires->requirestype)
         {
           if (!deduce_type(ctx, scope, sig, reqires->requirestype, mir.locals[0]))
-            return false;
+            match = false;
         }
       }
+
+      if (!match)
+        break;
     }
 
-    ctx.typetable.concepts.emplace(std::move(cache_key), std::make_tuple(sig.typeargs, type));
+    ctx.typetable.concepts.emplace(std::move(cache_key), std::make_tuple(sig.typeargs, type, match));
 
-    return true;
+    return match;
   }
 
   //|///////////////////// match_arguments //////////////////////////////////
@@ -5297,10 +5301,36 @@ namespace
   {
     MIR::Fragment value;
 
-    ctx.inducedscope = type_scope(ctx, type);
+    if (is_enum_type(type))
+    {
+      auto tagtype = type_cast<TagType>(type);
 
-    if (!lower_expr(ctx, value, label))
-      return false;
+      if ((tagtype->decl->flags & Decl::Public) || get_module(tagtype->decl) == ctx.module)
+      {
+        if (label->kind() == Expr::DeclRef && expr_cast<DeclRefExpr>(label)->decl->kind() == Decl::DeclRef)
+        {
+          vector<Decl*> decls;
+
+          auto typescope = type_scope(ctx, type);
+
+          find_decls(ctx, typescope, decl_cast<DeclRefDecl>(expr_cast<DeclRefExpr>(label)->decl)->name, QueryFlags::Enums, decls);
+
+          if (decls.size() == 1)
+          {
+            auto constant = resolve_type(ctx, typescope, type, decl_cast<EnumConstantDecl>(decls[0]));
+
+            value.type = type;
+            value.value = MIR::RValue::literal(type_cast<TypeLitType>(type_cast<ConstantType>(constant)->expr)->value);
+          }
+        }
+      }
+    }
+
+    if (!value)
+    {
+      if (!lower_expr(ctx, value, label))
+        return false;
+    }
 
     if (value.type.type != type && !is_int_type(type) && !is_char_type(type))
     {
@@ -5308,8 +5338,6 @@ namespace
       ctx.diag << "  label type: '" << *value.type.type << "' wanted: '" << *type << "'\n";
       return false;
     }
-
-    ctx.inducedscope = {};
 
     if (is_constant(ctx, value) && get_if<BoolLiteralExpr*>(&value.value.get<MIR::RValue::Constant>()))
     {
@@ -6099,7 +6127,11 @@ namespace
   {
     auto type = ctx.typetable.var_defn;
 
-    if (arrayliteral->elements.size() != 0)
+    if (arrayliteral->coercedtype)
+    {
+      type = resolve_type(ctx, arrayliteral->coercedtype);
+    }
+    else if (arrayliteral->elements.size() != 0)
     {
       type = find_type(ctx, ctx.stack, arrayliteral->elements.front()).type;
 
@@ -7380,6 +7412,7 @@ namespace
       // use &&cast<T mut &>(value) to cast away const, retain rvalue
       // use &&cast<T &&>(value) to cast, retain rvalue and const
 
+      result.type.flags |= source.type.flags & MIR::Local::RValue;
       result.type.flags |= source.type.flags & MIR::Local::XValue;
 
       if (is_qualarg_type(remove_reference_type(cast->type)))
@@ -7924,6 +7957,9 @@ namespace
     auto arg = ctx.add_variable();
 
     realise_as_reference(ctx, arg, value, casevar->flags & VarDecl::Const);
+
+    if (value.type.flags & (MIR::Local::XValue | MIR::Local::RValue))
+      value.type.type = ctx.typetable.find_or_create<QualArgType>(QualArgType::RValue, value.type.type);
 
     value.type = resolve_as_value(ctx, value.type);
 
@@ -9623,6 +9659,9 @@ namespace
 
     ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1));
 
+    if (ctx.barriers.back().firstcontinue != ctx.continues.size())
+      ctx.unreachable = Unreachable::No;
+
     auto block_step = ctx.currentblockid;
 
     for(auto &range : ranges)
@@ -10398,7 +10437,12 @@ namespace
         result.type = resolve_as_value(ctx, result.type);
 
       if (is_return_reference(ctx, retrn->expr))
+      {
+        if (result.type.flags & MIR::Local::RValue)
+          result.type.defn = ctx.typetable.find_or_create<QualArgType>(QualArgType::RValue, result.type.defn);
+
         result.type.defn = ctx.typetable.find_or_create<ReferenceType>(result.type.defn);
+      }
 
       if (ctx.mir.locals[0])
       {

@@ -85,7 +85,7 @@ class Sema
     Expr *make_numeric_literal(int sign, std::string_view value, SourceLocation loc);
     Expr *make_numeric_literal(int sign, size_t value, SourceLocation loc);
     Expr *make_string_literal(std::string_view value, SourceLocation loc);
-    Expr *make_array_literal(std::vector<Expr*> const &elements, Type *size, SourceLocation loc);
+    Expr *make_array_literal(Type *elementtype, std::vector<Expr*> const &elements, Type *size, SourceLocation loc);
     Expr *make_void_literal(SourceLocation loc);
     Expr *make_pointer_literal(SourceLocation loc);
     Expr *make_paren_expression(Expr *subexpr, SourceLocation loc);

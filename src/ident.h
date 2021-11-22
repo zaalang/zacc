@@ -31,6 +31,7 @@ class Ident
   public:
 
     static Ident *from(std::string_view value);
+    static Ident *make_index_ident(size_t value);
     static Ident *make_index_ident(std::string_view value);
     static Ident *make_hash_ident(std::string_view value);
     static Ident *make_dollar_ident(uintptr_t value);

@@ -1362,6 +1362,7 @@ namespace
     rhs = fx.mir.locals[arg];
 
     auto base = fx.locals[arg].alloca;
+    auto basetype = llvm_type(ctx, rhs.type, rhs.flags, true);
     auto index = vector<llvm::Value*>{ ctx.builder.getInt32(0) };
 
     for(auto &field : fields)
@@ -1371,7 +1372,7 @@ namespace
         if (&field == &fields.front())
           base = load(ctx, fx, arg);
         else
-          base = load(ctx, fx, ctx.builder.CreateInBoundsGEP(base, index), rhs.type, rhs.flags);
+          base = load(ctx, fx, ctx.builder.CreateInBoundsGEP(basetype, base, index), rhs.type, rhs.flags);
 
         if (!(rhs.flags & MIR::Local::Reference))
           rhs.type = remove_pointference_type(rhs.type);
@@ -1379,6 +1380,7 @@ namespace
         rhs.flags = 0;
 
         index.resize(1);
+        basetype = llvm_type(ctx, rhs.type, rhs.flags, true);
       }
 
       rhs.type = remove_const_type(rhs.type);
@@ -1388,8 +1390,10 @@ namespace
         index.push_back(ctx.builder.getInt32(1));
 
         rhs = type_cast<CompoundType>(rhs.type)->fields[field.index];
-        base = ctx.builder.CreatePointerCast(ctx.builder.CreateInBoundsGEP(base, index), llvm_type(ctx, rhs.type, true)->getPointerTo());
+        base = ctx.builder.CreatePointerCast(ctx.builder.CreateInBoundsGEP(basetype, base, index), llvm_type(ctx, rhs.type, true)->getPointerTo());
+
         index.resize(1);
+        basetype = llvm_type(ctx, rhs.type, rhs.flags, true);
         continue;
       }
 
@@ -1398,8 +1402,10 @@ namespace
         index.push_back(ctx.builder.getInt32(field.index));
 
         rhs = type_cast<CompoundType>(rhs.type)->fields[field.index];
-        base = ctx.builder.CreatePointerCast(ctx.builder.CreateInBoundsGEP(base, index), llvm_type(ctx, rhs.type, true)->getPointerTo());
+        base = ctx.builder.CreatePointerCast(ctx.builder.CreateInBoundsGEP(basetype, base, index), llvm_type(ctx, rhs.type, true)->getPointerTo());
+
         index.resize(1);
+        basetype = llvm_type(ctx, rhs.type, rhs.flags, true);
         continue;
       }
 
@@ -1424,7 +1430,7 @@ namespace
       index.push_back(ctx.builder.getInt32(field.index));
     }
 
-    return ctx.builder.CreateInBoundsGEP(base, index);
+    return ctx.builder.CreateInBoundsGEP(basetype, base, index);
   }
 
   //|///////////////////// codegen_cpy_value ////////////////////////////////
@@ -1778,14 +1784,19 @@ namespace
     {
       llvm::Value *result;
 
+      auto elemtype = llvm_type(ctx, remove_pointference_type(fx.mir.locals[args[0]].type), true);
+
+      if (is_zerosized_type(remove_pointference_type(fx.mir.locals[args[0]].type)))
+        ctx.diag.error("zero sized type", fx.fn, loc);
+
       switch (callee.fn->builtin)
       {
         case Builtin::PreInc:
-          result = ctx.builder.CreateInBoundsGEP(lhs, llvm_int(ctx.builder.getInt32Ty(), 1));
+          result = ctx.builder.CreateInBoundsGEP(elemtype, lhs, llvm_int(ctx.builder.getInt32Ty(), 1));
           break;
 
         case Builtin::PreDec:
-          result = ctx.builder.CreateInBoundsGEP(lhs, llvm_int(ctx.builder.getInt32Ty(), -1));
+          result = ctx.builder.CreateInBoundsGEP(elemtype, lhs, llvm_int(ctx.builder.getInt32Ty(), -1));
           break;
 
         default:
@@ -2100,20 +2111,19 @@ namespace
     {
       llvm::Value *result;
 
+      auto elemtype = llvm_type(ctx, remove_pointer_type(fx.mir.locals[args[0]].type), true);
+
       if (is_zerosized_type(remove_pointer_type(fx.mir.locals[args[0]].type)))
-      {
         ctx.diag.error("zero sized type", fx.fn, loc);
-        return;
-      }
 
       switch (callee.fn->builtin)
       {
         case Builtin::OffsetAdd:
-          result = ctx.builder.CreateInBoundsGEP(lhs, rhs);
+          result = ctx.builder.CreateInBoundsGEP(elemtype, lhs, rhs);
           break;
 
         case Builtin::OffsetSub:
-          result = ctx.builder.CreateInBoundsGEP(lhs, ctx.builder.CreateNeg(rhs));
+          result = ctx.builder.CreateInBoundsGEP(elemtype, lhs, ctx.builder.CreateNeg(rhs));
           break;
 
         default:
@@ -2160,10 +2170,7 @@ namespace
     auto size = sizeof_type(remove_pointer_type(fx.mir.locals[args[0]].type));
 
     if (size == 0)
-    {
       ctx.diag.error("zero sized type", fx.fn, loc);
-      return;
-    }
 
     auto i = ctx.builder.CreatePointerCast(lhs, ctx.builder.getInt64Ty());
     auto j = ctx.builder.CreatePointerCast(rhs, ctx.builder.getInt64Ty());
@@ -2533,20 +2540,19 @@ namespace
     {
       llvm::Value *result;
 
+      auto elemtype = llvm_type(ctx, remove_pointer_type(fx.mir.locals[args[0]].type), true);
+
       if (is_zerosized_type(remove_pointer_type(fx.mir.locals[args[0]].type)))
-      {
         ctx.diag.error("zero sized type", fx.fn, loc);
-        return;
-      }
 
       switch (callee.fn->builtin)
       {
         case Builtin::OffsetAddAssign:
-          result = ctx.builder.CreateInBoundsGEP(lhs, rhs);
+          result = ctx.builder.CreateInBoundsGEP(elemtype, lhs, rhs);
           break;
 
         case Builtin::OffsetSubAssign:
-          result = ctx.builder.CreateInBoundsGEP(lhs, ctx.builder.CreateNeg(rhs));
+          result = ctx.builder.CreateInBoundsGEP(elemtype, lhs, ctx.builder.CreateNeg(rhs));
           break;
 
         default:
@@ -2831,7 +2837,11 @@ namespace
     auto rhs = load(ctx, fx, args[1]);
     auto rhscat = type_category(fx.mir.locals[args[1]].type);
 
-    if (lhscat == TypeCategory::Bool && rhscat == TypeCategory::Bool)
+    if (lhscat == TypeCategory::Void && rhscat == TypeCategory::Void)
+    {
+       store(ctx, fx, dst, ctx.builder.getInt32(0));
+    }
+    else if (lhscat == TypeCategory::Bool && rhscat == TypeCategory::Bool)
     {
        store(ctx, fx, dst, ctx.builder.CreateNSWSub(ctx.builder.CreateIntCast(lhs, ctx.builder.getInt32Ty(), false), ctx.builder.CreateIntCast(rhs, ctx.builder.getInt32Ty(), false)));
     }
@@ -2961,38 +2971,6 @@ namespace
     store(ctx, fx, dst, ctx.builder.CreateExtractValue(lhs, 1));
   }
 
-/*
-  //|///////////////////// string_slice /////////////////////////////////////
-  void codegen_builtin_string_slice(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
-  {
-    auto &[callee, args, loc] = call;
-
-    auto src = load(ctx, fx, args[0]);
-    auto rng = load(ctx, fx, args[1]);
-    auto beg = ctx.builder.CreateExtractValue(rng, 0);
-    auto end = ctx.builder.CreateExtractValue(rng, 1);
-
-    if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
-    {
-      auto len = ctx.builder.CreateExtractValue(src, 0);
-      auto beglen = ctx.builder.CreateICmpUGT(beg, len);
-      auto endlen = ctx.builder.CreateICmpUGT(end, len);
-      auto begend = ctx.builder.CreateICmpUGT(beg, end);
-
-      codegen_assert_carry(ctx, fx, ctx.builder.CreateOr(beglen, ctx.builder.CreateOr(endlen, begend)));
-    }
-
-    auto len = ctx.builder.CreateNUWSub(end, beg);
-    auto str = ctx.builder.CreateInBoundsGEP(ctx.builder.CreateExtractValue(src, 1), beg);
-
-    auto insert0 = llvm::UndefValue::get(llvm_type(ctx, fx.mir.locals[dst].type));
-    auto insert1 = ctx.builder.CreateInsertValue(insert0, len, 0);
-    auto insert2 = ctx.builder.CreateInsertValue(insert1, str, 1);
-
-    store(ctx, fx, dst, insert2);
-  }
-*/
-
   //|///////////////////// array_data ///////////////////////////////////////
   void codegen_builtin_array_data(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -3011,12 +2989,13 @@ namespace
     auto lhs = load(ctx, fx, args[0]);
     auto rhs = load(ctx, fx, args[1]);
 
+    auto arrayty = llvm_type(ctx, fx.mir.locals[args[0]].type);
     auto arraylen = array_len(type_cast<ArrayType>(fx.mir.locals[args[0]].type));
 
     if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
       codegen_assert_carry(ctx, fx, ctx.builder.CreateICmpUGE(rhs, llvm_int(rhs->getType(), arraylen)));
 
-    auto result = ctx.builder.CreateInBoundsGEP(lhs, { ctx.builder.getInt32(0), rhs });
+    auto result = ctx.builder.CreateInBoundsGEP(arrayty, lhs, { ctx.builder.getInt32(0), rhs });
 
     store(ctx, fx, dst, result);
   }
@@ -3028,9 +3007,10 @@ namespace
 
     auto lhs = load(ctx, fx, args[0]);
 
+    auto arrayty = llvm_type(ctx, fx.mir.locals[args[0]].type);
     auto arraylen = array_len(type_cast<ArrayType>(fx.mir.locals[args[0]].type));
 
-    auto result = ctx.builder.CreateInBoundsGEP(lhs, { ctx.builder.getInt32(0), ctx.builder.getInt32(arraylen) });
+    auto result = ctx.builder.CreateInBoundsGEP(arrayty, lhs, { ctx.builder.getInt32(0), ctx.builder.getInt32(arraylen) });
 
     store(ctx, fx, dst, result);
   }
@@ -3275,8 +3255,9 @@ namespace
         ctx.builder.SetInsertPoint(fx.blocks[fx.currentblockid].bx);
       }
 
-      auto exp = ctx.builder.CreateStructGEP(fx.locals[dst].alloca, 1);
-      auto fract = ctx.builder.CreateStructGEP(fx.locals[dst].alloca, 0);
+      auto ty = llvm_type(ctx, fx.mir.locals[dst].type);
+      auto exp = ctx.builder.CreateStructGEP(ty, fx.locals[dst].alloca, 1);
+      auto fract = ctx.builder.CreateStructGEP(ty, fx.locals[dst].alloca, 0);
 
       auto result = ctx.builder.CreateCall(frexp, { lhs, exp } );
 
@@ -3342,7 +3323,7 @@ namespace
     auto value = load(ctx, fx, args[1]);
     auto count = load(ctx, fx, args[2]);
 
-    ctx.builder.CreateMemSet(dest, value, count, llvm::Align(1));
+    ctx.builder.CreateMemSet(dest, value, count, llvm::MaybeAlign(1));
 
     store(ctx, fx, dst, dest);
   }
@@ -3356,7 +3337,7 @@ namespace
     auto source = load(ctx, fx, args[1]);
     auto count = load(ctx, fx, args[2]);
 
-    ctx.builder.CreateMemCpy(dest, llvm::Align(1), source, llvm::Align(1), count);
+    ctx.builder.CreateMemCpy(dest, llvm::MaybeAlign(1), source, llvm::MaybeAlign(1), count);
 
     store(ctx, fx, dst, dest);
   }
@@ -3370,7 +3351,7 @@ namespace
     auto source = load(ctx, fx, args[1]);
     auto count = load(ctx, fx, args[2]);
 
-    ctx.builder.CreateMemMove(dest, llvm::Align(1), source, llvm::Align(1), count);
+    ctx.builder.CreateMemMove(dest, llvm::MaybeAlign(1), source, llvm::MaybeAlign(1), count);
 
     store(ctx, fx, dst, dest);
   }
@@ -3494,6 +3475,7 @@ namespace
 
       switch (callee.fn->builtin)
       {
+#if LLVM_VERSION_MAJOR < 13
         case Builtin::atomic_xchg:
           result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Xchg, ptr, val, llvm_ordering(ordering->value().value));
           break;
@@ -3521,7 +3503,35 @@ namespace
         case Builtin::atomic_fetch_nand:
           result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Nand, ptr, val, llvm_ordering(ordering->value().value));
           break;
+#else
+        case Builtin::atomic_xchg:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Xchg, ptr, val, llvm::MaybeAlign(), llvm_ordering(ordering->value().value));
+          break;
 
+        case Builtin::atomic_fetch_add:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Add, ptr, val, llvm::MaybeAlign(), llvm_ordering(ordering->value().value));
+          break;
+
+        case Builtin::atomic_fetch_sub:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Sub, ptr, val, llvm::MaybeAlign(), llvm_ordering(ordering->value().value));
+          break;
+
+        case Builtin::atomic_fetch_and:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::And, ptr, val, llvm::MaybeAlign(), llvm_ordering(ordering->value().value));
+          break;
+
+        case Builtin::atomic_fetch_xor:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Xor, ptr, val, llvm::MaybeAlign(), llvm_ordering(ordering->value().value));
+          break;
+
+        case Builtin::atomic_fetch_or:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Or, ptr, val, llvm::MaybeAlign(), llvm_ordering(ordering->value().value));
+          break;
+
+        case Builtin::atomic_fetch_nand:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Nand, ptr, val, llvm::MaybeAlign(), llvm_ordering(ordering->value().value));
+          break;
+#endif
         default:
           assert(false);
       }
@@ -3544,6 +3554,7 @@ namespace
 
       switch (callee.fn->builtin)
       {
+#if LLVM_VERSION_MAJOR < 13
         case Builtin::atomic_xchg:
           result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Xchg, ptr, val, llvm_ordering(ordering->value().value));
           break;
@@ -3555,7 +3566,19 @@ namespace
         case Builtin::atomic_fetch_sub:
           result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::FSub, ptr, val, llvm_ordering(ordering->value().value));
           break;
+#else
+        case Builtin::atomic_xchg:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Xchg, ptr, val, llvm::MaybeAlign(), llvm_ordering(ordering->value().value));
+          break;
 
+        case Builtin::atomic_fetch_add:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::FAdd, ptr, val, llvm::MaybeAlign(), llvm_ordering(ordering->value().value));
+          break;
+
+        case Builtin::atomic_fetch_sub:
+          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::FSub, ptr, val, llvm::MaybeAlign(), llvm_ordering(ordering->value().value));
+          break;
+#endif
         default:
           assert(false);
       }
@@ -3583,7 +3606,11 @@ namespace
     auto success_ordering = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[4])->second)->value);
     auto failure_ordering = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[5])->second)->value);
 
+#if LLVM_VERSION_MAJOR < 13
     auto xchg = ctx.builder.CreateAtomicCmpXchg(ptr, cmp, val, llvm_ordering(success_ordering->value().value), llvm_ordering(failure_ordering->value().value));
+#else
+    auto xchg = ctx.builder.CreateAtomicCmpXchg(ptr, cmp, val, llvm::MaybeAlign(), llvm_ordering(success_ordering->value().value), llvm_ordering(failure_ordering->value().value));
+#endif
 
     xchg->setWeak(weak->value().value != 0);
     xchg->setVolatile(true);

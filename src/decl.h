@@ -763,6 +763,8 @@ class IfDecl : public Decl
     std::vector<Decl*> decls;
     Decl *elseif = nullptr;
 
+    Decl *root = nullptr;
+
     void dump(int indent) const override;
 };
 

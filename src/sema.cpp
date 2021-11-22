@@ -429,9 +429,9 @@ Expr *Sema::make_string_literal(string_view value, SourceLocation loc)
 }
 
 //|///////////////////// make_array_literal /////////////////////////////////
-Expr *Sema::make_array_literal(vector<Expr*> const &elements, Type *size, SourceLocation loc)
+Expr *Sema::make_array_literal(Type *elementtype, vector<Expr*> const &elements, Type *size, SourceLocation loc)
 {
-  return ast->make_expr<ArrayLiteralExpr>(elements, size, loc);
+  return ast->make_expr<ArrayLiteralExpr>(elementtype, elements, size, loc);
 }
 
 //|///////////////////// make_void_literal //////////////////////////////////

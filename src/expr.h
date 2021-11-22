@@ -216,11 +216,13 @@ class ArrayLiteralExpr : public Expr
 {
   public:
     ArrayLiteralExpr(std::vector<Expr*> const &elements, Type *size, SourceLocation loc);
+    ArrayLiteralExpr(Type *elementtype, std::vector<Expr*> const &elements, Type *size, SourceLocation loc);
 
     std::string value() const;
 
     Type *size;
     std::vector<Expr*> elements;
+    Type *coercedtype = nullptr;
 
     void dump(int indent) const override;
 };

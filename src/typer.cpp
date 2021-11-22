@@ -476,7 +476,7 @@ namespace
       case Type::TypeArg:
         if (auto j = find_if(typeargs.begin(), typeargs.end(), [&](auto k) { return k.first == type_cast<TypeArgType>(type)->decl; }); j != typeargs.end())
           return j->second;
-        break;
+        return type;
 
       case Type::Function:
         return sema.make_fntype(substitute_type(ctx, typeargs, type_cast<FunctionType>(type)->returntype, sema), substitute_type(ctx, typeargs, type_cast<FunctionType>(type)->paramtuple, sema));

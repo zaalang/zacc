@@ -1048,6 +1048,25 @@ namespace
 
     ctx.consume_token(Token::l_square);
 
+    Type *coercedtype = nullptr;
+
+    if (ctx.try_consume_token(Token::less))
+    {
+      coercedtype = parse_type(ctx, sema);
+
+      if (!ctx.try_consume_token(Token::greater))
+      {
+        ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
+        return nullptr;
+      }
+
+      if (!ctx.try_consume_token(Token::colon))
+      {
+        ctx.diag.error("expected colon", ctx.text, ctx.tok.loc);
+        return nullptr;
+      }
+    }
+
     auto elements = parse_expression_list(ctx, sema);
 
     Expr *size;
@@ -1079,7 +1098,7 @@ namespace
       return nullptr;
     }
 
-    return sema.make_array_literal(elements, sema.make_typelit(size), loc);
+    return sema.make_array_literal(coercedtype, elements, sema.make_typelit(size), loc);
   }
 
   //|///////////////////// parse_type ///////////////////////////////////////
@@ -1109,6 +1128,9 @@ namespace
     else
     {
       auto name = parse_qualified_name(ctx, sema);
+
+      if (!name)
+        return nullptr;
 
       type = sema.make_typeref(name);
     }
@@ -1322,8 +1344,9 @@ namespace
             maybe = true;
           break;
 
-        case Token::less:
-          for(int indent = 0; tok != Token::eof; )
+        case Token::less: {
+          int indent = 0;
+          while (tok != Token::eof)
           {
             if (tok == Token::l_paren)
               skip_bracketed();
@@ -1342,7 +1365,12 @@ namespace
 
             lexcursor = lex(ctx.text, lexcursor, tok);
           }
+
+          if (indent < 0)
+            continue;
+
           break;
+        }
 
         case Token::kw_requires:
           if (auto expr = parse_expression(ctx, sema))
@@ -2245,6 +2273,8 @@ namespace
       goto resume;
     }
 
+    ifd->root = ifd;
+
     return ifd;
 
     resume:
@@ -2288,6 +2318,8 @@ namespace
     }
 
     ifd->elseif = elsed;
+
+    elsed->root = ifd->root;
 
     return elsed;
 
@@ -4126,7 +4158,7 @@ namespace
     {
       ctx.consume_token(Token::kw_case);
 
-      if (ctx.tok == Token::identifier)
+      if (ctx.tok == Token::identifier || ctx.tok == Token::kw_typeof)
       {
         auto name = parse_qualified_name(ctx, sema);
 

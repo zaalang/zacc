@@ -59,6 +59,11 @@ namespace
       {
         return Ident::from(expr_cast<StringLiteralExpr>(expr)->value());
       }
+
+      if (expr->kind() == Expr::IntLiteral)
+      {
+        return Ident::make_index_ident(expr_cast<IntLiteralExpr>(expr)->value().value);
+      }
     }
 
     return name;

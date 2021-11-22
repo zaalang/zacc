@@ -984,6 +984,11 @@ namespace
   {
     ctx.stack.emplace_back(casse);
 
+    if (casse->label)
+    {
+      semantic_expr(ctx, casse->label, sema);
+    }
+
     if (casse->body)
     {
       semantic_statement(ctx, casse->body, sema);
@@ -1756,6 +1761,8 @@ namespace
       ifd->owner = ctx.stack.back().owner;
 
       semantic_expr(ctx, ifd->cond, sema);
+
+      ctx.stack.back().goalpost = ifd->root;
 
       switch (eval(ctx, ctx.stack.back(), ifd->cond))
       {

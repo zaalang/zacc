@@ -117,6 +117,11 @@ Ident *Ident::make_index_ident(string_view value)
   return new IndexIdent(index);
 }
 
+Ident *Ident::make_index_ident(size_t value)
+{
+  return new IndexIdent(value);
+}
+
 //|///////////////////// make_hash_ident ////////////////////////////////////
 Ident *Ident::make_hash_ident(string_view value)
 {

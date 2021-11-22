@@ -35,7 +35,7 @@ struct TypeTable
   Type *var_defn = make_type<TypeArgType>(new TypeArgDecl({}));
   TupleType *empty_tuple = make_type<TupleType>(std::vector<Type*>{}, std::vector<Type*>{});
 
-  std::map<std::tuple<Decl*, std::vector<std::pair<Decl*, Type*>>, Type*>, std::tuple<std::vector<std::pair<Decl*, Type*>>, Type*>> concepts;
+  std::map<std::tuple<Decl*, std::vector<std::pair<Decl*, Type*>>, Type*>, std::tuple<std::vector<std::pair<Decl*, Type*>>, Type*, bool>> concepts;
 
   std::unordered_map<FnSig, Expr*> injections;
 

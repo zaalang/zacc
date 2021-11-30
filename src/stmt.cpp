@@ -335,6 +335,11 @@ void WhileStmt::dump(int indent) const
     init->dump(indent + 2);
   }
 
+  for(auto &iter : iters)
+  {
+    iter->dump(indent + 2);
+  }
+
   if (cond)
   {
     cond->dump(indent + 2);

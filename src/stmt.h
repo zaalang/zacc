@@ -205,6 +205,7 @@ class WhileStmt : public Stmt
     WhileStmt(SourceLocation loc);
 
     std::vector<Stmt*> inits;
+    std::vector<Stmt*> iters;
     Expr *cond = nullptr;
     Stmt *stmt = nullptr;
 

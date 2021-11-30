@@ -1134,6 +1134,9 @@ namespace
     for(auto &init : wile->inits)
       result->inits.push_back(copier_stmt(ctx, init));
 
+    for(auto &iter : wile->iters)
+      result->iters.push_back(copier_stmt(ctx, iter));
+
     result->cond = copier_expr(ctx, wile->cond);
     result->stmt = copier_stmt(ctx, wile->stmt);
 

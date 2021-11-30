@@ -4636,14 +4636,23 @@ namespace
 
     fors->inits = parse_statement_list(ctx, sema);
 
+    if (ctx.tok != Token::semi)
+    {
+      if (all_of(fors->inits.begin(), fors->inits.end(), [](auto &k) { return k->kind() == Stmt::Expression; }))
+        ctx.diag.error("missing condition", ctx.text, ctx.tok.loc);
+    }
+
     if (ctx.try_consume_token(Token::semi))
     {
       fors->cond = parse_expression(ctx, sema);
 
-      if (ctx.try_consume_token(Token::semi))
+      if (!ctx.try_consume_token(Token::semi))
       {
-        fors->iters = parse_statement_list(ctx, sema);
+        ctx.diag.error("expected semi", ctx.text, ctx.tok.loc);
+        goto resume;
       }
+
+      fors->iters = parse_statement_list(ctx, sema);
 
       if (!all_of(fors->iters.begin(), fors->iters.end(), [](auto &k) { return k->kind() == Stmt::Expression; }))
       {
@@ -4691,14 +4700,23 @@ namespace
 
     rofs->inits = parse_statement_list(ctx, sema);
 
+    if (ctx.tok != Token::semi)
+    {
+      if (all_of(rofs->inits.begin(), rofs->inits.end(), [](auto &k) { return k->kind() == Stmt::Expression; }))
+        ctx.diag.error("missing condition", ctx.text, ctx.tok.loc);
+    }
+
     if (ctx.try_consume_token(Token::semi))
     {
       rofs->cond = parse_expression(ctx, sema);
 
-      if (ctx.try_consume_token(Token::semi))
+      if (!ctx.try_consume_token(Token::semi))
       {
-        rofs->iters = parse_statement_list(ctx, sema);
+        ctx.diag.error("expected semi", ctx.text, ctx.tok.loc);
+        goto resume;
       }
+
+      rofs->iters = parse_statement_list(ctx, sema);
 
       if (!all_of(rofs->iters.begin(), rofs->iters.end(), [](auto &k) { return k->kind() == Stmt::Expression; }))
       {
@@ -4755,6 +4773,21 @@ namespace
       if (ctx.try_consume_token(Token::semi))
       {
         wile->inits = std::move(inits);
+
+        wile->iters = parse_statement_list(ctx, sema);
+
+        if (!all_of(wile->iters.begin(), wile->iters.end(), [](auto &k) { return k->kind() == Stmt::Expression; }))
+        {
+          ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+          goto resume;
+        }
+
+        if (!ctx.try_consume_token(Token::semi))
+        {
+          ctx.diag.error("expected semi", ctx.text, ctx.tok.loc);
+          goto resume;
+        }
+
         wile->cond = parse_expression(ctx, sema);
       }
     }

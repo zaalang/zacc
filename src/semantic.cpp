@@ -1594,6 +1594,11 @@ namespace
       semantic_statement(ctx, init, sema);
     }
 
+    for(auto &iter : wile->iters)
+    {
+      semantic_statement(ctx, iter, sema);
+    }
+
     semantic_expr(ctx, wile->cond, sema);
 
     semantic_statement(ctx, wile->stmt, sema);

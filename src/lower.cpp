@@ -2807,7 +2807,10 @@ namespace
     if (!deduce_type(ctx, scope, fx, type, rhs.type))
       return false;
 
-    if (rhs.type == ctx.ptrliteraltype)
+    if (is_null_type(rhs.type))
+      return true;
+
+    if (is_lambda_type(rhs.type))
       return true;
 
     if (!fx.typeargs.empty())
@@ -9320,6 +9323,9 @@ namespace
 
       commit_type(ctx, arg, result.type.type, result.type.flags);
 
+      if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
+        realise_destructor(ctx, arg, expr->loc());
+
       args.push_back(arg);
     }
 
@@ -9608,15 +9614,15 @@ namespace
       if (!lower_expr(ctx, compare, BinaryOpExpr::NE, parms, namedparms, fors->loc()))
         return;
 
-      auto flg = ctx.add_local();
+      auto cond = ctx.add_local();
 
-      realise_as_value(ctx, flg, compare);
+      realise_as_value(ctx, cond, compare);
 
-      commit_type(ctx, flg, compare.type.type, compare.type.flags);
+      commit_type(ctx, cond, compare.type.type, compare.type.flags);
 
       ctx.retire_barrier(ssm);
 
-      block_conds.push_back(ctx.add_block(MIR::Terminator::switcher(flg, ctx.currentblockid + 1)));
+      block_conds.push_back(ctx.add_block(MIR::Terminator::switcher(cond, ctx.currentblockid + 1)));
     }
 
     for(auto &range : ranges)
@@ -9683,6 +9689,9 @@ namespace
       realise(ctx, res, increment);
 
       commit_type(ctx, res, increment.type.type, increment.type.flags);
+
+      if (!(ctx.mir.locals[res].flags & MIR::Local::Reference))
+        realise_destructor(ctx, res, fors->loc());
     }
 
     for(auto &iter : fors->iters)
@@ -9825,15 +9834,15 @@ namespace
       if (!lower_expr(ctx, compare, BinaryOpExpr::EQ, parms, namedparms, rofs->loc()))
         return;
 
-      auto flg = ctx.add_local();
+      auto cond = ctx.add_local();
 
-      realise_as_value(ctx, flg, compare);
+      realise_as_value(ctx, cond, compare);
 
-      commit_type(ctx, flg, compare.type.type, compare.type.flags);
+      commit_type(ctx, cond, compare.type.type, compare.type.flags);
 
       ctx.retire_barrier(ssm);
 
-      block_conds.push_back(ctx.add_block(MIR::Terminator::switcher(flg, ctx.currentblockid + 1, ctx.currentblockid + 1)));
+      block_conds.push_back(ctx.add_block(MIR::Terminator::switcher(cond, ctx.currentblockid + 1, ctx.currentblockid + 1)));
     }
 
     for(auto &range : ranges)
@@ -9855,6 +9864,9 @@ namespace
       realise(ctx, res, decrement);
 
       commit_type(ctx, res, decrement.type.type, decrement.type.flags);
+
+      if (!(ctx.mir.locals[res].flags & MIR::Local::Reference))
+        realise_destructor(ctx, res, rofs->loc());
     }
 
     for(auto &range : ranges)
@@ -10131,6 +10143,11 @@ namespace
     auto ssm = ctx.push_barrier();
 
     MIR::Fragment condition;
+
+    for(auto &iter : wile->iters)
+    {
+      lower_statement(ctx, iter);
+    }
 
     if (!lower_expr(ctx, condition, wile->cond))
       return;

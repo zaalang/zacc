@@ -53,7 +53,7 @@ namespace
 
   bool is_identifier_body(char ch)
   {
-    return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || (ch == '_') || (ch == '$');
+    return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || (ch == '_') || (ch == '$') || (ch == '!');
   }
 
   Token make_token(Token::Type type)

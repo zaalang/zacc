@@ -2265,6 +2265,11 @@ namespace
       typer_statement(ctx, init, sema);
     }
 
+    for(auto &iter : wile->iters)
+    {
+      typer_statement(ctx, iter, sema);
+    }
+
     ctx.stack.back().goalpost = nullptr;
 
     resolve_expr(ctx, ctx.stack.back(), wile->cond, sema);

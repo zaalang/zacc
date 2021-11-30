@@ -96,6 +96,12 @@ namespace
     if (callee.fn->flags & FunctionDecl::Destructor)
       return;
 
+    if (callee.fn->name == Ident::op_assign)
+    {
+      for(auto i : ctx.threads[0].locals[args[0]].depends_upon)
+        ctx.threads[0].locals[i].consumed = false;
+    }
+
     for(auto arg : args)
     {
       for(auto i : ctx.threads[0].locals[arg].depends_upon)
@@ -221,10 +227,18 @@ namespace
     if (mir.fx.fn->flags & FunctionDecl::Defaulted)
       return;
 
-    ctx.add_thread(0, vector<Context::Storage>(mir.locals.size()));
+    ctx.add_thread(0, vector<Context::Storage>(mir.locals.size() + mir.args_end));
 
     for(auto arg = mir.args_beg; arg != mir.args_end; ++arg)
+    {
       ctx.threads[0].locals[arg].live = true;
+
+      if (is_reference_type(mir.locals[arg].type))
+      {
+        ctx.threads[0].locals[arg + mir.locals.size()].live = true;
+        ctx.threads[0].locals[arg].depends_upon.insert(arg + mir.locals.size());
+      }
+    }
 
     for(size_t block_id = 0; block_id < mir.blocks.size(); ++block_id)
     {

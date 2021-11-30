@@ -4740,6 +4740,35 @@ namespace
       }
     }
 
+    for(auto &[arg, value] : fx.mir.statics)
+    {
+      auto constant = value.get<MIR::RValue::Constant>();
+
+      if (auto pointee = get_if<FunctionPointerExpr*>(&constant))
+      {
+        codegen_function(ctx, (*pointee)->value());
+      }
+
+      if (auto compound = get_if<CompoundLiteralExpr*>(&constant))
+      {
+        auto stack = vector<CompoundLiteralExpr*>{ *compound };
+
+        while (!stack.empty())
+        {
+          for(auto &field : stack.front()->fields)
+          {
+            if (field->kind() == Expr::CompoundLiteral)
+              stack.push_back(expr_cast<CompoundLiteralExpr>(field));
+
+            if (field->kind() == Expr::FunctionPointer)
+              codegen_function(ctx, expr_cast<FunctionPointerExpr>(field)->value());
+          }
+
+          stack.erase(stack.begin());
+        }
+      }
+    }
+
     for(auto &var : fx.mir.varinfos)
     {
       fx.locals[var.local].info = &var;

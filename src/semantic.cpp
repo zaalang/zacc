@@ -653,7 +653,7 @@ namespace
         for(auto &parm : fn->parms)
           params.push_back(decl_cast<ParmVarDecl>(parm)->type);
 
-        field->type = sema.make_reference(sema.make_const(sema.make_fntype(fn->returntype, sema.make_tuple(params))));
+        field->type = sema.make_reference(sema.make_const(sema.make_fntype(fn->returntype, sema.make_tuple(params), type(Builtin::Type_Void))));
 
         decl = field;
       }

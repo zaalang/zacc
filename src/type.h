@@ -353,10 +353,11 @@ class TagType : public CompoundType
 class FunctionType : public Type
 {
   public:
-    FunctionType(Type *returntype, Type *paramtuple);
+    FunctionType(Type *returntype, Type *paramtuple, Type *throwtype = nullptr);
 
     Type *returntype;
     Type *paramtuple;
+    Type *throwtype;
 
     void dump(int indent) const override;
 };

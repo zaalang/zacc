@@ -509,6 +509,8 @@ namespace Builtin
 
     make_function(StringLen, "pub const fn len(#string) -> usize", __LINE__);
     make_function(StringData, "pub fn data(#string) -> u8*", __LINE__);
+    make_function(StringBegin, "pub fn begin(#string) -> u8*", __LINE__);
+    make_function(StringEnd, "pub fn end(#string) -> u8*", __LINE__);
     make_function(StringSlice, "pub const fn [](#string, (usize, usize)) -> #string", __LINE__);
     make_function(StringAppend, "pub const fn +(#string, #string) -> #string", __LINE__);
     make_function(StringCreate, "pub const fn #string(u8*, usize) -> #string", __LINE__);
@@ -544,6 +546,7 @@ namespace Builtin
     make_function(inf, "pub const fn __inf() -> #float", __LINE__);
 
     make_function(is_integral, "pub const fn __is_integral<T>() -> bool", __LINE__);
+    make_function(is_unsigned, "pub const fn __is_unsigned<T>() -> bool", __LINE__);
     make_function(is_floating_point, "pub const fn __is_floating_point<T>() -> bool", __LINE__);
     make_function(is_arithmetic, "pub const fn __is_arithmetic<T>() -> bool", __LINE__);
 
@@ -885,6 +888,7 @@ namespace Builtin
       case Builtin::is_trivial_assign:
       case Builtin::is_trivial_destroy:
       case Builtin::is_integral:
+      case Builtin::is_unsigned:
       case Builtin::is_floating_point:
       case Builtin::is_arithmetic:
         return typeargs.size() == 1;

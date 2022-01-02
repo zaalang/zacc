@@ -198,9 +198,13 @@ void find_decl(Decl *decl, Ident *name, long flags, vector<Decl*> &results)
         results.push_back(decl);
       break;
 
+    case Decl::ParmVar:
+      if (decl_cast<VarDecl>(decl)->name == name && (flags & Parameters))
+        results.push_back(decl);
+      break;
+
     case Decl::VoidVar:
     case Decl::StmtVar:
-    case Decl::ParmVar:
     case Decl::ThisVar:
     case Decl::ErrorVar:
     case Decl::RangeVar:

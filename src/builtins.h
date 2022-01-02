@@ -144,6 +144,8 @@ namespace Builtin
 
     StringLen,
     StringData,
+    StringBegin,
+    StringEnd,
     StringSlice,
     StringAppend,
     StringCreate,
@@ -179,6 +181,7 @@ namespace Builtin
     inf,
 
     is_integral,
+    is_unsigned,
     is_floating_point,
     is_arithmetic,
 

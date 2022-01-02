@@ -160,7 +160,7 @@ namespace
     return false;
   }
 
-  bool eval_function(EvalContext &ctx, Scope const &scope, MIR const &mir, FunctionContext::Local &returnvalue, vector<FunctionContext::Local> const &args = {});
+  bool eval_function(EvalContext &ctx, Scope const &scope, MIR const &mir, vector<FunctionContext::Local> &&args);
 
   //|///////////////////// type_similar /////////////////////////////////////
   bool types_similar(Type const *lhs, Type const *rhs)
@@ -2139,6 +2139,18 @@ namespace
     return true;
   }
 
+  //|///////////////////// slice_end ///////////////////////////////////////
+  bool eval_builtin_slice_end(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto src = load_string(ctx, fx, args[0]);
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, (void*)(src.data() + src.length()));
+
+    return true;
+  }
+
   //|///////////////////// string_slice /////////////////////////////////////
   bool eval_builtin_string_slice(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -2239,6 +2251,48 @@ namespace
     store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
 
     return true;
+  }
+
+  //|///////////////////// callop ///////////////////////////////////////////
+  bool eval_builtin_callop(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &callop)
+  {
+    auto &[callee, args, loc] = callop;
+
+    auto fn = load_ptr(ctx, fx, args[0]);
+    auto rhs = load_ptr(ctx, fx, args[1]);
+
+    if (!fn)
+    {
+      ctx.diag.error("null funciton pointer dereference");
+      return false;
+    }
+
+    auto &mir = lower(static_cast<FunctionPointerExpr*>(fn)->value(), ctx.typetable, ctx.diag);
+
+    if (ctx.diag.has_errored())
+      return false;
+
+    auto paramtuple = type_cast<TupleType>(remove_const_type(remove_pointer_type(fx.locals[args[1]].type)));
+
+    vector<FunctionContext::Local> parms;
+
+    parms.push_back(fx.locals[dst]);
+
+    if (callee.throwtype)
+    {
+      parms.push_back(fx.locals[fx.errorarg]);
+    }
+
+    for(size_t index = 0; index < paramtuple->fields.size(); ++index)
+    {
+      auto argtype = remove_const_type(remove_reference_type(paramtuple->fields[index]));
+
+      auto ptr = load_ptr(ctx, (void*)((size_t)rhs + offsetof_field(paramtuple, index)), paramtuple->fields[index]);
+
+      parms.push_back(FunctionContext::Local { argtype, sizeof_type(argtype), ptr });
+    }
+
+    return eval_function(ctx, mir.fx.fn, mir, std::move(parms));
   }
 
   //|///////////////////// bool /////////////////////////////////////////////
@@ -3035,37 +3089,37 @@ namespace
 
     switch (load_int(ctx, fx, args[0]).value)
     {
-      case 0: // add_const
+      case 0xcd: // add_const
         if (auto typid = reinterpret_cast<Type*>(load_int(ctx, params, type(Builtin::Type_TypeidLiteral)).value))
           result = ctx.typetable.find_or_create<ConstType>(typid);
         break;
 
-      case 1: // remove_const
+      case 0x95: // remove_const
         if (auto typid = reinterpret_cast<Type*>(load_int(ctx, params, type(Builtin::Type_TypeidLiteral)).value))
           result = remove_const_type(typid);
         break;
 
-      case 2: // add_pointer
+      case 0xfa: // add_pointer
         if (auto typid = reinterpret_cast<Type*>(load_int(ctx, params, type(Builtin::Type_TypeidLiteral)).value))
           result = ctx.typetable.find_or_create<PointerType>(typid);
         break;
 
-      case 3: // remove_pointer
+      case 0x73: // remove_pointer
         if (auto typid = reinterpret_cast<Type*>(load_int(ctx, params, type(Builtin::Type_TypeidLiteral)).value))
-          result = remove_pointer_type(typid);
+          result = is_pointference_type(remove_const_type(typid)) ? remove_pointference_type(remove_const_type(typid)) : typid;
         break;
 
-      case 4: // add_reference
+      case 0xeb: // add_reference
         if (auto typid = reinterpret_cast<Type*>(load_int(ctx, params, type(Builtin::Type_TypeidLiteral)).value))
           result = ctx.typetable.find_or_create<ReferenceType>(typid);
         break;
 
-      case 5: // remove_reference
+      case 0xfc: // remove_reference
         if (auto typid = reinterpret_cast<Type*>(load_int(ctx, params, type(Builtin::Type_TypeidLiteral)).value))
-          result = remove_reference_type(typid);
+          result = is_reference_type(remove_const_type(typid)) ? remove_reference_type(remove_const_type(typid)) : typid;
         break;
 
-      case 6: // return_type
+      case 0xc8: // return_type
         if (auto declid = reinterpret_cast<Decl*>(load_int(ctx, params, type(Builtin::Type_DeclidLiteral)).value))
         {
           if (declid->kind() == Decl::Function)
@@ -3073,7 +3127,7 @@ namespace
         }
         break;
 
-      case 7: // parameters_type
+      case 0x93: // parameters_type
         if (auto declid = reinterpret_cast<Decl*>(load_int(ctx, params, type(Builtin::Type_DeclidLiteral)).value))
         {
           if (declid->kind() == Decl::Function)
@@ -3088,7 +3142,7 @@ namespace
         }
         break;
 
-      case 8: // tuple_append
+      case 0xe4: // tuple_append
         if (auto tuple = reinterpret_cast<Type*>(load_int(ctx, params, type(Builtin::Type_TypeidLiteral)).value))
         {
           auto fields = type_cast<TupleType>(tuple)->fields;
@@ -3522,7 +3576,11 @@ namespace
           return eval_builtin_slice_len(ctx, fx, dst, call);
 
         case Builtin::StringData:
+        case Builtin::StringBegin:
           return eval_builtin_slice_data(ctx, fx, dst, call);
+
+        case Builtin::StringEnd:
+          return eval_builtin_slice_end(ctx, fx, dst, call);
 
         case Builtin::StringSlice:
           return eval_builtin_string_slice(ctx, fx, dst, call);
@@ -3542,6 +3600,9 @@ namespace
 
         case Builtin::ArrayEnd:
           return eval_builtin_array_end(ctx, fx, dst, call);
+
+        case Builtin::CallOp:
+          return eval_builtin_callop(ctx, fx, dst, call);
 
         case Builtin::is_nan:
         case Builtin::is_finite:
@@ -3722,6 +3783,8 @@ namespace
 
       vector<FunctionContext::Local> parms;
 
+      parms.push_back(fx.locals[dst]);
+
       if (callee.throwtype)
       {
         parms.push_back(fx.locals[fx.errorarg]);
@@ -3732,7 +3795,7 @@ namespace
         parms.push_back(fx.locals[arg]);
       }
 
-      return eval_function(ctx, callee.fn, mir, fx.locals[dst], parms);
+      return eval_function(ctx, callee.fn, mir, std::move(parms));
     }
   }
 
@@ -3900,18 +3963,12 @@ namespace
   }
 
   //|///////////////////// eval_function ////////////////////////////////////
-  bool eval_function(EvalContext &ctx, Scope const &scope, MIR const &mir, FunctionContext::Local &returnvalue, vector<FunctionContext::Local> const &args)
+  bool eval_function(EvalContext &ctx, Scope const &scope, MIR const &mir, vector<FunctionContext::Local> &&args)
   {
     FunctionContext fx;
 
     fx.scope = scope;
-
-    fx.locals.push_back(returnvalue);
-
-    for(auto &arg : args)
-    {
-      fx.locals.push_back(arg);
-    }
+    fx.locals = std::move(args);
 
     if (fx.locals.size() != mir.args_end)
     {
@@ -4014,6 +4071,7 @@ namespace
     return true;
   }
 
+
   //|///////////////////// eval_function ////////////////////////////////////
   bool eval_function(EvalContext &ctx, Scope const &scope, FnSig const &callee, FunctionContext::Local &returnvalue, vector<EvalResult> const &parms, SourceLocation loc)
   {
@@ -4102,7 +4160,7 @@ EvalResult evaluate(Scope const &scope, MIR const &mir, TypeTable &typetable, Di
 
   auto returnvalue = alloc(ctx, mir.locals[0]);
 
-  if (eval_function(ctx, scope, mir, returnvalue))
+  if (eval_function(ctx, scope, mir, { returnvalue }))
   {
     result = make_result(ctx, returnvalue, loc);
   }
@@ -4157,7 +4215,7 @@ EvalResult evaluate(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fr
 
   auto returnvalue = alloc(ctx, mir.locals[0]);
 
-  if (eval_function(ctx, scope, mir, returnvalue))
+  if (eval_function(ctx, scope, mir, { returnvalue }))
   {
     if (mir.locals[0].flags & MIR::Local::Reference)
     {

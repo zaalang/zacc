@@ -1130,10 +1130,11 @@ void TagType::dump(int indent) const
 //|--------------------------------------------------------------------------
 
 //|///////////////////// FunctionType::Constructor //////////////////////////
-FunctionType::FunctionType(Type *returntype, Type *paramtuple)
+FunctionType::FunctionType(Type *returntype, Type *paramtuple, Type *throwtype)
   : Type(Function),
     returntype(returntype),
-    paramtuple(paramtuple)
+    paramtuple(paramtuple),
+    throwtype(throwtype)
 {
   if (is_concrete_type(returntype) && is_concrete_type(paramtuple))
   {
@@ -1339,6 +1340,9 @@ size_t sizeof_type(Type const *type)
     case Type::Tag:
       return sizeof_type(type_cast<TagType>(type));
 
+    case Type::Function:
+      return 0;
+
     default:
       assert(false);
   }
@@ -1451,6 +1455,9 @@ size_t alignof_type(Type const *type)
 
     case Type::Tag:
       return alignof_type(type_cast<TagType>(type));
+
+    case Type::Function:
+      return 1;
 
     default:
       assert(false);

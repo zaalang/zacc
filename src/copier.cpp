@@ -125,6 +125,13 @@ namespace
         return new TupleType(fields);
       }
 
+      case Type::Function: {
+        auto returntype = copier_type(ctx, type_cast<FunctionType>(type)->returntype);
+        auto paramtuple = copier_type(ctx, type_cast<FunctionType>(type)->paramtuple);
+        auto throwtype = copier_type(ctx, type_cast<FunctionType>(type)->throwtype);
+        return new FunctionType(returntype, paramtuple, throwtype);
+      }
+
       case Type::TypeRef:
         return copier_type(ctx, type_cast<TypeRefType>(type));
 

@@ -58,6 +58,9 @@ struct TypeTable
   T *find_or_create(long qualifiers, Type *subtype);
 
   template<typename T>
+  T *find_or_create(Type *returntype, Type *paramtuple, Type *throwtype);
+
+  template<typename T>
   T *find_or_create(Expr *expr);
 
   template<typename T>
@@ -166,13 +169,13 @@ inline TagType *TypeTable::create<TagType>(Decl *decl, std::vector<std::pair<Dec
 }
 
 template<>
-inline FunctionType *TypeTable::find_or_create<FunctionType>(Type *returntype, Type *paramtuple)
+inline FunctionType *TypeTable::find_or_create<FunctionType>(Type *returntype, Type *paramtuple, Type *throwtype)
 {
-  auto j = find_if(fn_types.begin(), fn_types.end(), [&](auto &k) { return k->returntype == returntype && k->paramtuple == paramtuple; });
+  auto j = find_if(fn_types.begin(), fn_types.end(), [&](auto &k) { return k->returntype == returntype && k->paramtuple == paramtuple && k->throwtype == throwtype; });
 
   if (j == fn_types.end())
   {
-    j = fn_types.emplace(fn_types.end(), make_type<FunctionType>(returntype, paramtuple));
+    j = fn_types.emplace(fn_types.end(), make_type<FunctionType>(returntype, paramtuple, throwtype));
   }
 
   return *j;
@@ -220,6 +223,7 @@ inline TypeLitType *TypeTable::find_or_create<TypeLitType>(Expr *expr)
 
       return string_literal_types.back();
 
+    case Expr::VoidLiteral:
     case Expr::BoolLiteral:
     case Expr::CharLiteral:
     case Expr::FloatLiteral:
@@ -235,6 +239,10 @@ inline TypeLitType *TypeTable::find_or_create<TypeLitType>(Expr *expr)
 
       switch(expr->kind())
       {
+        case Expr::VoidLiteral:
+          other_literal_types.push_back(make_type<TypeLitType>(make_expr<VoidLiteralExpr>(expr->loc())));
+          break;
+
         case Expr::BoolLiteral:
           other_literal_types.push_back(make_type<TypeLitType>(make_expr<BoolLiteralExpr>(expr_cast<BoolLiteralExpr>(expr)->value(), expr->loc())));
           break;

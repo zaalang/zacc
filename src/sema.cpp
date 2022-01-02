@@ -651,9 +651,9 @@ Type *Sema::make_tagtype(Decl *decl, vector<pair<Decl*, Type*>> const &args)
 }
 
 //|///////////////////// make_fntype ////////////////////////////////////////
-Type *Sema::make_fntype(Type *returntype, Type *paramtuple)
+Type *Sema::make_fntype(Type *returntype, Type *paramtuple, Type *throwtype)
 {
-  return ast->make_type<FunctionType>(returntype, paramtuple);
+  return ast->make_type<FunctionType>(returntype, paramtuple, throwtype);
 }
 
 //|///////////////////// make_pack //////////////////////////////////////////

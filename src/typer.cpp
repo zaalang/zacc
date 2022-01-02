@@ -470,6 +470,13 @@ namespace
         return sema.make_tagtype(type_cast<TagType>(type)->decl, args);
       }
 
+      case Type::Function: {
+        auto returntype = substitute_type(ctx, typeargs, type_cast<FunctionType>(type)->returntype, sema);
+        auto paramtuple = substitute_type(ctx, typeargs, type_cast<FunctionType>(type)->paramtuple, sema);
+        auto throwtype = substitute_type(ctx, typeargs, type_cast<FunctionType>(type)->throwtype, sema);
+        return sema.make_fntype(returntype, paramtuple, throwtype);
+      }
+
       case Type::TypeLit:
         return type;
 
@@ -477,9 +484,6 @@ namespace
         if (auto j = find_if(typeargs.begin(), typeargs.end(), [&](auto k) { return k.first == type_cast<TypeArgType>(type)->decl; }); j != typeargs.end())
           return j->second;
         return type;
-
-      case Type::Function:
-        return sema.make_fntype(substitute_type(ctx, typeargs, type_cast<FunctionType>(type)->returntype, sema), substitute_type(ctx, typeargs, type_cast<FunctionType>(type)->paramtuple, sema));
 
       case Type::TypeRef:
         return type;
@@ -772,6 +776,15 @@ namespace
           return;
         }
 
+        if (usein->flags & Decl::Public)
+        {
+          if (get_module(decls[0])->name->sv().substr(0, declref->name->sv().size()) == declref->name->sv())
+          {
+            ctx.diag.error("recursive public using", usein, usein->loc());
+            return;
+          }
+        }
+
         if (decls[0]->kind() == Decl::Import || decls[0]->kind() == Decl::Module)
           querymask |= QueryFlags::Public;
 
@@ -820,15 +833,6 @@ namespace
         {
           ctx.diag.error("no such declaration", usein, usein->loc());
           return;
-        }
-
-        if (usein->flags & Decl::Public)
-        {
-          if (get_module(decls[0]) == get_module(usein))
-          {
-            ctx.diag.error("recursive public using", usein, usein->loc());
-            return;
-          }
         }
 
         if (!all_of(decls.begin(), decls.end(), [](auto *decl) { return decl->kind() == Decl::Function || decl->kind() == Decl::DeclScoped; }))
@@ -1138,7 +1142,7 @@ namespace
     {
       for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
       {
-        find_decls(ctx, sx, declref->name, QueryFlags::Functions | QueryFlags::Variables | QueryFlags::Usings, decls, sema);
+        find_decls(ctx, sx, declref->name, QueryFlags::Functions | QueryFlags::Parameters | QueryFlags::Variables | QueryFlags::Usings, decls, sema);
 
         if (decls.empty())
           continue;

@@ -123,7 +123,7 @@ class Sema
     Type *make_typelit(Expr *expr);
     Type *make_constant(Decl *decl, Type *type);
     Type *make_tagtype(Decl *decl, std::vector<std::pair<Decl*, Type*>> const &args);
-    Type *make_fntype(Type *returntype, Type *paramtuple);
+    Type *make_fntype(Type *returntype, Type *paramtuple, Type *throwtype = nullptr);
     Type *make_pack(Type *type);
     Type *make_unpack(Type *type);
 

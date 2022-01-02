@@ -918,44 +918,44 @@ namespace
 
     if (ctx.tok.text == "declname")
     {
-       if (auto nexttok = ctx.token(1); nexttok == Token::dollar)
-       {
-         ctx.consume_token();
+      if (auto nexttok = ctx.token(1); nexttok == Token::dollar)
+      {
+        ctx.consume_token();
 
-         auto name = parse_ident(ctx, IdentUsage::ScopedName, sema);
+        auto name = parse_ident(ctx, IdentUsage::ScopedName, sema);
 
-         if (!name)
-         {
-           ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-           return nullptr;
-         }
+        if (!name)
+        {
+          ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+          return nullptr;
+        }
 
-         decls.push_back(sema.make_declname(name, loc));
+        decls.push_back(sema.make_declname(name, loc));
 
-         if (!ctx.try_consume_token(Token::coloncolon))
-           return decls.back();
-       }
+        if (!ctx.try_consume_token(Token::coloncolon))
+          return decls.back();
+      }
     }
 
     if (ctx.tok.text == "typename")
     {
-       if (auto nexttok = ctx.token(1); nexttok == Token::identifier || nexttok == Token::kw_void || nexttok == Token::kw_null || nexttok == Token::l_paren || nexttok == Token::dollar)
-       {
-         ctx.consume_token();
+      if (auto nexttok = ctx.token(1); nexttok == Token::identifier || nexttok == Token::kw_void || nexttok == Token::kw_null || nexttok == Token::l_paren || nexttok == Token::dollar)
+      {
+        ctx.consume_token();
 
-         auto type = parse_type(ctx, sema);
+        auto type = parse_type(ctx, sema);
 
-         if (!type)
-         {
-           ctx.diag.error("expected type", ctx.text, ctx.tok.loc);
-           return nullptr;
-         }
+        if (!type)
+        {
+          ctx.diag.error("expected type", ctx.text, ctx.tok.loc);
+          return nullptr;
+        }
 
-         decls.push_back(sema.make_typename(type, loc));
+        decls.push_back(sema.make_typename(type, loc));
 
-         if (!ctx.try_consume_token(Token::coloncolon))
-           return decls.back();
-       }
+        if (!ctx.try_consume_token(Token::coloncolon))
+          return decls.back();
+      }
     }
 
     while (true)
@@ -1196,7 +1196,7 @@ namespace
           return nullptr;
         }
 
-        auto fields = parse_typearg_list(ctx, sema);
+        auto parms = parse_typearg_list(ctx, sema);
 
         if (!ctx.try_consume_token(Token::r_paren))
         {
@@ -1204,7 +1204,26 @@ namespace
           return nullptr;
         }
 
-        type = sema.make_fntype(type, sema.make_tuple(fields));
+        auto throwtype = Builtin::type(Builtin::Type_Void);
+
+        if (ctx.try_consume_token(Token::kw_throws))
+        {
+          if (!ctx.try_consume_token(Token::l_paren))
+          {
+            ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+            return nullptr;
+          }
+
+          throwtype = parse_type(ctx, sema);
+
+          if (!ctx.try_consume_token(Token::r_paren))
+          {
+            ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+            return nullptr;
+          }
+        }
+
+        type = sema.make_fntype(type, sema.make_tuple(parms), throwtype);
       }
 
       if (kw_const)
@@ -1411,10 +1430,37 @@ namespace
 
     auto expr = parse_expression(ctx, sema);
 
-    if (!expr)
+    if (!expr || ctx.try_consume_token(Token::comma))
     {
-      ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-      return nullptr;
+      vector<Expr*> parms;
+      map<Ident*, Expr*> namedparms;
+
+      if (expr)
+        parms.push_back(expr);
+
+      while (ctx.tok != Token::r_paren && ctx.tok != Token::eof)
+      {
+        auto expr = parse_expression(ctx, sema);
+
+        if (!expr)
+        {
+          ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+          break;
+        }
+
+        parms.push_back(expr);
+
+        if (!ctx.try_consume_token(Token::comma))
+          break;
+      }
+
+      if (!ctx.try_consume_token(Token::r_paren))
+      {
+        ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+        return nullptr;
+      }
+
+      return sema.make_call_expression(sema.make_declref(Ident::type_tuple, loc), parms, namedparms, loc);
     }
 
     if (!ctx.try_consume_token(Token::r_paren))
@@ -1946,6 +1992,17 @@ namespace
       lambda->name = parse_ident(ctx, IdentUsage::TagName, sema);
     }
 
+    if (ctx.try_consume_token(Token::less))
+    {
+      fn->args = parse_args_list(ctx, sema);
+
+      if (!ctx.try_consume_token(Token::greater))
+      {
+        ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
+        return nullptr;
+      }
+    }
+
     if (ctx.try_consume_token(Token::l_square))
     {
       lambda->flags |= LambdaDecl::Captures;
@@ -1955,17 +2012,6 @@ namespace
       if (!ctx.try_consume_token(Token::r_square))
       {
         ctx.diag.error("expected bracket", ctx.text, ctx.tok.loc);
-        return nullptr;
-      }
-    }
-
-    if (ctx.try_consume_token(Token::less))
-    {
-      fn->args = parse_args_list(ctx, sema);
-
-      if (!ctx.try_consume_token(Token::greater))
-      {
-        ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
         return nullptr;
       }
     }
@@ -1983,7 +2029,20 @@ namespace
 
     if (ctx.try_consume_token(Token::kw_throws))
     {
-      fn->throws = sema.make_bool_literal(true, ctx.tok.loc);
+      if (ctx.try_consume_token(Token::l_paren))
+      {
+        fn->throws = parse_expression(ctx, sema);
+
+        if (!ctx.try_consume_token(Token::r_paren))
+        {
+          ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+          return nullptr;
+        }
+      }
+      else
+      {
+        fn->throws = sema.make_bool_literal(true, ctx.tok.loc);
+      }
     }
 
     if (ctx.try_consume_token(Token::arrow))

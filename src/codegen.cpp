@@ -1718,14 +1718,14 @@ namespace
           if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
             result = codegen_checked(ctx, fx, llvm::Intrinsic::uadd_with_overflow, lhs, llvm_int(lhs->getType(), 1));
           else
-            result = ctx.builder.CreateAdd(lhs, llvm_int(lhs->getType(), 1));
+            result = ctx.builder.CreateNUWAdd(lhs, llvm_int(lhs->getType(), 1));
           break;
 
         case Builtin::PreDec:
           if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
             result = codegen_checked(ctx, fx, llvm::Intrinsic::usub_with_overflow, lhs, llvm_int(lhs->getType(), 1));
           else
-            result = ctx.builder.CreateSub(lhs, llvm_int(lhs->getType(), 1));
+            result = ctx.builder.CreateNUWSub(lhs, llvm_int(lhs->getType(), 1));
           break;
 
         default:
@@ -1744,14 +1744,14 @@ namespace
           if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
             result = codegen_checked(ctx, fx, llvm::Intrinsic::sadd_with_overflow, lhs, llvm_int(lhs->getType(), 1));
           else
-            result = ctx.builder.CreateAdd(lhs, llvm_int(lhs->getType(), 1));
+            result = ctx.builder.CreateNSWAdd(lhs, llvm_int(lhs->getType(), 1));
           break;
 
         case Builtin::PreDec:
           if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
             result = codegen_checked(ctx, fx, llvm::Intrinsic::ssub_with_overflow, lhs, llvm_int(lhs->getType(), 1));
           else
-            result = ctx.builder.CreateSub(lhs, llvm_int(lhs->getType(), 1));
+            result = ctx.builder.CreateNSWSub(lhs, llvm_int(lhs->getType(), 1));
           break;
 
         default:
@@ -2971,6 +2971,20 @@ namespace
     store(ctx, fx, dst, ctx.builder.CreateExtractValue(lhs, 1));
   }
 
+  //|///////////////////// slice_end ////////////////////////////////////////
+  void codegen_builtin_slice_end(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto lhs = load(ctx, fx, args[0]);
+
+    auto elemtype = ctx.builder.getInt8Ty();
+
+    auto result = ctx.builder.CreateInBoundsGEP(elemtype, ctx.builder.CreateExtractValue(lhs, 1), ctx.builder.CreateExtractValue(lhs, 0));
+
+    store(ctx, fx, dst, result);
+  }
+
   //|///////////////////// array_data ///////////////////////////////////////
   void codegen_builtin_array_data(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -3015,16 +3029,6 @@ namespace
     store(ctx, fx, dst, result);
   }
 
-  //|///////////////////// bool /////////////////////////////////////////////
-  void codegen_builtin_bool(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
-  {
-    auto &[callee, args, loc] = call;
-
-    auto lhs = load(ctx, fx, args[0]);
-
-    store(ctx, fx, dst, ctx.builder.CreateICmpNE(lhs, llvm_zero(lhs->getType())));
-  }
-
   //|///////////////////// callop ///////////////////////////////////////////
   void codegen_builtin_callop(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &callop)
   {
@@ -3044,6 +3048,16 @@ namespace
       parmtypes.push_back(returntype->getPointerTo());
 
       returntype = ctx.builder.getVoidTy();
+
+      if (callee.throwtype)
+      {
+        auto throwtype = llvm_type(ctx, callee.throwtype, true);
+
+        parms.push_back(fx.locals[fx.mir.blocks[fx.currentblockid].terminator.value].alloca);
+        parmtypes.push_back(throwtype->getPointerTo());
+
+        returntype = ctx.builder.getInt1Ty();
+      }
     }
 
     for(size_t index = 0; index < paramtuple->fields.size(); ++index)
@@ -3076,6 +3090,18 @@ namespace
 
     if (!fx.locals[dst].firstarg_return && !fx.mir.locals[dst].zerosized())
       store(ctx, fx, dst, call);
+
+    fx.lastcall = call;
+  }
+
+  //|///////////////////// bool /////////////////////////////////////////////
+  void codegen_builtin_bool(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto lhs = load(ctx, fx, args[0]);
+
+    store(ctx, fx, dst, ctx.builder.CreateICmpNE(lhs, llvm_zero(lhs->getType())));
   }
 
   //|///////////////////// classify /////////////////////////////////////////
@@ -3807,7 +3833,12 @@ namespace
           break;
 
         case Builtin::StringData:
+        case Builtin::StringBegin:
           codegen_builtin_slice_data(ctx, fx, dst, call);
+          break;
+
+        case Builtin::StringEnd:
+          codegen_builtin_slice_end(ctx, fx, dst, call);
           break;
 
         case Builtin::ArrayData:
@@ -4484,7 +4515,9 @@ namespace
       auto argtype = llvm_type(ctx, fx.mir.locals[0].type, fx.mir.locals[0].flags, true);
 
       attrbuilder.clear();
-      attrbuilder.addByRefAttr(argtype);
+      attrbuilder.addAttribute(llvm::Attribute::NonNull);
+      attrbuilder.addDereferenceableAttr(sizeof_type(fx.mir.locals[0].type));
+      attrbuilder.addAlignmentAttr(llvm_align(ctx, fx.mir.locals[0].type, fx.mir.locals[0].flags));
 
       parmtypes.push_back(argtype->getPointerTo());
       parmattrs.push_back(attrbuilder);
@@ -4504,7 +4537,9 @@ namespace
         auto argtype = llvm_type(ctx, fx.mir.locals[1].type, true);
 
         attrbuilder.clear();
-        attrbuilder.addByRefAttr(argtype);
+        attrbuilder.addAttribute(llvm::Attribute::NonNull);
+        attrbuilder.addDereferenceableAttr(sizeof_type(fx.mir.locals[1].type));
+        attrbuilder.addAlignmentAttr(llvm_align(ctx, fx.mir.locals[1].type, fx.mir.locals[0].flags));
 
         parmtypes.push_back(argtype->getPointerTo());
         parmattrs.push_back(attrbuilder);
@@ -4530,15 +4565,21 @@ namespace
 
       if (is_passarg_pointer(ctx, sig, fx.mir.locals[i]))
       {
-        attrbuilder.addByRefAttr(argtype);
+        attrbuilder.addAttribute(llvm::Attribute::NonNull);
+        attrbuilder.addDereferenceableAttr(sizeof_type(fx.mir.locals[i].type));
+        attrbuilder.addAlignmentAttr(llvm_align(ctx, fx.mir.locals[i].type, fx.mir.locals[0].flags));
 
         argtype = argtype->getPointerTo();
 
         fx.locals[i].passarg_pointer = true;
       }
 
-      if (fx.mir.locals[i].flags & MIR::Local::Reference)
-        attrbuilder.addByRefAttr(argtype);
+      if (is_reference_type(fx.mir.locals[i].type))
+      {
+        attrbuilder.addAttribute(llvm::Attribute::NonNull);
+        attrbuilder.addDereferenceableAttr(sizeof_type(remove_reference_type(fx.mir.locals[i].type)));
+        attrbuilder.addAlignmentAttr(llvm_align(ctx, remove_reference_type(fx.mir.locals[i].type), 0));
+      }
 
       parmtypes.push_back(argtype);
       parmattrs.push_back(attrbuilder);

@@ -412,7 +412,7 @@ namespace
         return false;
 
       case Type::TypeLit:
-        return false;
+        return !is_literal_expr(type_cast<TypeLitType>(type)->value);
 
       case Type::TypeArg:
         return false;
@@ -1458,6 +1458,15 @@ namespace
     resolve_type(ctx, scope, arrayliteral->size, sema);
   }
 
+  //|///////////////////// compoundliteral //////////////////////////////////
+  void resolve_expr(TyperContext &ctx, Scope const &scope, CompoundLiteralExpr *compoundliteral, Sema &sema)
+  {
+    for(auto &field: compoundliteral->fields)
+    {
+      resolve_expr(ctx, scope, field, sema);
+    }
+  }
+
   //|///////////////////// paren_expression /////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, ParenExpr *paren, Sema &sema)
   {
@@ -1637,6 +1646,10 @@ namespace
 
       case Expr::ArrayLiteral:
         resolve_expr(ctx, scope, expr_cast<ArrayLiteralExpr>(expr), sema);
+        break;
+
+      case Expr::CompoundLiteral:
+        resolve_expr(ctx, scope, expr_cast<CompoundLiteralExpr>(expr), sema);
         break;
 
       case Expr::Paren:

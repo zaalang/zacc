@@ -867,7 +867,7 @@ namespace
     {
       return llvm_int(llvm_type(ctx, type, addressable), literal->value());
     }
-    else
+
     {
       ctx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
       ctx.diag << "  literal type: 'bool' required type: '" << *type << "'\n";
@@ -889,7 +889,7 @@ namespace
 
       return llvm_int(llvm_type(ctx, type), literal->value().sign * literal->value().value);
     }
-    else
+
     {
       ctx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
       ctx.diag << "  literal type: '#char' required type: '" << *type << "'\n";
@@ -916,7 +916,8 @@ namespace
 
       return llvm_int(llvm_type(ctx, type), literal->value().sign * literal->value().value);
     }
-    else if (is_float_type(type))
+
+    if (is_float_type(type))
     {
       if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), Numeric::float_cast<double>(literal->value())))
       {
@@ -927,7 +928,7 @@ namespace
 
       return llvm_float(llvm_type(ctx, type), literal->value().sign * literal->value().value);
     }
-    else
+
     {
       ctx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
       ctx.diag << "  literal type: '#int' required type: '" << *type << "'\n";
@@ -949,7 +950,8 @@ namespace
 
       return llvm_int(llvm_type(ctx, type), (uint64_t)(literal->value().value));
     }
-    else if (is_float_type(type))
+
+    if (is_float_type(type))
     {
       if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
       {
@@ -960,7 +962,7 @@ namespace
 
       return llvm_float(llvm_type(ctx, type), literal->value().value);
     }
-    else
+
     {
       ctx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
       ctx.diag << "  literal type: '#float' required type: '" << *type << "'\n";
@@ -975,7 +977,7 @@ namespace
     {
       return llvm_zero(llvm_type(ctx, type));
     }
-    else
+
     {
       ctx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
       ctx.diag << "  literal type: 'null' required type: '" << *type << "'\n";
@@ -1018,7 +1020,7 @@ namespace
 
       return llvm::ConstantStruct::get(llvm::cast<llvm::StructType>(llvm_type(ctx, type)), { len, data});
     }
-    else
+
     {
       ctx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
       ctx.diag << "  literal type: '#string' required type: '" << *type << "'\n";
@@ -1052,7 +1054,7 @@ namespace
 
       return llvm::ConstantArray::get(llvm::cast<llvm::ArrayType>(llvm_type(ctx, type)), elements);
     }
-    else
+
     {
       ctx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
       ctx.diag << "  literal type: '#array' required type: '" << *type << "'\n";
@@ -1063,6 +1065,21 @@ namespace
   //|///////////////////// llvm_constant ////////////////////////////////////
   llvm::Constant *llvm_constant(GenContext &ctx, FunctionContext &fx, Type *type, CompoundLiteralExpr *literal)
   {
+    if (is_union_type(type))
+    {
+      vector<llvm::Constant*> elements;
+
+      auto active = expr_cast<IntLiteralExpr>(literal->fields[0])->value().value;
+
+      elements.push_back(llvm_constant(ctx, fx, type_cast<CompoundType>(type)->fields[0], literal->fields[0]));
+      elements.push_back(llvm_constant(ctx, fx, type_cast<CompoundType>(type)->fields[active], literal->fields[1]));
+
+      if (any_of(elements.begin(), elements.end(), [](auto &k) { return !k; }))
+        return nullptr;
+
+      return llvm::ConstantStruct::get(llvm::cast<llvm::StructType>(llvm_type(ctx, type)), elements);
+    }
+
     if (is_compound_type(type))
     {
       vector<llvm::Constant*> elements;
@@ -1081,7 +1098,7 @@ namespace
 
       return llvm::ConstantStruct::get(llvm::cast<llvm::StructType>(llvm_type(ctx, type)), elements);
     }
-    else
+
     {
       ctx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
       ctx.diag << "  literal type: '#struct' required type: '" << *type << "'\n";
@@ -3045,16 +3062,14 @@ namespace
       fx.locals[dst].firstarg_return = true;
 
       parms.push_back(fx.locals[dst].alloca);
-      parmtypes.push_back(returntype->getPointerTo());
+      parmtypes.push_back(llvm_type(ctx, fx.mir.locals[dst].type, true)->getPointerTo());
 
       returntype = ctx.builder.getVoidTy();
 
       if (callee.throwtype)
       {
-        auto throwtype = llvm_type(ctx, callee.throwtype, true);
-
         parms.push_back(fx.locals[fx.mir.blocks[fx.currentblockid].terminator.value].alloca);
-        parmtypes.push_back(throwtype->getPointerTo());
+        parmtypes.push_back(llvm_type(ctx, callee.throwtype, true)->getPointerTo());
 
         returntype = ctx.builder.getInt1Ty();
       }
@@ -4512,14 +4527,12 @@ namespace
       firstarg += 1;
       fx.firstarg_return = true;
 
-      auto argtype = llvm_type(ctx, fx.mir.locals[0].type, fx.mir.locals[0].flags, true);
-
       attrbuilder.clear();
       attrbuilder.addAttribute(llvm::Attribute::NonNull);
       attrbuilder.addDereferenceableAttr(sizeof_type(fx.mir.locals[0].type));
       attrbuilder.addAlignmentAttr(llvm_align(ctx, fx.mir.locals[0].type, fx.mir.locals[0].flags));
 
-      parmtypes.push_back(argtype->getPointerTo());
+      parmtypes.push_back(llvm_type(ctx, fx.mir.locals[0].type, true)->getPointerTo());
       parmattrs.push_back(attrbuilder);
 
       returntype = ctx.builder.getVoidTy();
@@ -4534,14 +4547,12 @@ namespace
           return;
         }
 
-        auto argtype = llvm_type(ctx, fx.mir.locals[1].type, true);
-
         attrbuilder.clear();
         attrbuilder.addAttribute(llvm::Attribute::NonNull);
         attrbuilder.addDereferenceableAttr(sizeof_type(fx.mir.locals[1].type));
         attrbuilder.addAlignmentAttr(llvm_align(ctx, fx.mir.locals[1].type, fx.mir.locals[0].flags));
 
-        parmtypes.push_back(argtype->getPointerTo());
+        parmtypes.push_back(llvm_type(ctx, fx.mir.locals[1].type, true)->getPointerTo());
         parmattrs.push_back(attrbuilder);
 
         returntype = ctx.builder.getInt1Ty();

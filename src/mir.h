@@ -153,8 +153,8 @@ class MIR
         {
         }
 
-        Local(Type *type, Type *decl, long flags = 0)
-          : flags(flags), type(type), defn(decl)
+        Local(Type *type, Type *defn, long flags = 0)
+          : flags(flags), type(type), defn(defn)
         {
         }
 

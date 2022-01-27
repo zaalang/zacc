@@ -139,6 +139,15 @@ namespace
     }
   }
 
+  //|///////////////////// compoundliteral //////////////////////////////////
+  void semantic_expr(SemanticContext &ctx, CompoundLiteralExpr *compoundliteral, Sema &sema)
+  {
+    for(auto &field: compoundliteral->fields)
+    {
+      semantic_expr(ctx, field, sema);
+    }
+  }
+
   //|///////////////////// paren_expression /////////////////////////////////
   void semantic_expr(SemanticContext &ctx, ParenExpr *paren, Sema &sema)
   {
@@ -312,6 +321,10 @@ namespace
 
       case Expr::ArrayLiteral:
         semantic_expr(ctx, expr_cast<ArrayLiteralExpr>(expr), sema);
+        break;
+
+      case Expr::CompoundLiteral:
+        semantic_expr(ctx, expr_cast<CompoundLiteralExpr>(expr), sema);
         break;
 
       case Expr::Paren:

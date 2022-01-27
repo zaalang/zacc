@@ -87,14 +87,12 @@ namespace
 }
 
 //|///////////////////// print //////////////////////////////////////////////
-std::ostream &operator <<(std::ostream &os, FnSig const &fn)
+std::ostream &operator <<(std::ostream &os, FnSig const &fx)
 {
-  os << "&fn ";
-
-  if (fn.fn)
-    os << *fn.fn->name;
-
-  os << "()";
+  if (fx.fn)
+  {
+    os << '&' << *fx.fn;
+  }
 
   return os;
 }

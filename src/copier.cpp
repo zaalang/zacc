@@ -148,6 +148,32 @@ namespace
     return type;
   }
 
+  //|///////////////////// arrayliteral /////////////////////////////////////
+  Expr *copier_expr(CopierContext &ctx, ArrayLiteralExpr *arrayliteral)
+  {
+    std::vector<Expr*> elements;
+
+    for(auto &element : arrayliteral->elements)
+    {
+      elements.push_back(copier_expr(ctx, element));
+    }
+
+    return new ArrayLiteralExpr(elements, copier_type(ctx, arrayliteral->size), arrayliteral->loc());
+  }
+
+  //|///////////////////// compoundliteral //////////////////////////////////
+  Expr *copier_expr(CopierContext &ctx, CompoundLiteralExpr *compoundliteral)
+  {
+    std::vector<Expr*> fields;
+
+    for(auto &field: compoundliteral->fields)
+    {
+      fields.push_back(copier_expr(ctx, field));
+    }
+
+    return new CompoundLiteralExpr(fields, compoundliteral->loc());
+  }
+
   //|///////////////////// paren_expression /////////////////////////////////
   Expr *copier_expr(CopierContext &ctx, ParenExpr *paren)
   {
@@ -322,6 +348,9 @@ namespace
 
       case Expr::ArrayLiteral:
         return copier_expr(ctx, expr_cast<ArrayLiteralExpr>(expr));
+
+      case Expr::CompoundLiteral:
+        return copier_expr(ctx, expr_cast<CompoundLiteralExpr>(expr));
 
       case Expr::Paren:
         return copier_expr(ctx, expr_cast<ParenExpr>(expr));
@@ -1218,6 +1247,8 @@ namespace
 
     for(auto &stmt : compound->stmts)
       result->stmts.push_back(copier_stmt(ctx, stmt));
+
+    result->endloc = compound->endloc;
 
     return result;
   }

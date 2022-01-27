@@ -573,7 +573,7 @@ class FragmentExpr : public Expr
 // misc functions
 //
 
-bool is_literal_expr(Expr const *expr);
+bool is_literal_expr(Expr *expr);
 
 //|///////////////////// print //////////////////////////////////////////////
 std::ostream &operator <<(std::ostream &os, Expr const &expr);

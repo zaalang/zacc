@@ -434,6 +434,12 @@ Expr *Sema::make_array_literal(Type *elementtype, vector<Expr*> const &elements,
   return ast->make_expr<ArrayLiteralExpr>(elementtype, elements, size, loc);
 }
 
+//|///////////////////// make_tuple_literal /////////////////////////////////
+Expr *Sema::make_tuple_literal(vector<Expr*> const &fields, SourceLocation loc)
+{
+  return ast->make_expr<CompoundLiteralExpr>(fields, loc);
+}
+
 //|///////////////////// make_void_literal //////////////////////////////////
 Expr *Sema::make_void_literal(SourceLocation loc)
 {

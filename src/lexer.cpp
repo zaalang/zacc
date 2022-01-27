@@ -26,12 +26,12 @@ namespace
     return (ch == ' ') || (ch == '\t');
   }
 
-  [[maybe_unused]] bool is_alpha(char ch)
+  bool is_alpha(char ch)
   {
     return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
   }
 
-  [[maybe_unused]] bool is_digit(char ch)
+  bool is_digit(char ch)
   {
     return (ch >= '0') && (ch <= '9');
   }
@@ -202,7 +202,7 @@ namespace
 
     if ((cursor.position == 0 || beg[-1] != '.') || (cursor.position > 1 && beg[-2] == '.'))
     {
-      if (ptr[0] == '.' && ptr[1] != '.')
+      if (ptr[0] == '.' && is_digit(ptr[1]) && !is_alpha(beg[1]))
       {
         ++ptr;
 
@@ -210,7 +210,7 @@ namespace
           ++ptr;
       }
 
-      if ((ptr[0] == '-' || ptr[0] == '+') && (ptr[-1] == 'e' || ptr[-1] == 'E'))
+      if ((ptr[0] == '-' || ptr[0] == '+') && (ptr[-1] == 'e' || ptr[-1] == 'E') && (beg[1] != 'x' && beg[1] != 'X'))
       {
         ++ptr;
 
@@ -218,7 +218,7 @@ namespace
           ++ptr;
       }
 
-      if ((ptr[0] == '-' || ptr[0] == '+') && (ptr[-1] == 'p' || ptr[-1] == 'P'))
+      if ((ptr[0] == '-' || ptr[0] == '+') && (ptr[-1] == 'p' || ptr[-1] == 'P') && (beg[1] == 'x' || beg[1] == 'X'))
       {
         ++ptr;
 

@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <cmath>
 #include <memory>
+#include <chrono>
 #include <sys/stat.h>
 
 #if defined _MSC_VER
@@ -161,28 +162,6 @@ namespace
   }
 
   bool eval_function(EvalContext &ctx, Scope const &scope, MIR const &mir, vector<FunctionContext::Local> &&args);
-
-  //|///////////////////// type_similar /////////////////////////////////////
-  bool types_similar(Type const *lhs, Type const *rhs)
-  {
-    while (true)
-    {
-      lhs = remove_const_type(lhs);
-      rhs = remove_const_type(rhs);
-
-      if (lhs == rhs)
-        return true;
-
-      if (is_pointference_type(lhs) && is_pointference_type(rhs))
-      {
-        lhs = remove_pointference_type(lhs);
-        rhs = remove_pointference_type(rhs);
-        continue;
-      }
-
-      return false;
-    }
-  }
 
   //|///////////////////// alloc ////////////////////////////////////////////
   FunctionContext::Local alloc(EvalContext &ctx, MIR::Local const &local)
@@ -561,6 +540,16 @@ namespace
     auto address = alloc;
     auto dsttype = type_cast<CompoundType>(type);
 
+    if (is_union_type(type))
+    {
+      auto active = expr_cast<IntLiteralExpr>(value->fields[0])->value().value;
+
+      store(ctx, address, dsttype->fields[0], value->fields[0]);
+      store(ctx, (void*)((size_t)address + offsetof_field(dsttype, active)), dsttype->fields[active], value->fields[1]);
+
+      return;
+    }
+
     assert(dsttype->fields.size() == value->fields.size());
 
     for(size_t i = 0; i < value->fields.size(); ++i)
@@ -722,7 +711,7 @@ namespace
 
       return ctx.make_expr<ArrayLiteralExpr>(elements, sizetype, loc);
     }
-    else if (is_array_type(type) && is_literal_copy_type(type))
+    else if (is_array_type(type))
     {
       auto elemtype = type_cast<ArrayType>(type)->type;
       auto elemsize = sizeof_type(elemtype);
@@ -738,6 +727,20 @@ namespace
         return nullptr;
 
       return ctx.make_expr<ArrayLiteralExpr>(elements, type_cast<ArrayType>(type)->size, loc);
+    }
+    else if (is_union_type(type))
+    {
+      auto compoundtype = type_cast<CompoundType>(type);
+      auto active = load_int(ctx, alloc, type_cast<CompoundType>(type)->fields[0]).value;
+      auto fields = vector<Expr*>(2);
+
+      fields[0] = make_expr(ctx, alloc, compoundtype->fields[0], loc);
+      fields[1] = make_expr(ctx, (void*)((size_t)alloc + offsetof_field(compoundtype, active)), compoundtype->fields[active], loc);
+
+      if (any_of(fields.begin(), fields.end(), [](auto &k) { return !k; }))
+        return nullptr;
+
+      return ctx.make_expr<CompoundLiteralExpr>(fields, loc);
     }
     else if (is_compound_type(type) && is_literal_copy_type(type))
     {
@@ -1061,13 +1064,6 @@ namespace
 
     if (op == MIR::RValue::Fer)
       rhs = remove_pointference_type(rhs);
-
-    if (!types_similar(lhs, rhs))
-    {
-      ctx.diag.error("type mismatch", fx.scope, loc);
-      ctx.diag << "  source type: '" << *rhs << "' required type: '" << *lhs << "'\n";
-      return false;
-    }
 
     switch (op)
     {
@@ -3444,6 +3440,68 @@ namespace
     return true;
   }
 
+  //|///////////////////// eval_runtime_clock_getres ////////////////////////
+  bool eval_runtime_clock_getres(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto id = load_int(ctx, fx, args[0]);
+
+    struct clock_result
+    {
+      uint32_t erno;
+      uint64_t timestamp;
+    };
+
+    clock_result result = {};
+
+    switch (id.value)
+    {
+      case 0:
+        result.timestamp = 1000000000 * std::chrono::system_clock::period::num / std::chrono::system_clock::period::den;
+        break;
+
+      case 1:
+        result.timestamp = 1000000000 * std::chrono::steady_clock::period::num / std::chrono::steady_clock::period::den;
+        break;
+    }
+
+    memcpy(fx.locals[dst].alloc, &result, fx.locals[dst].size);
+
+    return true;
+  }
+
+  //|///////////////////// eval_runtime_clock_gettime ///////////////////////
+  bool eval_runtime_clock_gettime(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto id = load_int(ctx, fx, args[0]);
+
+    struct clock_result
+    {
+      uint32_t erno;
+      uint64_t timestamp;
+    };
+
+    clock_result result = {};
+
+    switch (id.value)
+    {
+      case 0:
+        result.timestamp = std::chrono::nanoseconds(std::chrono::system_clock::now().time_since_epoch()).count();
+        break;
+
+      case 1:
+        result.timestamp = std::chrono::nanoseconds(std::chrono::steady_clock::now().time_since_epoch()).count();
+        break;
+    }
+
+    memcpy(fx.locals[dst].alloc, &result, fx.locals[dst].size);
+
+    return true;
+  }
+
   //|///////////////////// eval_runtime_exit ////////////////////////////////
   bool eval_runtime_exit(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -3763,6 +3821,12 @@ namespace
       if (callee.fn->name == "mem_free"sv)
         return eval_runtime_mem_free(ctx, fx, dst, call);
 
+      if (callee.fn->name == "clock_getres"sv)
+        return eval_runtime_clock_getres(ctx, fx, dst, call);
+
+      if (callee.fn->name == "clock_gettime"sv)
+        return eval_runtime_clock_gettime(ctx, fx, dst, call);
+
       if (callee.fn->name == "exit"sv)
         return eval_runtime_exit(ctx, fx, dst, call);
 
@@ -3781,6 +3845,13 @@ namespace
       if (ctx.diag.has_errored())
         return false;
 
+      if (remove_qualifiers_type(fx.locals[dst].type) != remove_qualifiers_type(mir.locals[0].type))
+      {
+        ctx.diag.error("type mismatch", fx.scope, loc);
+        ctx.diag << "  return type: '" << *mir.locals[0].type << "' wanted: '" << *fx.locals[dst].type << "'\n";
+        return false;
+      }
+
       vector<FunctionContext::Local> parms;
 
       parms.push_back(fx.locals[dst]);
@@ -3790,9 +3861,9 @@ namespace
         parms.push_back(fx.locals[fx.errorarg]);
       }
 
-      for(auto &arg : args)
+      for(size_t i = 0; i < args.size(); ++i)
       {
-        parms.push_back(fx.locals[arg]);
+        parms.push_back(fx.locals[args[i]]);
       }
 
       return eval_function(ctx, callee.fn, mir, std::move(parms));
@@ -4071,7 +4142,6 @@ namespace
     return true;
   }
 
-
   //|///////////////////// eval_function ////////////////////////////////////
   bool eval_function(EvalContext &ctx, Scope const &scope, FnSig const &callee, FunctionContext::Local &returnvalue, vector<EvalResult> const &parms, SourceLocation loc)
   {
@@ -4086,26 +4156,25 @@ namespace
       fx.locals.push_back(alloc(ctx, callee.throwtype));
     }
 
+    size_t k = 0;
     vector<MIR::local_t> args;
 
-    for(size_t k = 0; k < parms.size(); ++k)
+    for(auto &parm : callee.parameters())
     {
-      args.push_back(fx.locals.size());
+      auto arg = fx.locals.size();
 
       fx.locals.push_back(alloc(ctx, parms[k].type));
 
-      if (is_reference_type(parms[k].type))
-      {
-        fx.locals.push_back(alloc(ctx, remove_const_type(remove_reference_type(parms[k].type))));
+      eval_assign_constant(ctx, fx, arg, MIR::RValue::literal(parms[k++].value));
 
-        eval_assign_constant(ctx, fx, args.back() + 1, MIR::RValue::literal(parms[k].value));
-
-        store(ctx, fx.locals[args.back()].alloc, fx.locals[args.back()].type, fx.locals[args.back() + 1].alloc);
-      }
-      else
+      if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type))
       {
-        eval_assign_constant(ctx, fx, args.back(), MIR::RValue::literal(parms[k].value));
+        fx.locals.push_back(alloc(ctx, ctx.typetable.find_or_create<ReferenceType>(parms[k-1].type)));
+
+        store(ctx, fx.locals.back().alloc, fx.locals.back().type, fx.locals[arg++].alloc);
       }
+
+      args.push_back(arg);
     }
 
     if (ctx.diag.has_errored())

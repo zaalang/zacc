@@ -1338,7 +1338,7 @@ namespace
 
           skip_bracketed();
 
-          if (!leftid && !comma)
+          if (leftid || !comma)
             maybe = true;
           break;
 
@@ -1432,11 +1432,10 @@ namespace
 
     if (!expr || ctx.try_consume_token(Token::comma))
     {
-      vector<Expr*> parms;
-      map<Ident*, Expr*> namedparms;
+      vector<Expr*> fields;
 
       if (expr)
-        parms.push_back(expr);
+        fields.push_back(expr);
 
       while (ctx.tok != Token::r_paren && ctx.tok != Token::eof)
       {
@@ -1448,7 +1447,7 @@ namespace
           break;
         }
 
-        parms.push_back(expr);
+        fields.push_back(expr);
 
         if (!ctx.try_consume_token(Token::comma))
           break;
@@ -1460,7 +1459,7 @@ namespace
         return nullptr;
       }
 
-      return sema.make_call_expression(sema.make_declref(Ident::type_tuple, loc), parms, namedparms, loc);
+      return sema.make_tuple_literal(fields, loc);
     }
 
     if (!ctx.try_consume_token(Token::r_paren))
@@ -2127,20 +2126,20 @@ namespace
         return parse_expression_post(ctx, parse_paren(ctx, sema), sema);
 
       case Token::plus:
-        return parse_unary_plus(ctx, sema);
+        return parse_expression_post(ctx, parse_unary_plus(ctx, sema), sema);
 
       case Token::minus:
-        return parse_unary_minus(ctx, sema);
+        return parse_expression_post(ctx, parse_unary_minus(ctx, sema), sema);
 
       case Token::kw_true:
       case Token::kw_false:
-        return parse_bool_literal(ctx, sema);
+        return parse_expression_post(ctx, parse_bool_literal(ctx, sema), sema);
 
       case Token::char_constant:
-        return parse_char_literal(ctx, sema);
+        return parse_expression_post(ctx, parse_char_literal(ctx, sema), sema);
 
       case Token::numeric_constant:
-        return parse_numeric_literal(ctx, sema);
+        return parse_expression_post(ctx, parse_numeric_literal(ctx, sema), sema);
 
       case Token::string_literal:
         return parse_expression_post(ctx, parse_string_literal(ctx, sema), sema);
@@ -2150,7 +2149,7 @@ namespace
 
       case Token::kw_void:
       case Token::kw_null:
-        return parse_callee(ctx, sema);
+        return parse_expression_post(ctx, parse_callee(ctx, sema), sema);
 
       case Token::kw_sizeof:
         return parse_sizeof(ctx, sema);

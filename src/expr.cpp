@@ -91,9 +91,39 @@ namespace
 }
 
 //|///////////////////// is_literal_expr ////////////////////////////////////
-bool is_literal_expr(Expr const *expr)
+bool is_literal_expr(Expr *expr)
 {
-  return expr->kind() == Expr::VoidLiteral || expr->kind() == Expr::BoolLiteral || expr->kind() == Expr::CharLiteral || expr->kind() == Expr::IntLiteral || expr->kind() == Expr::FloatLiteral || expr->kind() == Expr::StringLiteral || expr->kind() == Expr::PointerLiteral || expr->kind() == Expr::FunctionPointer || expr->kind() == Expr::ArrayLiteral || expr->kind() == Expr::CompoundLiteral;
+  switch (expr->kind())
+  {
+    case Expr::VoidLiteral:
+    case Expr::BoolLiteral:
+    case Expr::CharLiteral:
+    case Expr::IntLiteral:
+    case Expr::FloatLiteral:
+    case Expr::StringLiteral:
+    case Expr::PointerLiteral:
+    case Expr::FunctionPointer:
+      return true;
+
+    case Expr::ArrayLiteral:
+
+      for(auto &element : expr_cast<ArrayLiteralExpr>(expr)->elements)
+        if (!is_literal_expr(element))
+          return false;
+
+      return true;
+
+    case Expr::CompoundLiteral:
+
+      for(auto &field : expr_cast<CompoundLiteralExpr>(expr)->fields)
+        if (!is_literal_expr(field))
+          return false;
+
+      return true;
+
+    default:
+      return false;
+  }
 }
 
 //|///////////////////// print //////////////////////////////////////////////

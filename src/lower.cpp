@@ -450,11 +450,6 @@ namespace
   //|///////////////////// decl_scope ///////////////////////////////////////
   Scope decl_scope(LowerContext &ctx, Scope const &scope, Decl *decl, size_t &k, vector<MIR::Local> const &args, map<Ident*, MIR::Local> const &namedargs)
   {
-    if (decl->kind() == Decl::TypeAlias && (decl->flags & TypeAliasDecl::Implicit) && (!args.empty() || !namedargs.empty()))
-    {
-      decl = get<Decl*>(decl->owner);
-    }
-
     switch(decl->kind())
     {
       case Decl::Module:
@@ -1122,6 +1117,9 @@ namespace
           continue;
 
         size_t k = 0;
+
+        if ((decls[0]->flags & TypeAliasDecl::Implicit) && !declref->argless)
+          decls[0] = get<Decl*>(decls[0]->owner);
 
         declscope = decl_scope(ctx, super_scope(*sx, decls[0]), decls[0], k, args, namedargs);
 
@@ -3351,7 +3349,7 @@ namespace
         auto alias = decl_cast<TypeAliasDecl>(decl);
         auto aliasscope = child_scope(ctx, scope, alias, k, tx.args, tx.namedargs);
 
-        if (alias->flags & TypeAliasDecl::Implicit)
+        if ((alias->flags & TypeAliasDecl::Builtin) || (alias->flags & TypeAliasDecl::Implicit))
           continue;
 
         if ((k & ~IllSpecified) != tx.args.size() + tx.namedargs.size())
@@ -10969,7 +10967,7 @@ namespace
 
     if (id < ctx.mir.args_end)
     {
-      if (auto fnty = (ctx.mir.fx.fn->flags & FunctionDecl::DeclType); fnty != FunctionDecl::MatchDecl && fnty != FunctionDecl::RequiresDecl)
+      if ((ctx.mir.fx.fn->flags & FunctionDecl::DeclType) != FunctionDecl::MatchDecl)
         return false;
     }
 

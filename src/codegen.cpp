@@ -4482,19 +4482,6 @@ namespace
 
     auto name = get_mangled_name(fx.fn);
 
-#if 0
-    if (auto func = ctx.module.getFunction(name))
-    {
-#ifndef NDEBUG
-      ctx.diag << "DEBUG: found duplicate function name... will de-duplicate" << '\n';
-      ctx.diag << "DEBUG:   function : " << *fx.fn << " mangled name : " << name << '\n';
-#endif
-
-      ctx.functions.emplace(sig, func);
-      return;
-    }
-#endif
-
     fx.mir = lower(sig, ctx.typetable, ctx.diag, 0);
 
     if (ctx.genopts.dump_mir)
@@ -4982,7 +4969,7 @@ namespace
       ctx.di.finalizeSubprogram(fnprot->getSubprogram());
     }
 
-    llvm::verifyFunction(*fnprot);
+    assert(!llvm::verifyFunction(*fnprot, &llvm::errs()));
   }
 
   //|///////////////////// codegen_entry_point //////////////////////////////
@@ -5447,7 +5434,7 @@ void codegen(AST *ast, string const &target, GenOpts const &genopts, Diag &diag)
   cout << "--" << endl;
 #endif
 
-  llvm::verifyModule(ctx.module);
+  assert(!llvm::verifyModule(ctx.module, &llvm::errs()));
 
   write_module(ctx, target);
 }

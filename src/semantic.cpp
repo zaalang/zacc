@@ -505,8 +505,7 @@ namespace
       semantic_decl(ctx, arg, sema);
     }
 
-    if (!(typealias->flags & TypeAliasDecl::Implicit))
-      semantic_type(ctx, typealias->type, sema);
+    semantic_type(ctx, typealias->type, sema);
 
     ctx.stack.pop_back();
   }
@@ -526,8 +525,9 @@ namespace
       auto selfalias = sema.alias_declaration(tagdecl->loc());
 
       selfalias->name = tagdecl->name;
-      selfalias->type = sema.make_typeref(tagdecl);
       selfalias->flags |= TypeAliasDecl::Implicit;
+      selfalias->type = sema.make_typeref(tagdecl);
+      selfalias->type->flags |= Type::Implicit;
 
       tagdecl->decls.insert(tagdecl->decls.begin(), selfalias);
     }
@@ -1113,8 +1113,11 @@ namespace
           {
             if (decl_cast<DeclRefDecl>(typeref->decl)->name == Ident::kw_this)
             {
-              parm->name = Ident::kw_this;
+              if (!parm->name)
+                parm->name = Ident::kw_this;
+
               typeref->decl = *owner;
+              typeref->flags |= Type::Implicit;
             }
           }
         }

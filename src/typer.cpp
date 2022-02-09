@@ -142,11 +142,6 @@ namespace
   //|///////////////////// decl_scope ///////////////////////////////////////
   Scope decl_scope(TyperContext &ctx, Scope const &scope, Decl *decl, size_t &k, vector<Type*> const &args, map<Ident*, Type*> const &namedargs, Sema &sema)
   {
-    if (decl->kind() == Decl::TypeAlias && (decl->flags & TypeAliasDecl::Implicit) && (!args.empty() || !namedargs.empty()))
-    {
-      decl = get<Decl*>(decl->owner);
-    }
-
     switch(decl->kind())
     {
       case Decl::Module:
@@ -544,43 +539,31 @@ namespace
         break;
       }
 
-      case Type::Tag: {
-        auto tagtype = type_cast<TagType>(type);
-
-        vector<pair<Decl*, Type*>> newargs;
-
-        if (get<Decl*>(scope.owner)->owner != std::variant<Decl*, Stmt*>(tagtype->decl))
+      case Type::Tag:
+        if (auto tagtype = type_cast<TagType>(type); !(tagtype->flags & Type::Implicit))
         {
+          vector<pair<Decl*, Type*>> newargs;
+
           for(auto &[arg, type] : tagtype->args)
           {
-            if (is_typearg_type(type) && decl_cast<TypeArgDecl>(type_cast<TypeArgType>(type)->decl)->defult)
-            {
-              auto argdecl = decl_cast<TypeArgDecl>(type_cast<TypeArgType>(type)->decl);
+            if (is_typearg_type(type) && decl_cast<TypeArgDecl>(type_cast<TypeArgType>(type)->decl) == arg)
+              newargs.emplace_back(arg, resolve_typearg(ctx, make_typearg(ctx, Ident::kw_var, arg->loc(), sema), sema));
 
-              if (!super_scope(scope, argdecl))
-                newargs.emplace_back(arg, resolve_typearg(ctx, make_typearg(ctx, Ident::kw_var, arg->loc(), sema), sema));
-            }
+            if (auto newtype = substitute_defaulted(ctx, scope, type, sema); newtype != type)
+              newargs.emplace_back(arg, newtype);
+          }
+
+          if (newargs.size() != 0)
+          {
+            Scope tx(tagtype->decl, tagtype->args);
+
+            for(auto &[arg, type] : newargs)
+              tx.set_type(arg, type);
+
+            type = sema.make_tagtype(tagtype->decl, std::move(tx.typeargs));
           }
         }
-
-        for(auto &[arg, type] : tagtype->args)
-        {
-          if (auto newtype = substitute_defaulted(ctx, scope, type, sema); newtype != type)
-            newargs.emplace_back(arg, newtype);
-        }
-
-        if (newargs.size() != 0)
-        {
-          Scope tx(tagtype->decl, tagtype->args);
-
-          for(auto &[arg, type] : newargs)
-            tx.set_type(arg, type);
-
-          type = sema.make_tagtype(tagtype->decl, std::move(tx.typeargs));
-        }
-
         break;
-      }
 
       case Type::Function:
         break;
@@ -959,11 +942,6 @@ namespace
   {
     size_t k = 0;
 
-    if (decl->kind() == Decl::TypeAlias && (decl->flags & TypeAliasDecl::Implicit) && (!declref->args.empty() || !declref->namedargs.empty()))
-    {
-      decl = get<Decl*>(decl->owner);
-    }
-
     switch(decl->kind())
     {
       case Decl::TypeArg:
@@ -1183,6 +1161,9 @@ namespace
       return;
     }
 
+    if ((decls[0]->flags & TypeAliasDecl::Implicit) && !declref->argless)
+      decls[0] = get<Decl*>(decls[0]->owner);
+
     resolve_type(ctx, parent_scope(decls[0]), decls[0], declref, typeref, dst, sema);
   }
 
@@ -1221,6 +1202,9 @@ namespace
           return;
 
         size_t k = 0;
+
+        if ((decls[0]->flags & TypeAliasDecl::Implicit) && !declref->argless)
+          decls[0] = get<Decl*>(decls[0]->owner);
 
         declscope = decl_scope(ctx, super_scope(sx, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
 
@@ -1378,6 +1362,8 @@ namespace
       default:
         assert(false);
     }
+
+    dst->flags |= typeref->flags;
   }
 
   //|///////////////////// resolve_type /////////////////////////////////////

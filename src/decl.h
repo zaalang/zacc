@@ -347,7 +347,8 @@ class TypeAliasDecl : public Decl
     enum Flags
     {
       Public = 0x01,
-      Implicit = 0x02,
+      Builtin = 0x08,
+      Implicit = 0x10,
     };
 
   public:

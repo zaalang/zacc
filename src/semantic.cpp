@@ -65,6 +65,12 @@ namespace
     return expr_cast<BoolLiteralExpr>(result.value)->value();
   }
 
+  //|///////////////////// decl_type ////////////////////////////////////////
+  Type *decl_type(SemanticContext &ctx, Decl *decl, Sema &sema)
+  {
+    return sema.make_typeref(decl);
+  }
+
   //|///////////////////// type /////////////////////////////////////////////
   void semantic_type(SemanticContext &ctx, Type *type, Sema &sema)
   {
@@ -526,8 +532,7 @@ namespace
 
       selfalias->name = tagdecl->name;
       selfalias->flags |= TypeAliasDecl::Implicit;
-      selfalias->type = sema.make_typeref(tagdecl);
-      selfalias->type->flags |= Type::Implicit;
+      selfalias->type = decl_type(ctx, tagdecl, sema);
 
       tagdecl->decls.insert(tagdecl->decls.begin(), selfalias);
     }
@@ -636,7 +641,7 @@ namespace
   {
     ctx.stack.emplace_back(vtable);
 
-    auto vtabletype = sema.make_typeref(vtable);
+    auto vtabletype = decl_type(ctx, vtable, sema);
 
     if (vtable->basetype)
     {
@@ -805,7 +810,7 @@ namespace
   {
     auto fn = decl_cast<FunctionDecl>(lambda->fn);
 
-    auto lambdatype = sema.make_typeref(lambda);
+    auto lambdatype = decl_type(ctx, lambda, sema);
 
     for(auto &capture : lambda->captures)
     {
@@ -1107,7 +1112,7 @@ namespace
       {
         auto parm = decl_cast<ParmVarDecl>(fn->parms[0]);
 
-        if (auto basetype = remove_const_type(remove_reference_type(parm->type)); basetype->klass() == Type::TypeRef)
+        if (auto basetype = remove_qualifiers_type(parm->type); basetype->klass() == Type::TypeRef)
         {
           if (auto typeref = type_cast<TypeRefType>(basetype); typeref->decl->kind() == Decl::DeclRef)
           {
@@ -1117,7 +1122,6 @@ namespace
                 parm->name = Ident::kw_this;
 
               typeref->decl = *owner;
-              typeref->flags |= Type::Implicit;
             }
           }
         }
@@ -1141,7 +1145,7 @@ namespace
           body->stmts.insert(body->stmts.begin(), stmt);
         }
 
-        fn->returntype = sema.make_typeref(*owner);
+        fn->returntype = decl_type(ctx, *owner, sema);
 
         if ((*owner)->kind() == Decl::Struct || (*owner)->kind() == Decl::Union)
         {
@@ -1178,7 +1182,7 @@ namespace
 
         auto thisvar = sema.parm_declaration(fn->loc());
         thisvar->name = Ident::kw_this;
-        thisvar->type = sema.make_reference(sema.make_typeref(*owner));
+        thisvar->type = sema.make_reference(decl_type(ctx, *owner, sema));
 
         fn->parms.push_back(thisvar);
 

@@ -162,6 +162,23 @@ void seed_stack(vector<Scope> &stack, Scope scope)
   }
 }
 
+//|///////////////////// parent_decl ////////////////////////////////////////
+Decl *parent_decl(Decl *decl)
+{
+  auto parent = decl->owner;
+
+  while (parent != std::variant<Decl*, Stmt*>())
+  {
+    if (auto decl = get_if<Decl*>(&parent); decl && *decl)
+      return *decl;
+
+    parent = std::visit([](auto &v) { return v->owner; }, parent);
+  }
+
+  return nullptr;
+
+}
+
 //|///////////////////// get_module /////////////////////////////////////////
 ModuleDecl *get_module(Scope const &scope)
 {

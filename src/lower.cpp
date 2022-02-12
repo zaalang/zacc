@@ -431,7 +431,6 @@ namespace
 
       else if (arg->defult)
       {
-        sx.set_type(arg, resolve_type(ctx, sx, arg->defult));
       }
 
       else
@@ -496,15 +495,28 @@ namespace
   //|///////////////////// fill_defaultargs /////////////////////////////////
   void fill_defaultargs(LowerContext &ctx, Decl *decl, std::vector<std::pair<Decl*, Type*>> &typeargs)
   {
-    for(auto sx = Scope(decl); sx; sx = parent_scope(std::move(sx)))
+    for(auto sx = decl; sx; sx = parent_decl(sx))
     {
       vector<Decl*> *declargs = nullptr;
 
-      if (is_fn_scope(sx))
-        declargs = &decl_cast<FunctionDecl>(get<Decl*>(sx.owner))->args;
+      switch (sx->kind())
+      {
+        case Decl::Function:
+          declargs = &decl_cast<FunctionDecl>(sx)->args;
+          break;
 
-      if (is_tag_scope(sx))
-        declargs = &decl_cast<TagDecl>(get<Decl*>(sx.owner))->args;
+        case Decl::Struct:
+        case Decl::Union:
+        case Decl::VTable:
+        case Decl::Concept:
+        case Decl::Lambda:
+        case Decl::Enum:
+          declargs = &decl_cast<TagDecl>(sx)->args;
+          break;
+
+        default:
+          break;
+      }
 
       if (declargs)
       {
@@ -1510,7 +1522,7 @@ namespace
     {
       arg = resolve_type(ctx, scope, arg);
 
-      if (is_typearg_type(arg))
+      if (is_unresolved_type(arg))
         ctx.diag.error("unresolved type argument", decl, decl->loc());
     }
 
@@ -1779,6 +1791,11 @@ namespace
 
         for(auto &parm : FnSig(fn).parameters())
         {
+          if (scope.goalpost == parm)
+            break;
+
+          cttx.stack.back().goalpost = parm;
+
           lower_decl(cttx, decl_cast<ParmVarDecl>(parm));
         }
       }

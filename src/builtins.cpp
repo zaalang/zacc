@@ -279,6 +279,7 @@ namespace Builtin
           auto arg = new TypeArgDecl(name.loc);
 
           arg->name = Ident::from(name.text);
+          arg->owner = fn;
 
           fn->args.push_back(arg);
 

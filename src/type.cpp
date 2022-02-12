@@ -906,7 +906,6 @@ TypeLitType::TypeLitType(Expr *value)
     value(value)
 {
   flags |= Type::ZeroSized;
-  flags |= Type::Unresolved;
 }
 
 //|///////////////////// TypeLitType::dump //////////////////////////////////

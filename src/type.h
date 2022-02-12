@@ -53,8 +53,7 @@ class Type
       TrivialAssign = 0x20,
       TrivialDestroy = 0x40,
       LiteralCopy = 0x080,
-      Implicit = 0x100,
-      Packed = 0x200,
+      Packed = 0x100,
     };
 
     long flags = 0;

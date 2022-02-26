@@ -84,6 +84,7 @@ void seed_stack(std::vector<Scope> &stack, Scope scope);
 
 Scope parent_scope(Scope scope);
 Scope super_scope(Scope scope, std::variant<Decl*, Stmt*> const &owner);
+Scope outer_scope(Scope scope, std::variant<Decl*, Stmt*> const &owner);
 Scope child_scope(Scope scope, std::variant<Decl*, Stmt*> const &owner, std::vector<std::pair<Decl*, Type*>> const &typeargs = {});
 
 Decl *parent_decl(Decl *decl);

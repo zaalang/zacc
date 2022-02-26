@@ -126,15 +126,21 @@ Scope parent_scope(Scope scope)
 //|///////////////////// super_scope ////////////////////////////////////////
 Scope super_scope(Scope scope, variant<Decl*, Stmt*> const &owner)
 {
+  while (scope && scope.owner != owner)
+    scope = parent_scope(std::move(scope));
+
+  return scope;
+}
+
+//|///////////////////// outer_scope ////////////////////////////////////////
+Scope outer_scope(Scope scope, variant<Decl*, Stmt*> const &owner)
+{
   auto target = std::visit([&](auto &v) { return v->owner; }, owner);
 
   if (auto stmt = get_if<Stmt*>(&target); stmt && (*stmt)->kind() == Stmt::Declaration)
     target = (*stmt)->owner;
 
-  while (scope && scope.owner != target)
-    scope = parent_scope(std::move(scope));
-
-  return scope;
+  return super_scope(std::move(scope), target);
 }
 
 //|///////////////////// child_scope ////////////////////////////////////////

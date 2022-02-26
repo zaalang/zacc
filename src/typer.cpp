@@ -556,7 +556,7 @@ namespace
           {
             auto decl = decl_cast<TypeArgDecl>(type_cast<TypeArgType>(type)->decl);
 
-            if (decl == arg && !super_scope(scope, decl))
+            if (decl == arg && !outer_scope(scope, decl))
             {
               auto typearg = make_typearg(ctx, Ident::kw_var, arg->loc(), sema);
 
@@ -768,7 +768,7 @@ namespace
 
           size_t k = 0;
 
-          declscope = decl_scope(ctx, super_scope(sx, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
+          declscope = decl_scope(ctx, outer_scope(sx, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
 
           break;
         }
@@ -814,7 +814,7 @@ namespace
 
         size_t k = 0;
 
-        declscope = decl_scope(ctx, super_scope(declscope, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
+        declscope = decl_scope(ctx, outer_scope(declscope, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
 
         if (decls[0]->kind() == Decl::Import || decls[0]->kind() == Decl::Module)
           querymask |= QueryFlags::Public;
@@ -1224,7 +1224,7 @@ namespace
         if ((decls[0]->flags & TypeAliasDecl::Implicit) && !declref->argless)
           decls[0] = get<Decl*>(decls[0]->owner);
 
-        declscope = decl_scope(ctx, super_scope(sx, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
+        declscope = decl_scope(ctx, outer_scope(sx, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
 
         if (k != declref->args.size() + declref->namedargs.size())
         {
@@ -1272,7 +1272,7 @@ namespace
 
       size_t k = 0;
 
-      declscope = decl_scope(ctx, super_scope(declscope, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
+      declscope = decl_scope(ctx, outer_scope(declscope, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
 
       if (k != declref->args.size() + declref->namedargs.size())
       {

@@ -1133,7 +1133,7 @@ namespace
         if ((decls[0]->flags & TypeAliasDecl::Implicit) && !declref->argless)
           decls[0] = get<Decl*>(decls[0]->owner);
 
-        declscope = decl_scope(ctx, super_scope(*sx, decls[0]), decls[0], k, args, namedargs);
+        declscope = decl_scope(ctx, outer_scope(*sx, decls[0]), decls[0], k, args, namedargs);
 
         if ((k & ~IllSpecified) != args.size() + namedargs.size())
           return nullptr;
@@ -1164,7 +1164,7 @@ namespace
 
       size_t k = 0;
 
-      declscope = decl_scope(ctx, super_scope(declscope, decls[0]), decls[0], k, args, namedargs);
+      declscope = decl_scope(ctx, outer_scope(declscope, decls[0]), decls[0], k, args, namedargs);
 
       if ((k & ~IllSpecified) != args.size() + namedargs.size())
         return nullptr;
@@ -1850,7 +1850,7 @@ namespace
       {
         size_t k = 0;
 
-        auto declscope = decl_scope(ctx, super_scope(sx, decl), decl, k, args, namedargs);
+        auto declscope = decl_scope(ctx, outer_scope(sx, decl), decl, k, args, namedargs);
 
         if (k != args.size() + namedargs.size())
           continue;
@@ -1893,7 +1893,7 @@ namespace
       {
         size_t k = 0;
 
-        auto declscope = decl_scope(ctx, super_scope(declref.scope, decl), decl, k, args, namedargs);
+        auto declscope = decl_scope(ctx, outer_scope(declref.scope, decl), decl, k, args, namedargs);
 
         if (k != args.size() + namedargs.size())
           continue;
@@ -1919,7 +1919,7 @@ namespace
       arg = resolve_type(ctx, scope, arg);
     }
 
-    auto declscope = child_scope(super_scope(scope, aliasdecl), aliasdecl, args);
+    auto declscope = child_scope(outer_scope(scope, aliasdecl), aliasdecl, args);
 
     return resolve_type(ctx, declscope, aliasdecl->type);
   }
@@ -2139,7 +2139,7 @@ namespace
         if (j != scope.typeargs.end() && j->second->klass() == Type::QualArg)
         {
           if (type_cast<QualArgType>(j->second)->qualifiers & QualArgType::Const)
-            rhs = ctx.typetable.find_or_create<ConstType>(rhs);
+            rhs = ctx.typetable.find_or_create<ConstType>(remove_const_type(rhs));
 
           if ((type_cast<QualArgType>(j->second)->qualifiers & (QualArgType::RValue | QualArgType::Const)) == QualArgType::RValue)
             rhs = ctx.typetable.find_or_create<QualArgType>(QualArgType::RValue, rhs);
@@ -2182,7 +2182,7 @@ namespace
     if (koncept->name == Ident::kw_var)
       return true;
 
-    for(auto &[arg, type] : super_scope(scope, koncept).typeargs)
+    for(auto &[arg, type] : outer_scope(scope, koncept).typeargs)
     {
       sig.set_type(arg, type);
     }
@@ -3715,7 +3715,7 @@ namespace
       find_overloads(ctx, tx, scopeof_type(ctx, type), parms, namedparms, overloads);
     }
 
-    auto declscope = Scope(typearg->koncept, super_scope(scope, typearg->koncept).typeargs);
+    auto declscope = Scope(typearg->koncept, outer_scope(scope, typearg->koncept).typeargs);
 
     find_overloads(ctx, tx, parent_scope(declscope), parms, namedparms, overloads);
 
@@ -5139,7 +5139,10 @@ namespace
       return false;
     }
 
-    return lower_call(ctx, result, callee.fx, parms, namedparms, loc);
+    if (!lower_call(ctx, result, callee.fx, parms, namedparms, loc))
+      return false;
+
+    return true;
   }
 
   //|///////////////////// lower_deref //////////////////////////////////////
@@ -10100,13 +10103,17 @@ namespace
 
     ctx.retire_barrier(ssm);
 
+    ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1));
+
+    auto block_step = ctx.currentblockid;
+
     ctx.add_block(MIR::Terminator::gotoer(block_loop));
 
     for(auto &block_cond : block_conds)
       ctx.mir.blocks[block_cond].terminator.blockid = ctx.currentblockid;
 
     for(auto i = ctx.barriers.back().firstcontinue; i < ctx.continues.size(); ++i)
-      ctx.mir.blocks[ctx.continues[i]].terminator.blockid = block_loop;
+      ctx.mir.blocks[ctx.continues[i]].terminator.blockid = block_step;
 
     ctx.continues.resize(ctx.barriers.back().firstcontinue);
 
@@ -10358,12 +10365,16 @@ namespace
 
     lower_statement(ctx, wile->stmt);
 
+    ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1));
+
+    auto block_step = ctx.currentblockid;
+
     ctx.add_block(MIR::Terminator::gotoer(block_loop));
 
     ctx.mir.blocks[block_cond].terminator.targets.emplace_back(0, ctx.currentblockid);
 
     for(auto i = ctx.barriers.back().firstcontinue; i < ctx.continues.size(); ++i)
-      ctx.mir.blocks[ctx.continues[i]].terminator.blockid = block_loop;
+      ctx.mir.blocks[ctx.continues[i]].terminator.blockid = block_step;
 
     ctx.continues.resize(ctx.barriers.back().firstcontinue);
 

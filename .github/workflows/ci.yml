@@ -18,11 +18,13 @@ jobs:
           CXX: g++-10
         shell: bash
         working-directory: ${{github.workspace}}/build
-        run: cmake -DCMAKE_BUILD_TYPE=Release ..
+        run: |
+          cmake -DCMAKE_BUILD_TYPE=Release ..
       - name: Build
         shell: bash
         working-directory: ${{github.workspace}}/build
-        run: cmake --build . --target install
+        run: |
+          cmake --build . --target install
   build_linux_clang:
     runs-on: ubuntu-latest
     steps:
@@ -38,11 +40,13 @@ jobs:
           CXX: clang++-10
         shell: bash
         working-directory: ${{github.workspace}}/build
-        run: cmake -DCMAKE_BUILD_TYPE=Release ..
+        run: |
+          cmake -DCMAKE_BUILD_TYPE=Release ..
       - name: Build
         shell: bash
         working-directory: ${{github.workspace}}/build
-        run: cmake --build . --target install
+        run: |
+          cmake --build . --target install
   build_windows_msvc:
     runs-on: windows-latest
     steps:
@@ -71,13 +75,16 @@ jobs:
         working-directory: ${{github.workspace}}/llvm-src
         run: |
           cmake -E make_directory ${{github.workspace}}/llvm
-          cmake . -Thost=x64 -DLLVM_TARGETS_TO_BUILD="host" -DBUILD_SHARED_LIBS=OFF -DCMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH=OFF -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/llvm
+          cmake -Thost=x64 -DLLVM_TARGETS_TO_BUILD="host" -DBUILD_SHARED_LIBS=OFF -DCMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH=OFF -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/llvm .
           cmake --build . --target install --config Release      
       - name: Create Build Environment
-        run: cmake -E make_directory ${{github.workspace}}/build
+        run: |
+          cmake -E make_directory ${{github.workspace}}/build
       - name: Configure
         working-directory: ${{github.workspace}}/build
-        run: cmake -G "Visual Studio 16 2019" -A x64 -DLLVM_DIR=${{github.workspace}}/llvm/lib/cmake/llvm ..
+        run: |
+          cmake -Thost=x64 -DLLVM_DIR=${{github.workspace}}/llvm/lib/cmake/llvm ..
       - name: Build
         working-directory: ${{github.workspace}}/build
-        run: cmake --build . --target install --config Release
+        run: |
+          cmake --build . --target install --config Release

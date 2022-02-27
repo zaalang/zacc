@@ -48,14 +48,14 @@ $ popd
 ```
 > mkdir zacc\build
 > pushd zacc\build
-> cmake -G "Visual Studio 16 2019" -A x64 -DLLVM_DIR=llvm\lib\cmake\llvm ..
+> cmake -Thost=x64 -DLLVM_DIR=llvm\lib\cmake\llvm ..
 > cmake --build . --target install --config RelWithDebInfo
 > popd
 ```
 ```
 > mkdir zrt\build
 > pushd zrt\build
-> cmake -G "Visual Studio 16 2019" -A x64 ..
+> cmake -Thost=x64 ..
 > cmake --build . --target install --config RelWithDebInfo
 > popd
 ```

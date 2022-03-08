@@ -17,6 +17,14 @@ using namespace std;
 
 namespace
 {
+  enum State
+  {
+    ok,
+    dangling,
+    consumed,
+    poisoned,
+  };
+
   struct Context
   {
     Diag &diag;
@@ -27,6 +35,7 @@ namespace
       bool consumed = false;
       bool immune = false;
       bool poisoned = false;
+      bool toxic = false;
       size_t borrowed = 0;
       unordered_set<MIR::local_t> depends_upon;
     };
@@ -50,7 +59,55 @@ namespace
       threads.push_back(Thread(block, std::move(locals)));
     }
 
-    Type *ptrliteraltype;
+    bool is_dangling(MIR::local_t arg)
+    {
+      for(auto i : threads[0].locals[arg].depends_upon)
+      {
+        if (!threads[0].locals[i].live)
+          return true;
+      }
+
+      return !threads[0].locals[arg].live;
+    }
+
+    bool is_consumed(MIR::local_t arg)
+    {
+      for(auto i : threads[0].locals[arg].depends_upon)
+      {
+        if (threads[0].locals[i].consumed)
+          return true;
+      }
+
+      return threads[0].locals[arg].consumed;
+    }
+
+    bool is_poisoned(MIR::local_t arg)
+    {
+      return threads[0].locals[arg].poisoned;
+    }
+
+    State state(MIR::local_t arg, Type *defn)
+    {
+      if (is_dangling(arg))
+        return State::dangling;
+
+      if (is_consumed(arg))
+        return State::consumed;
+
+      if (is_poisoned(arg))
+        return State::poisoned;
+
+      if (is_reference_type(defn))
+      {
+        for(auto dep : threads[0].locals[arg].depends_upon)
+        {
+          if (auto substate = state(dep, remove_const_type(remove_reference_type(defn))); substate != State::ok)
+            return substate;
+        }
+      }
+
+      return State::ok;
+    }
 
     TypeTable &typetable;
 
@@ -58,7 +115,6 @@ namespace
       : diag(diag),
         typetable(typetable)
     {
-      ptrliteraltype = type(Builtin::Type_PtrLiteral);
     }
   };
 
@@ -71,9 +127,10 @@ namespace
       consume,
       borrow,
       clone,
-      assign,
       depend,
       poison,
+      assign,
+      follow,
     };
 
     Type type = unknown;
@@ -92,6 +149,58 @@ namespace
     return str.substr(i, j-i+1);
   }
 
+  //|///////////////////// parse ////////////////////////////////////////////
+  Annotation parse(Context &ctx, string_view src, SourceLocation loc)
+  {
+    Annotation tok = {};
+
+    if (src.substr(0, 7) == "consume")
+    {
+      tok.type = Annotation::consume;
+      tok.text = trim(src.substr(8), "( \t)");
+    }
+
+    if (src.substr(0, 6) == "borrow")
+    {
+      tok.type = Annotation::borrow;
+      tok.text = trim(src.substr(7), "( \t)");
+    }
+
+    if (src.substr(0, 5) == "clone")
+    {
+      tok.type = Annotation::clone;
+      tok.text = trim(src.substr(6), "( \t)");
+    }
+
+    if (src.substr(0, 6) == "depend")
+    {
+      tok.type = Annotation::depend;
+      tok.text = trim(src.substr(7), "( \t)");
+    }
+
+    if (src.substr(0, 6) == "poison")
+    {
+      tok.type = Annotation::poison;
+      tok.text = trim(src.substr(7), "( \t)");
+    }
+
+    if (src.substr(0, 6) == "assign")
+    {
+      tok.type = Annotation::assign;
+      tok.text = trim(src.substr(7), "( \t)");
+    }
+
+    if (src.substr(0, 6) == "follow")
+    {
+      tok.type = Annotation::follow;
+      tok.text = trim(src.substr(7), "( \t)");
+    }
+
+    tok.loc = loc;
+
+    return tok;
+  }
+
   //|///////////////////// annotations //////////////////////////////////////
   vector<Annotation> annotations(Context &ctx, FunctionDecl *fn)
   {
@@ -103,59 +212,29 @@ namespace
       {
         vector<Annotation> result;
 
-        auto i = attribute->options.find_first_not_of(" \t,", 1);
-        auto j = attribute->options.find_first_of(" \t,", i);
+        auto i = attribute->options.find_first_not_of(" \t", 1);
 
         while (i < attribute->options.length() - 1)
         {
-          Annotation tok;
+          auto j = attribute->options.find_first_of("(", i);
 
-          if (string_view(attribute->options).substr(i, 7) == "consume")
+          for(int indent = 0; j != string::npos; )
           {
-            tok.type = Annotation::consume;
-            tok.text = trim(string_view(attribute->options).substr(i+8, j-i-8), "( \t)");
-            tok.loc = SourceLocation { attribute->loc().lineno, attribute->loc().charpos + int(i) + 16 };
+            if (attribute->options[j] == '(')
+              indent += 1;
+
+            if (attribute->options[j] == ')')
+              if (--indent <= 0)
+                break;
+
+            j += 1;
           }
 
-          if (string_view(attribute->options).substr(i, 6) == "borrow")
-          {
-            tok.type = Annotation::borrow;
-            tok.text = trim(string_view(attribute->options).substr(i+7, j-i-7), "( \t)");
-            tok.loc = SourceLocation { attribute->loc().lineno, attribute->loc().charpos + int(i) + 15 };
-          }
+          auto annotation = parse(ctx, string_view(attribute->options).substr(i, j - i + 1), SourceLocation { attribute->loc().lineno, attribute->loc().charpos + int(i) + 8 });
 
-          if (string_view(attribute->options).substr(i, 5) == "clone")
-          {
-            tok.type = Annotation::clone;
-            tok.text = trim(string_view(attribute->options).substr(i+6, j-i-6), "( \t)");
-            tok.loc = SourceLocation { attribute->loc().lineno, attribute->loc().charpos + int(i) + 14 };
-          }
+          result.push_back(annotation);
 
-          if (string_view(attribute->options).substr(i, 6) == "assign")
-          {
-            tok.type = Annotation::assign;
-            tok.text = trim(string_view(attribute->options).substr(i+7, j-i-7), "( \t)");
-            tok.loc = SourceLocation { attribute->loc().lineno, attribute->loc().charpos + int(i) + 15 };
-          }
-
-          if (string_view(attribute->options).substr(i, 6) == "depend")
-          {
-            tok.type = Annotation::depend;
-            tok.text = trim(string_view(attribute->options).substr(i+7, j-i-7), "( \t)");
-            tok.loc = SourceLocation { attribute->loc().lineno, attribute->loc().charpos + int(i) + 15 };
-          }
-
-          if (string_view(attribute->options).substr(i, 6) == "poison")
-          {
-            tok.type = Annotation::poison;
-            tok.text = trim(string_view(attribute->options).substr(i+7, j-i-7), "( \t)");
-            tok.loc = SourceLocation { attribute->loc().lineno, attribute->loc().charpos + int(i) + 15 };
-          }
-
-          result.push_back(tok);
-
-          i = attribute->options.find_first_not_of(" \t,", j);
-          j = attribute->options.find_first_of(" \t,", i);
+          i = attribute->options.find_first_not_of(" \t,", j + 1);
         }
 
         return result;
@@ -180,40 +259,279 @@ namespace
     return false;
   }
 
-  //|///////////////////// is_dangling //////////////////////////////////////
-  bool is_dangling(Context &ctx, MIR::local_t arg)
+  //|///////////////////// has_poison ///////////////////////////////////////
+  //bool has_poison(Context &ctx, FunctionDecl *fn, Decl *parm)
+  //{
+  //  for(auto &annotation : annotations(ctx, fn))
+  //  {
+  //    if (annotation.type == Annotation::poison)
+  //    {
+  //      if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
+  //        return true;
+  //    }
+  //  }
+  //
+  //  return false;
+  //}
+
+  //|///////////////////// apply ////////////////////////////////////////////
+  void apply(Context &ctx, MIR const &mir, Annotation const &annotation, MIR::local_t dst, FnSig const &callee, vector<MIR::local_t> const &args)
   {
-    for(auto i : ctx.threads[0].locals[arg].depends_upon)
+    switch (annotation.type)
     {
-      if (!ctx.threads[0].locals[i].live)
-        return true;
+      case Annotation::consume: {
+
+        size_t arg = 0;
+        for(auto &parm : callee.parameters())
+        {
+          if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
+          {
+            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+              ctx.threads[0].locals[dep].consumed = true;
+
+            break;
+          }
+
+          arg += 1;
+        }
+
+        if (arg == args.size())
+        {
+          ctx.diag.error("unknown consume parameter", callee.fn, annotation.loc);
+        }
+
+        break;
+      }
+
+      case Annotation::borrow: {
+
+        size_t arg = 0;
+        for(auto &parm : callee.parameters())
+        {
+          if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
+          {
+            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+              ctx.threads[0].locals[dep].consumed = true;
+
+            ctx.threads[0].locals[dst].borrowed = args[arg];
+
+            break;
+          }
+
+          arg += 1;
+        }
+
+        if (arg == args.size())
+        {
+          ctx.diag.error("unknown consume parameter", callee.fn, annotation.loc);
+        }
+
+        break;
+      }
+
+      case Annotation::clone: {
+
+        size_t arg = 0;
+        for(auto &parm : callee.parameters())
+        {
+          if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
+          {
+            if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type))
+            {
+              for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+                ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dep].depends_upon.begin(), ctx.threads[0].locals[dep].depends_upon.end());
+            }
+            else
+            {
+              ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[args[arg]].depends_upon;
+            }
+
+            break;
+          }
+
+          arg += 1;
+        }
+
+        if (arg == args.size())
+        {
+          ctx.diag.error("unknown clone parameter", callee.fn, annotation.loc);
+        }
+
+        break;
+      }
+
+      case Annotation::depend: {
+
+        size_t arg = 0;
+        for(auto &parm : callee.parameters())
+        {
+          if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
+          {
+            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+              ctx.threads[0].locals[dst].depends_upon.insert(dep);
+
+            break;
+          }
+
+          arg += 1;
+        }
+
+        if (arg == args.size())
+        {
+          ctx.diag.error("unknown depend parameter", callee.fn, annotation.loc);
+        }
+
+        break;
+      }
+
+      case Annotation::poison: {
+
+        size_t arg = 0;
+        for(auto &parm : callee.parameters())
+        {
+          if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
+          {
+            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+            {
+              ctx.threads[0].locals[dep].toxic = true;
+
+              for(auto &local : ctx.threads[0].locals)
+              {
+                if (!local.live)
+                  continue;
+
+                if (local.immune)
+                  continue;
+
+                if (local.depends_upon.find(dep) != local.depends_upon.end())
+                  local.poisoned = true;
+              }
+            }
+
+            break;
+          }
+
+          arg += 1;
+        }
+
+        if (arg == args.size())
+        {
+          ctx.diag.error("unknown poison parameter", callee.fn, annotation.loc);
+        }
+
+        break;
+      }
+
+      case Annotation::assign: {
+
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of(',')));
+        auto rhs = parse(ctx, trim(annotation.text.substr(annotation.text.find_first_of(',') + 1)), annotation.loc);
+
+        size_t arg = 0;
+        for(auto &parm : callee.parameters())
+        {
+          if (decl_cast<ParmVarDecl>(parm)->name == lhs)
+          {
+            for(auto dst : ctx.threads[0].locals[args[arg]].depends_upon)
+            {
+              ctx.threads[0].locals[dst].immune = false;
+              ctx.threads[0].locals[dst].consumed = false;
+              ctx.threads[0].locals[dst].poisoned = false;
+              ctx.threads[0].locals[dst].toxic = false;
+              ctx.threads[0].locals[dst].depends_upon.clear();
+
+              apply(ctx, mir, rhs, dst, callee, args);
+            }
+
+            ctx.threads[0].locals[args[arg]].immune = false;
+            ctx.threads[0].locals[args[arg]].poisoned = false;
+
+            break;
+          }
+
+          arg += 1;
+        }
+
+        if (arg == args.size())
+        {
+          ctx.diag.error("unknown assign parameter", callee.fn, annotation.loc);
+        }
+
+        break;
+      }
+
+      case Annotation::follow: {
+
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of('.')));
+        auto rhs = trim(annotation.text.substr(annotation.text.find_first_of('.') + 1));
+
+        size_t arg = 0;
+        for(auto &parm : callee.parameters())
+        {
+          if (decl_cast<ParmVarDecl>(parm)->name == lhs)
+          {
+            Annotation target;
+
+            for(auto type = mir.locals[args[arg]].type; is_tag_type(type); )
+            {
+              auto tagtype = type_cast<TagType>(type);
+
+              for(auto decl : tagtype->decls)
+              {
+                if (decl->kind() == Decl::Function && decl_cast<FunctionDecl>(decl)->name == rhs)
+                {
+                  for(auto &annotation : annotations(ctx, decl_cast<FunctionDecl>(decl)))
+                  {
+                    target.type = annotation.type;
+
+                    break;
+                  }
+
+                  break;
+                }
+
+                if (decl->kind() == Decl::FieldVar && decl_cast<VarDecl>(decl)->name == rhs)
+                {
+                  target.type = Annotation::clone;
+
+                  break;
+                }
+              }
+
+              if (target.type != Annotation::unknown)
+                break;
+
+              if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype)
+                break;
+
+              type = tagtype->fields[0];
+            }
+
+            if (target.type != Annotation::unknown)
+            {
+              target.text = lhs;
+              target.loc = annotation.loc;
+
+              apply(ctx, mir, target, dst, callee, args);
+
+              break;
+            }
+          }
+
+          arg += 1;
+        }
+
+        if (arg == args.size())
+        {
+          ctx.diag.error("unknown follow parameter", callee.fn, annotation.loc);
+        }
+
+        break;
+      }
+
+      default:
+        ctx.diag.error("unknown lifetime annotation", callee.fn, annotation.loc);
     }
-
-    return !ctx.threads[0].locals[arg].live;
-  }
-
-  //|///////////////////// is_consumed //////////////////////////////////////
-  bool is_consumed(Context &ctx, MIR::local_t arg)
-  {
-    for(auto i : ctx.threads[0].locals[arg].depends_upon)
-    {
-      if (ctx.threads[0].locals[i].consumed)
-        return true;
-    }
-
-    return ctx.threads[0].locals[arg].consumed;
-  }
-
-  //|///////////////////// is_poisoned //////////////////////////////////////
-  bool is_poisoned(Context &ctx, MIR::local_t arg)
-  {
-    for(auto i : ctx.threads[0].locals[arg].depends_upon)
-    {
-      if (ctx.threads[0].locals[i].poisoned)
-        return true;
-    }
-
-    return ctx.threads[0].locals[arg].poisoned;
   }
 
   //|///////////////////// analyse_assign_variable //////////////////////////
@@ -267,9 +585,10 @@ namespace
     {
       for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
       {
-        ctx.threads[0].locals[dep].consumed = false;
         ctx.threads[0].locals[dep].immune = false;
+        ctx.threads[0].locals[dep].consumed = false;
         ctx.threads[0].locals[dep].poisoned = false;
+        ctx.threads[0].locals[dep].toxic = false;
         ctx.threads[0].locals[dep].depends_upon.clear();
       }
 
@@ -277,16 +596,25 @@ namespace
       ctx.threads[0].locals[args[0]].poisoned = false;
     }
 
-    for(auto arg : args)
+    for(auto const &[parm, arg] : zip(callee.parameters(), args))
     {
-      if (is_dangling(ctx, arg))
-        ctx.diag.error("potentially dangling variable access", mir.fx.fn, loc);
+      switch (ctx.state(arg, decl_cast<ParmVarDecl>(parm)->type))
+      {
+        case State::ok:
+          break;
 
-      if (is_consumed(ctx, arg))
-        ctx.diag.error("potentially consumed variable access", mir.fx.fn, loc);
+        case State::dangling:
+          ctx.diag.error("potentially dangling variable access", mir.fx.fn, loc);
+          break;
 
-      if (is_poisoned(ctx, arg))
-        ctx.diag.error("potentially poisoned variable access", mir.fx.fn, loc);
+        case State::consumed:
+          ctx.diag.error("potentially consumed variable access", mir.fx.fn, loc);
+          break;
+
+        case State::poisoned:
+          ctx.diag.error("potentially poisoned variable access", mir.fx.fn, loc);
+          break;
+      }
     }
 
     if (callee.fn->flags & FunctionDecl::Builtin)
@@ -336,11 +664,11 @@ namespace
           break;
 
         case Builtin::Default_Assignment:
-          // assign(this=other)
+          // assign(this, clone(other))
           for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
             for(auto src : ctx.threads[0].locals[args[1]].depends_upon)
               ctx.threads[0].locals[dep].depends_upon = ctx.threads[0].locals[src].depends_upon;
-          // depends(this)
+          // depend(this)
           for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
             ctx.threads[0].locals[dst].depends_upon.insert(dep);
           break;
@@ -354,159 +682,7 @@ namespace
     {
       for(auto &annotation : annotations(ctx, callee.fn))
       {
-        if (annotation.type == Annotation::consume)
-        {
-          size_t arg = 0;
-          for(auto &parm : callee.parameters())
-          {
-            if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
-            {
-              for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-                ctx.threads[0].locals[dep].consumed = true;
-
-              break;
-            }
-
-            arg += 1;
-          }
-
-          if (arg == args.size())
-          {
-            ctx.diag.error("unknown consume parameter", callee.fn, annotation.loc);
-          }
-        }
-
-        if (annotation.type == Annotation::borrow)
-        {
-          size_t arg = 0;
-          for(auto &parm : callee.parameters())
-          {
-            if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
-            {
-              for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-                ctx.threads[0].locals[dep].consumed = true;
-
-              ctx.threads[0].locals[dst].borrowed = args[arg];
-
-              break;
-            }
-
-            arg += 1;
-          }
-
-          if (arg == args.size())
-          {
-            ctx.diag.error("unknown consume parameter", callee.fn, annotation.loc);
-          }
-        }
-
-        if (annotation.type == Annotation::clone)
-        {
-          size_t arg = 0;
-          for(auto &parm : callee.parameters())
-          {
-            if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
-            {
-              if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type))
-              {
-                for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-                  ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dep].depends_upon.begin(), ctx.threads[0].locals[dep].depends_upon.end());
-              }
-              else
-              {
-                ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[args[arg]].depends_upon;
-              }
-
-              break;
-            }
-
-            arg += 1;
-          }
-
-          if (arg == args.size())
-          {
-            ctx.diag.error("unknown clone parameter", callee.fn, annotation.loc);
-          }
-        }
-
-        if (annotation.type == Annotation::assign)
-        {
-          auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of('=')));
-          //auto rhs = trim(annotation.text.substr(annotation.text.find_first_of('=') + 1));
-
-          size_t arg = 0;
-          for(auto &parm : callee.parameters())
-          {
-            if (decl_cast<ParmVarDecl>(parm)->name == lhs)
-            {
-              for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-                for(auto src : ctx.threads[0].locals[args[arg + 1]].depends_upon)
-                  ctx.threads[0].locals[dep].depends_upon = ctx.threads[0].locals[src].depends_upon;
-
-              break;
-            }
-
-            arg += 1;
-          }
-
-          if (arg == args.size())
-          {
-            ctx.diag.error("unknown assign parameter", callee.fn, annotation.loc);
-          }
-        }
-
-        if (annotation.type == Annotation::depend)
-        {
-          size_t arg = 0;
-          for(auto &parm : callee.parameters())
-          {
-            if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
-            {
-              for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-                ctx.threads[0].locals[dst].depends_upon.insert(dep);
-
-              break;
-            }
-
-            arg += 1;
-          }
-
-          if (arg == args.size())
-          {
-            ctx.diag.error("unknown depend parameter", callee.fn, annotation.loc);
-          }
-        }
-
-        if (annotation.type == Annotation::poison)
-        {
-          size_t arg = 0;
-          for(auto &parm : callee.parameters())
-          {
-            if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
-            {
-              for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-              {
-                for(auto &local : ctx.threads[0].locals)
-                {
-                  if (local.immune)
-                    continue;
-
-                  if (local.depends_upon.find(dep) != local.depends_upon.end())
-                    local.poisoned = true;
-                }
-              }
-
-              break;
-            }
-
-            arg += 1;
-          }
-
-          if (arg == args.size())
-          {
-            ctx.diag.error("unknown poison parameter", callee.fn, annotation.loc);
-          }
-        }
+        apply(ctx, mir, annotation, dst, callee, args);
       }
     }
   }
@@ -576,6 +752,15 @@ namespace
 
       for(auto dep : ctx.threads[0].locals[arg].depends_upon)
         ctx.threads[0].locals[dep].consumed = false;
+    }
+
+    for(auto &local : ctx.threads[0].locals)
+    {
+      if (!local.live)
+        continue;
+
+      if (local.depends_upon.find(statement.dst) != local.depends_upon.end())
+        local.poisoned = true;
     }
 
     ctx.threads[0].locals[statement.dst].live = false;
@@ -690,6 +875,8 @@ namespace
       }
     }
 
+    ctx.threads[0].locals[0].live = true;
+
     for(auto arg = mir.args_beg; arg != mir.args_end; ++arg)
     {
       ctx.threads[0].locals[arg].live = false;
@@ -698,19 +885,34 @@ namespace
     size_t arg = mir.args_beg;
     for(auto &parm : mir.fx.parameters())
     {
-      if (is_reference_type(mir.locals[arg].type))
+      if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type))
       {
         if (ctx.threads[0].locals[arg + mir.locals.size()].consumed && !has_consume(ctx, mir.fx.fn, parm))
           ctx.diag.error("missing consume annotation", mir.fx.fn, parm->loc());
+
+        //if (ctx.threads[0].locals[arg + mir.locals.size()].toxic && !has_poison(ctx, mir.fx.fn, parm))
+        //  ctx.diag.error("missing poison annotation", mir.fx.fn, parm->loc());
       }
 
       arg += 1;
     }
 
-    for(auto i : ctx.threads[0].locals[0].depends_upon)
+    switch (ctx.state(0, mir.locals[0].defn))
     {
-      if (!ctx.threads[0].locals[i].live)
+      case State::ok:
+        break;
+
+      case State::dangling:
         ctx.diag.error("potentially dangling return value", mir.fx.fn, mir.fx.fn->loc());
+        break;
+
+      case State::consumed:
+        ctx.diag.error("potentially consumed return value", mir.fx.fn, mir.fx.fn->loc());
+        break;
+
+      case State::poisoned:
+        ctx.diag.error("potentially poisoned return value", mir.fx.fn, mir.fx.fn->loc());
+        break;
     }
   }
 }

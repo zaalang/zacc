@@ -8137,6 +8137,7 @@ namespace
     auto arg = ctx.add_local();
 
     ctx.mir.locals[arg].type = resolve_type_as_value(ctx, ctx.stack.back(), parmvar);
+    ctx.mir.locals[arg].defn = remove_const_type(parmvar->type);
     ctx.mir.locals[arg].flags = MIR::Local::LValue;
 
     if (parmvar->flags & VarDecl::Const)

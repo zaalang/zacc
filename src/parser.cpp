@@ -328,7 +328,10 @@ namespace
           ctx.consume_token();
         }
 
-        attribute->options = string_view(beg, ctx.tok.text.data() - beg + 1);
+        if (ctx.tok != Token::eof)
+        {
+          attribute->options = string_view(beg, ctx.tok.text.data() - beg + 1);
+        }
 
         if (!ctx.try_consume_token(Token::r_paren))
         {

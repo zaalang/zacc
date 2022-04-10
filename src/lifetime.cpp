@@ -59,34 +59,40 @@ namespace
       threads.push_back(Thread(block, std::move(locals)));
     }
 
-    bool is_dangling(MIR::local_t arg)
+    bool is_dangling(MIR::local_t arg, int depth = 5)
     {
-      for(auto i : threads[0].locals[arg].depends_upon)
+      for(auto dep : threads[0].locals[arg].depends_upon)
       {
-        if (!threads[0].locals[i].live)
+        if (depth != 0 && is_dangling(dep, depth - 1))
           return true;
       }
 
       return !threads[0].locals[arg].live;
     }
 
-    bool is_consumed(MIR::local_t arg)
+    bool is_consumed(MIR::local_t arg, int depth = 5)
     {
-      for(auto i : threads[0].locals[arg].depends_upon)
+      for(auto dep : threads[0].locals[arg].depends_upon)
       {
-        if (threads[0].locals[i].consumed)
+        if (depth != 0 && is_consumed(dep, depth - 1))
           return true;
       }
 
       return threads[0].locals[arg].consumed;
     }
 
-    bool is_poisoned(MIR::local_t arg)
+    bool is_poisoned(MIR::local_t arg, int depth = 5)
     {
+      for(auto dep : threads[0].locals[arg].depends_upon)
+      {
+        if (depth != 0 && is_poisoned(dep, depth - 1))
+          return true;
+      }
+
       return threads[0].locals[arg].poisoned;
     }
 
-    State state(MIR::local_t arg, Type *defn)
+    State state(MIR::local_t arg)
     {
       if (is_dangling(arg))
         return State::dangling;
@@ -96,15 +102,6 @@ namespace
 
       if (is_poisoned(arg))
         return State::poisoned;
-
-      if (is_reference_type(defn))
-      {
-        for(auto dep : threads[0].locals[arg].depends_upon)
-        {
-          if (auto substate = state(dep, remove_const_type(remove_reference_type(defn))); substate != State::ok)
-            return substate;
-        }
-      }
 
       return State::ok;
     }
@@ -593,12 +590,13 @@ namespace
       }
 
       ctx.threads[0].locals[args[0]].immune = false;
+      ctx.threads[0].locals[args[0]].consumed = false;
       ctx.threads[0].locals[args[0]].poisoned = false;
     }
 
     for(auto const &[parm, arg] : zip(callee.parameters(), args))
     {
-      switch (ctx.state(arg, decl_cast<ParmVarDecl>(parm)->type))
+      switch (ctx.state(arg))
       {
         case State::ok:
           break;
@@ -619,7 +617,7 @@ namespace
 
     if (callee.fn->flags & FunctionDecl::Builtin)
     {
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Assign:
           for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
@@ -655,7 +653,7 @@ namespace
 
     if (callee.fn->flags & FunctionDecl::Defaulted)
     {
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Default_Copytructor:
           // clone(other)
@@ -734,6 +732,7 @@ namespace
     {
       ctx.threads[0].locals[dep].consumed |= ctx.threads[0].locals[dst].consumed;
       ctx.threads[0].locals[dep].poisoned |= ctx.threads[0].locals[dst].poisoned;
+      ctx.threads[0].locals[dep].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.begin(), ctx.threads[0].locals[dst].depends_upon.end());
     }
   }
 
@@ -754,14 +753,14 @@ namespace
         ctx.threads[0].locals[dep].consumed = false;
     }
 
-    for(auto &local : ctx.threads[0].locals)
-    {
-      if (!local.live)
-        continue;
+    //for(auto &local : ctx.threads[0].locals)
+    //{
+    //  if (!local.live)
+    //    continue;
 
-      if (local.depends_upon.find(statement.dst) != local.depends_upon.end())
-        local.poisoned = true;
-    }
+    //  if (local.depends_upon.find(statement.dst) != local.depends_upon.end())
+    //    local.poisoned = true;
+    //}
 
     ctx.threads[0].locals[statement.dst].live = false;
   }
@@ -820,7 +819,7 @@ namespace
 
       for(auto &statement : block.statements)
       {
-//        cout << statement << endl;
+        //cout << statement << endl;
 
         switch (statement.kind)
         {
@@ -897,7 +896,7 @@ namespace
       arg += 1;
     }
 
-    switch (ctx.state(0, mir.locals[0].defn))
+    switch (ctx.state(0))
     {
       case State::ok:
         break;

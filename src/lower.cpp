@@ -353,10 +353,6 @@ namespace
     switch(type = remove_const_type(type); type->klass())
     {
       case Type::Tag:
-
-        if (is_lambda_type(type))
-          return type_scope(ctx, type);
-
         return parent_scope(type_scope(ctx, type));
 
       default:
@@ -3802,9 +3798,19 @@ namespace
   {
     Callee callee;
 
-    FindContext tx(ctx, type);
+    if (is_tag_type(type))
+    {
+      FindContext tx(ctx, decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->name);
 
-    find_overloads(ctx, tx, scopeof_type(ctx, type), parms, namedparms, callee.overloads);
+      find_overloads(ctx, tx, type_scope(ctx, type), parms, namedparms, callee.overloads);
+    }
+
+    if (callee.overloads.empty())
+    {
+      FindContext tx(ctx, type);
+
+      find_overloads(ctx, tx, scopeof_type(ctx, type), parms, namedparms, callee.overloads);
+    }
 
     resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
 
@@ -4298,14 +4304,28 @@ namespace
       auto kinddst = ctx.add_temporary(tagtype->fields[0], MIR::Local::LValue | MIR::Local::Reference);
       auto kindres = ctx.add_temporary(tagtype->fields[0], MIR::Local::LValue | MIR::Local::Reference);
 
-      ctx.add_statement(MIR::Statement::assign(kinddst, MIR::RValue::field(MIR::RValue::Ref, dst.local, MIR::RValue::Field{ MIR::RValue::Ref, 0 }, loc)));
-      ctx.add_statement(MIR::Statement::construct(kindres, MIR::RValue::literal(ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(kind), loc))));
-
       auto datadst = ctx.add_temporary(tagtype->fields[kind], MIR::Local::LValue | MIR::Local::Reference);
       auto datares = ctx.add_temporary(tagtype->fields[kind], MIR::Local::LValue | MIR::Local::Reference);
 
-      ctx.add_statement(MIR::Statement::assign(datadst, MIR::RValue::field(MIR::RValue::Ref, dst.local, MIR::RValue::Field{ MIR::RValue::Ref, kind }, loc)));
-      ctx.add_statement(MIR::Statement::construct(datares, std::move(expr.value)));
+      switch (dst.op)
+      {
+        case Place::Val:
+          ctx.add_statement(MIR::Statement::assign(kinddst, MIR::RValue::field(MIR::RValue::Ref, dst.local, MIR::RValue::Field{ MIR::RValue::Ref, 0 }, loc)));
+          ctx.add_statement(MIR::Statement::construct(kindres, MIR::RValue::literal(ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(kind), loc))));
+          ctx.add_statement(MIR::Statement::assign(datadst, MIR::RValue::field(MIR::RValue::Ref, dst.local, MIR::RValue::Field{ MIR::RValue::Ref, kind }, loc)));
+          ctx.add_statement(MIR::Statement::construct(datares, std::move(expr.value)));
+          break;
+
+        case Place::Fer:
+          ctx.add_statement(MIR::Statement::assign(dst.local, MIR::RValue::cast(dst.local - 1, loc)));
+          ctx.add_statement(MIR::Statement::assign(kinddst, MIR::RValue::field(MIR::RValue::Ref, dst.local, MIR::RValue::Field{ MIR::RValue::Val, 0 }, loc)));
+          ctx.add_statement(MIR::Statement::construct(kindres, MIR::RValue::literal(ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(kind), loc))));
+          ctx.add_statement(MIR::Statement::assign(datadst, MIR::RValue::field(MIR::RValue::Ref, dst.local, MIR::RValue::Field{ MIR::RValue::Val, kind }, loc)));
+          ctx.add_statement(MIR::Statement::construct(datares, std::move(expr.value)));
+          expr.type = resolve_as_value(ctx, expr.type);
+          expr.type.flags |= MIR::Local::Reference;
+          break;
+      }
 
       return;
     }
@@ -6068,6 +6088,12 @@ namespace
   //|///////////////////// lower_new ////////////////////////////////////////
   bool lower_new(LowerContext &ctx, MIR::Fragment &result, Type *type, vector<MIR::Fragment> &parms, map<Ident*, MIR::Fragment> &namedparms, SourceLocation loc)
   {
+    if (parms.size() == 1 && namedparms.size() == 0 && parms[0].type.type == type && (parms[0].type.flags & MIR::Local::RValue))
+    {
+      result = std::move(parms[0]);
+      return true;
+    }
+
     auto callee = find_callee(ctx, type, parms, namedparms);
 
     if (!callee)

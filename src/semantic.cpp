@@ -858,8 +858,6 @@ namespace
 
       ctor->parms.push_back(thatvar);
 
-      ctor->args = lambda->args;
-
       lambda->decls.push_back(ctor);
     }
 
@@ -881,7 +879,6 @@ namespace
 
       copy->parms.push_back(thatvar);
 
-      copy->args = lambda->args;
       copy->returntype = sema.make_reference(lambdatype);
 
       lambda->decls.push_back(copy);

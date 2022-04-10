@@ -4648,12 +4648,13 @@ namespace
 
     if (fx.fn->flags & FunctionDecl::ExternMask)
     {
-      if (auto func = ctx.module.getFunction(fx.fn->name->sv()); func && func != fnprot)
+      if (auto func = ctx.module.getFunction(name); func && func != fnprot)
       {
         if (fnprot->getType() != func->getType())
-        {
           ctx.diag.error("incompatible extern declaration", fx.fn, fx.fn->loc());
-        }
+
+        if (fx.fn->body && func->size() != 0)
+          ctx.diag.error("function already defined", fx.fn, fx.fn->loc());
 
         fnprot->removeFromParent();
         fnprot = func;

@@ -89,7 +89,8 @@ Scope child_scope(Scope scope, std::variant<Decl*, Stmt*> const &owner, std::vec
 
 Decl *parent_decl(Decl *decl);
 
-ModuleDecl *get_module(Scope const &scope);
+auto get_unit(Scope const &scope) -> TranslationUnitDecl *;
+auto get_module(Scope const &scope) -> ModuleDecl *;
 
 void find_decl(Decl *decl, Ident *name, long flags, std::vector<Decl*> &results);
 void find_decls(Scope const &scope, Ident *name, long flags, std::vector<Decl*> &results);

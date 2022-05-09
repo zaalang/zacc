@@ -7776,6 +7776,14 @@ namespace
 
     auto callee = find_callee(ctx, ctx.stack, basescope, call->callee, parms, namedparms, is_callop);
 
+    if (!callee && is_callop)
+    {
+      is_callop = false;
+      parms.erase(parms.begin());
+
+      callee = find_callee(ctx, ctx.stack, basescope, call->callee, parms, namedparms, is_callop);
+    }
+
     if (!callee)
     {
       ctx.diag.error("cannot resolve function reference", ctx.stack.back(), call->loc());
@@ -10668,7 +10676,7 @@ namespace
     {
       MIR::Fragment result;
 
-      if (ctx.mir.locals[0])
+      if (ctx.mir.locals[0] && is_tag_type(ctx.mir.locals[0].type))
         ctx.inducedscope = type_scope(ctx, ctx.mir.locals[0].type);
 
       if (!lower_expr(ctx, result, retrn->expr))

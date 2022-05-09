@@ -1071,15 +1071,24 @@ namespace
         umbrella->decls.push_back(umbrella_using);
       }
 
-      module = umbrella;
+      imprt->decl = umbrella;
     }
-
-    imprt->decl = module;
+    else
+    {
+      imprt->decl = module;
+    }
 
     ctx.stack.emplace_back(imprt);
 
     for(auto &usein : imprt->usings)
     {
+      if (decl_cast<UsingDecl>(usein)->decl->kind() == Decl::DeclRef && decl_cast<DeclRefDecl>(decl_cast<UsingDecl>(usein)->decl)->name == std::string_view("*"))
+      {
+        decl_cast<UsingDecl>(usein)->decl = module;
+        usein->owner = imprt->owner;
+        continue;
+      }
+
       semantic_decl(ctx, usein, sema);
     }
 

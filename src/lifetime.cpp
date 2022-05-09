@@ -10,7 +10,7 @@
 #include "lifetime.h"
 #include "lower.h"
 #include "diag.h"
-#include <unordered_set>
+#include <deque>
 #include <iostream>
 
 using namespace std;
@@ -37,7 +37,8 @@ namespace
       bool poisoned = false;
       bool toxic = false;
       size_t borrowed = 0;
-      unordered_set<MIR::local_t> depends_upon;
+      vector<MIR::RValue::VariableData const *> depends_upon;
+      vector<MIR::RValue::VariableData const *> consumed_fields;
     };
 
     struct Thread
@@ -59,11 +60,33 @@ namespace
       threads.push_back(Thread(block, std::move(locals)));
     }
 
+    bool is_super_field(vector<MIR::RValue::Field> const &lhs, vector<MIR::RValue::Field> const &rhs)
+    {
+      for(size_t i = 0; i < min(lhs.size(), rhs.size()); ++i)
+      {
+        if (lhs[i].index != rhs[i].index)
+          return false;
+      }
+
+      return lhs.size() <= rhs.size();
+    }
+
+    bool is_common_field(vector<MIR::RValue::Field> const &lhs, vector<MIR::RValue::Field> const &rhs)
+    {
+      for(size_t i = 0; i < min(lhs.size(), rhs.size()); ++i)
+      {
+        if (lhs[i].index != rhs[i].index)
+          return false;
+      }
+
+      return true;
+    }
+
     bool is_dangling(MIR::local_t arg, int depth = 5)
     {
       for(auto dep : threads[0].locals[arg].depends_upon)
       {
-        if (depth != 0 && is_dangling(dep, depth - 1))
+        if (depth != 0 && is_dangling(get<1>(*dep), depth - 1))
           return true;
       }
 
@@ -74,18 +97,28 @@ namespace
     {
       for(auto dep : threads[0].locals[arg].depends_upon)
       {
-        if (depth != 0 && is_consumed(dep, depth - 1))
+#if 0
+        cout << "is_consumed: " << arg << " " << *dep << endl;
+        for(auto fld : threads[0].locals[get<1>(*dep)].consumed_fields)
+          cout << "           : has " << *fld << endl;
+#endif
+
+        for(auto fld : threads[0].locals[get<1>(*dep)].consumed_fields)
+          if (is_common_field(get<2>(*fld), get<2>(*dep)))
+            return true;
+
+        if (depth != 0 && is_consumed(get<1>(*dep), depth - 1))
           return true;
       }
 
-      return threads[0].locals[arg].consumed;
+      return false;
     }
 
     bool is_poisoned(MIR::local_t arg, int depth = 5)
     {
       for(auto dep : threads[0].locals[arg].depends_upon)
       {
-        if (depth != 0 && is_poisoned(dep, depth - 1))
+        if (depth != 0 && is_poisoned(get<1>(*dep), depth - 1))
           return true;
       }
 
@@ -104,6 +137,26 @@ namespace
         return State::poisoned;
 
       return State::ok;
+    }
+
+    deque<MIR::RValue::VariableData> field_allocator;
+
+    MIR::RValue::VariableData *make_field(MIR::local_t local)
+    {
+      field_allocator.push_back(MIR::RValue::local(MIR::RValue::Ref, local, SourceLocation{}));
+
+      return &field_allocator.back();
+    }
+
+    MIR::RValue::VariableData *make_field(MIR::RValue::VariableData const *base, vector<MIR::RValue::Field> const &subfields)
+    {
+      field_allocator.push_back(*base);
+
+      auto &[op, arg, fields, loc] = field_allocator.back();
+
+      fields.insert(fields.end(), subfields.begin(), subfields.end());
+
+      return &field_allocator.back();
     }
 
     TypeTable &typetable;
@@ -128,6 +181,7 @@ namespace
       poison,
       assign,
       follow,
+      launder,
     };
 
     Type type = unknown;
@@ -191,6 +245,12 @@ namespace
     {
       tok.type = Annotation::follow;
       tok.text = trim(src.substr(7), "( \t)");
+    }
+
+    if (src.substr(0, 7) == "launder")
+    {
+      tok.type = Annotation::launder;
+      tok.text = trim(src.substr(8), "( \t)");
     }
 
     tok.loc = loc;
@@ -284,7 +344,16 @@ namespace
           if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
           {
             for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-              ctx.threads[0].locals[dep].consumed = true;
+              ctx.threads[0].locals[get<1>(*dep)].consumed = true;
+
+            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+              ctx.threads[0].locals[get<1>(*dep)].consumed_fields.insert(ctx.threads[0].locals[get<1>(*dep)].consumed_fields.end(), ctx.threads[0].locals[args[arg]].depends_upon.begin(), ctx.threads[0].locals[args[arg]].depends_upon.end());
+
+#if 0
+            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+              for(auto fld : ctx.threads[0].locals[get<1>(*dep)].consumed_fields)
+                cout << "consume: " << *fld << endl;
+#endif
 
             break;
           }
@@ -308,7 +377,7 @@ namespace
           if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
           {
             for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-              ctx.threads[0].locals[dep].consumed = true;
+              ctx.threads[0].locals[get<1>(*dep)].consumed = true;
 
             ctx.threads[0].locals[dst].borrowed = args[arg];
 
@@ -336,7 +405,7 @@ namespace
             if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type))
             {
               for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-                ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dep].depends_upon.begin(), ctx.threads[0].locals[dep].depends_upon.end());
+                ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.begin(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.end());
             }
             else
             {
@@ -365,7 +434,7 @@ namespace
           if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
           {
             for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-              ctx.threads[0].locals[dst].depends_upon.insert(dep);
+              ctx.threads[0].locals[dst].depends_upon.push_back(dep);
 
             break;
           }
@@ -388,9 +457,14 @@ namespace
         {
           if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
           {
+#if 0
+            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+              cout << "poison: " << *dep << endl;
+#endif
+
             for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
             {
-              ctx.threads[0].locals[dep].toxic = true;
+              ctx.threads[0].locals[get<1>(*dep)].toxic = true;
 
               for(auto &local : ctx.threads[0].locals)
               {
@@ -400,8 +474,20 @@ namespace
                 if (local.immune)
                   continue;
 
-                if (local.depends_upon.find(dep) != local.depends_upon.end())
+                for(auto fld : local.depends_upon)
+                {
+                  if (get<1>(*fld) != get<1>(*dep))
+                    continue;
+
+                  if (!ctx.is_super_field(get<2>(*dep), get<2>(*fld)))
+                    continue;
+
+#if 0
+                  cout << "      : " << &local - &ctx.threads[0].locals.front() << " has " << *fld << endl;
+#endif
+
                   local.poisoned = true;
+                }
               }
             }
 
@@ -431,13 +517,14 @@ namespace
           {
             for(auto dst : ctx.threads[0].locals[args[arg]].depends_upon)
             {
-              ctx.threads[0].locals[dst].immune = false;
-              ctx.threads[0].locals[dst].consumed = false;
-              ctx.threads[0].locals[dst].poisoned = false;
-              ctx.threads[0].locals[dst].toxic = false;
-              ctx.threads[0].locals[dst].depends_upon.clear();
+              ctx.threads[0].locals[get<1>(*dst)].immune = false;
+              ctx.threads[0].locals[get<1>(*dst)].consumed = false;
+              ctx.threads[0].locals[get<1>(*dst)].poisoned = false;
+              ctx.threads[0].locals[get<1>(*dst)].toxic = false;
+              ctx.threads[0].locals[get<1>(*dst)].depends_upon.clear();
+              ctx.threads[0].locals[get<1>(*dst)].consumed_fields.clear();
 
-              apply(ctx, mir, rhs, dst, callee, args);
+              apply(ctx, mir, rhs, get<1>(*dst), callee, args);
             }
 
             ctx.threads[0].locals[args[arg]].immune = false;
@@ -526,6 +613,9 @@ namespace
         break;
       }
 
+      case Annotation::launder:
+        break;
+
       default:
         ctx.diag.error("unknown lifetime annotation", callee.fn, annotation.loc);
     }
@@ -545,12 +635,12 @@ namespace
           break;
 
         case MIR::RValue::Ref:
-          ctx.threads[0].locals[dst].depends_upon.insert(arg);
+          ctx.threads[0].locals[dst].depends_upon.push_back(&variable);
           break;
 
         case MIR::RValue::Fer:
           for(auto dep : ctx.threads[0].locals[arg].depends_upon)
-            ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dep].depends_upon.begin(), ctx.threads[0].locals[dep].depends_upon.end());
+            ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.begin(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.end());
           break;
 
         case MIR::RValue::Idx:
@@ -568,6 +658,27 @@ namespace
 
       ctx.threads[0].locals[dst].consumed = ctx.threads[0].locals[arg].consumed;
     }
+
+    if (fields.size() != 0 && fields[0].op == MIR::RValue::Val && all_of(fields.begin() + 1, fields.end(), [](auto k){ return k.op != MIR::RValue::Val; }))
+    {
+      switch(op)
+      {
+        case MIR::RValue::Val:
+          break;
+
+        case MIR::RValue::Ref:
+          for(auto dep : ctx.threads[0].locals[arg].depends_upon)
+            ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(dep, fields));
+          break;
+
+        case MIR::RValue::Fer:
+          break;
+
+        case MIR::RValue::Idx:
+          assert(false);
+          break;
+      }
+    }
   }
 
   //|///////////////////// analyse_call /////////////////////////////////////
@@ -578,15 +689,33 @@ namespace
     if (callee.fn->flags & FunctionDecl::Destructor)
       return;
 
-    if (callee.fn->name == Ident::op_assign)
+    if (callee.fn->name == Ident::op_assign || callee.fn->name == std::string_view("launder"))
     {
+#if 0
+      for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
+        cout << "launder: " << *dep << endl;
+#endif
+
       for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
       {
-        ctx.threads[0].locals[dep].immune = false;
-        ctx.threads[0].locals[dep].consumed = false;
-        ctx.threads[0].locals[dep].poisoned = false;
-        ctx.threads[0].locals[dep].toxic = false;
-        ctx.threads[0].locals[dep].depends_upon.clear();
+        auto &consumed_fields = ctx.threads[0].locals[get<1>(*dep)].consumed_fields;
+
+        for(auto i = consumed_fields.begin(); i != consumed_fields.end(); )
+        {
+          if (ctx.is_super_field(get<2>(*dep), get<2>(**i)))
+            i = consumed_fields.erase(i);
+          else
+            ++i;
+        }
+
+        if (consumed_fields.empty())
+        {
+          ctx.threads[0].locals[get<1>(*dep)].immune = false;
+          ctx.threads[0].locals[get<1>(*dep)].consumed = false;
+          ctx.threads[0].locals[get<1>(*dep)].poisoned = false;
+          ctx.threads[0].locals[get<1>(*dep)].toxic = false;
+          ctx.threads[0].locals[get<1>(*dep)].depends_upon.clear();
+        }
       }
 
       ctx.threads[0].locals[args[0]].immune = false;
@@ -621,7 +750,7 @@ namespace
       {
         case Builtin::Assign:
           for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
-            ctx.threads[0].locals[dep] = ctx.threads[0].locals[args[1]];
+            ctx.threads[0].locals[get<1>(*dep)].depends_upon = ctx.threads[0].locals[args[1]].depends_upon;
           ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[args[0]].depends_upon;
           break;
 
@@ -658,17 +787,16 @@ namespace
         case Builtin::Default_Copytructor:
           // clone(other)
           for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
-            ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dep].depends_upon.begin(), ctx.threads[0].locals[dep].depends_upon.end());
+            ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.begin(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.end());
           break;
 
         case Builtin::Default_Assignment:
           // assign(this, clone(other))
           for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
             for(auto src : ctx.threads[0].locals[args[1]].depends_upon)
-              ctx.threads[0].locals[dep].depends_upon = ctx.threads[0].locals[src].depends_upon;
+              ctx.threads[0].locals[get<1>(*dep)].depends_upon = ctx.threads[0].locals[get<1>(*src)].depends_upon;
           // depend(this)
-          for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
-            ctx.threads[0].locals[dst].depends_upon.insert(dep);
+          ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[args[0]].depends_upon;
           break;
 
         default:
@@ -730,9 +858,10 @@ namespace
 
     for(auto dep : ctx.threads[0].locals[dst - 1].depends_upon)
     {
-      ctx.threads[0].locals[dep].consumed |= ctx.threads[0].locals[dst].consumed;
-      ctx.threads[0].locals[dep].poisoned |= ctx.threads[0].locals[dst].poisoned;
-      ctx.threads[0].locals[dep].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.begin(), ctx.threads[0].locals[dst].depends_upon.end());
+      ctx.threads[0].locals[get<1>(*dep)].consumed |= ctx.threads[0].locals[dst].consumed;
+      ctx.threads[0].locals[get<1>(*dep)].poisoned |= ctx.threads[0].locals[dst].poisoned;
+      ctx.threads[0].locals[get<1>(*dep)].depends_upon.insert(ctx.threads[0].locals[get<1>(*dep)].depends_upon.end(), ctx.threads[0].locals[dst].depends_upon.begin(), ctx.threads[0].locals[dst].depends_upon.end());
+      ctx.threads[0].locals[get<1>(*dep)].consumed_fields.insert(ctx.threads[0].locals[get<1>(*dep)].consumed_fields.end(), ctx.threads[0].locals[dst].consumed_fields.begin(), ctx.threads[0].locals[dst].consumed_fields.end());
     }
   }
 
@@ -750,7 +879,7 @@ namespace
       auto arg = ctx.threads[0].locals[statement.dst].borrowed;
 
       for(auto dep : ctx.threads[0].locals[arg].depends_upon)
-        ctx.threads[0].locals[dep].consumed = false;
+        ctx.threads[0].locals[get<1>(*dep)].consumed = false;
     }
 
     //for(auto &local : ctx.threads[0].locals)
@@ -781,7 +910,7 @@ namespace
       {
         ctx.threads[0].locals[arg].immune = true;
         ctx.threads[0].locals[arg + mir.locals.size()].live = true;
-        ctx.threads[0].locals[arg].depends_upon.insert(arg + mir.locals.size());
+        ctx.threads[0].locals[arg].depends_upon.push_back(ctx.make_field(arg + mir.locals.size()));
       }
     }
 
@@ -806,7 +935,14 @@ namespace
             ctx.threads[0].locals[k].consumed |= ctx.threads[i].locals[k].consumed;
             ctx.threads[0].locals[k].immune &= ctx.threads[i].locals[k].immune;
             ctx.threads[0].locals[k].poisoned |= ctx.threads[i].locals[k].poisoned;
-            ctx.threads[0].locals[k].depends_upon.merge(ctx.threads[i].locals[k].depends_upon);
+
+            for(auto dep : ctx.threads[i].locals[k].depends_upon)
+              if (find(ctx.threads[0].locals[k].depends_upon.begin(), ctx.threads[0].locals[k].depends_upon.end(), dep) == ctx.threads[0].locals[k].depends_upon.end())
+                ctx.threads[0].locals[k].depends_upon.push_back(dep);
+
+            for(auto fld : ctx.threads[i].locals[k].consumed_fields)
+              if (find(ctx.threads[0].locals[k].consumed_fields.begin(), ctx.threads[0].locals[k].consumed_fields.end(), fld) == ctx.threads[0].locals[k].consumed_fields.end())
+                ctx.threads[0].locals[k].consumed_fields.push_back(fld);
           }
 
           ctx.threads.erase(ctx.threads.begin() + i);
@@ -887,10 +1023,10 @@ namespace
       if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type))
       {
         if (ctx.threads[0].locals[arg + mir.locals.size()].consumed && !has_consume(ctx, mir.fx.fn, parm))
-          ctx.diag.error("missing consume annotation", mir.fx.fn, parm->loc());
+          ctx.diag.warn("missing consume annotation", mir.fx.fn, parm->loc());
 
         //if (ctx.threads[0].locals[arg + mir.locals.size()].toxic && !has_poison(ctx, mir.fx.fn, parm))
-        //  ctx.diag.error("missing poison annotation", mir.fx.fn, parm->loc());
+        //  ctx.diag.warn("missing poison annotation", mir.fx.fn, parm->loc());
       }
 
       arg += 1;

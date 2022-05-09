@@ -1339,6 +1339,9 @@ size_t sizeof_type(Type const *type)
     case Type::Tag:
       return sizeof_type(type_cast<TagType>(type));
 
+    case Type::TypeLit:
+      return 0;
+
     case Type::Function:
       return 0;
 
@@ -1454,6 +1457,9 @@ size_t alignof_type(Type const *type)
 
     case Type::Tag:
       return alignof_type(type_cast<TagType>(type));
+
+    case Type::TypeLit:
+      return 1;
 
     case Type::Function:
       return 1;

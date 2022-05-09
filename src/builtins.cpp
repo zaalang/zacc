@@ -616,6 +616,8 @@ namespace Builtin
 
     make_function(__cfg, "pub const fn __cfg(##string) -> bool", __LINE__);
     make_function(__cfg__, "pub const fn __cfg__() -> #string", __LINE__);
+    make_function(__srcdir__, "pub const fn __srcdir__() -> #string", __LINE__);
+    make_function(__bindir__, "pub const fn __bindir__() -> #string", __LINE__);
   }
 
   //|///////////////////// type /////////////////////////////////////////////

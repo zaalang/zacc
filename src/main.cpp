@@ -150,6 +150,24 @@ int main(int argc, char *argv[])
 
     opts.modulename = input;
 
+    ToolChain toolchain(opts.triple);
+
+    if (!toolchain)
+    {
+      cerr << "unable to initialise toolchain\n";
+      exit(1);
+    }
+
+    string outfile = filename(toolchain, basename(input), opts.outputtype);
+
+    for(int i = 0; i < argc; ++i)
+    {
+      if (strncmp(argv[i], "-o", 2) == 0)
+        outfile = filename(toolchain, string_view(argv[i][2] != 0 ? argv[i] + 2 : argv[++i]), opts.outputtype);
+    }
+
+    sema.add_cfg("zaa.build.outdir=" + dirname(outfile));
+
     parse(input, sema, diag);
 
 #if 0
@@ -176,22 +194,6 @@ int main(int argc, char *argv[])
       cerr << diag;
 
       exit(1);
-    }
-
-    ToolChain toolchain(opts.triple);
-
-    if (!toolchain)
-    {
-      cerr << "unable to initialise toolchain\n";
-      exit(1);
-    }
-
-    string outfile = filename(toolchain, basename(input), opts.outputtype);
-
-    for(int i = 0; i < argc; ++i)
-    {
-      if (strncmp(argv[i], "-o", 2) == 0)
-        outfile = filename(toolchain, string_view(argv[i][2] != 0 ? argv[i] + 2 : argv[++i]), opts.outputtype);
     }
 
     codegen(sema.ast, outfile, opts, diag);

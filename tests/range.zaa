@@ -1,0 +1,63 @@
+import std.stdio;
+import std.array;
+import std.range;
+
+using std;
+
+fn test_iota()
+{
+  var v = std::iota(3, 12);
+  assert(v.len == 9);
+  assert(std::distance(v.begin, v.end) == 9);
+  assert(*v.begin == 3);
+  assert(*std::next(v.begin, 5) == 8);
+}
+
+fn test_reverse()
+{
+  var c = std::array<int>([1, 2, 3, 4, 5]);
+  var v = std::reverse(c);
+  assert(v.len == c.len);
+  assert(std::distance(v.begin, v.end) == 5);
+  assert(v[0] == c.back);
+  assert(v[v.len - 1] == c.front);
+}
+
+fn test_filter()
+{
+  var c = std::array<int>([1, 2, 3, 4, 5]);
+  var v = std::filter(c, fn(var k) { return k % 2 != 0; });
+  assert(v.len == 3);
+  assert(std::distance(v.begin, v.end) == 3);
+  assert(v == [1, 3, 5]);
+}
+
+fn test_transform()
+{
+  var c = std::array<int>([1, 2, 3, 4, 5]);
+  var v = std::transform(c, fn(var k) { return k * k; });
+  assert(v.len == c.len);
+  assert(std::distance(v.begin, v.end) == 5);
+  assert(v == [1, 4, 9, 16, 25]);
+  assert(v[3] == c[3] * c[3]);
+}
+
+fn test_zip()
+{
+  var c = std::array<int>([1, 2, 3, 4, 5]);
+  var n = std::array<char>(['1', '2', '3', '4', '5']);
+  var v = std::zip(c, n);
+  assert(v.len == 5);
+  assert(std::distance(v.begin, v.end) == 5);
+  assert(v[3].0 == 4);
+  assert(v[3].1 == '4');
+}
+
+fn main()
+{
+  #test_iota();
+  #test_reverse();
+  #test_filter();
+  #test_transform();
+  #test_zip();
+}

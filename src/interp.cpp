@@ -1,4 +1,4 @@
-//
+﻿//
 // interp.cpp
 //
 // Copyright (C) 2020-2022 Peter Niekamp. All rights reserved.
@@ -3166,7 +3166,7 @@ namespace
   {
     auto &[callee, args, loc] = call;
 
-    auto unit = decl_cast<TranslationUnitDecl>(get<Decl*>(get_module(callee.fn)->owner));
+    auto unit = get_unit(ctx.dx);
     auto str = expr_cast<StringLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[0])->second)->value);
     auto cfg = std::find(unit->cfgs.begin(), unit->cfgs.end(), str->value());
 
@@ -3181,13 +3181,41 @@ namespace
     auto &[callee, args, loc] = call;
 
     std::string config;
-    for(auto &cfg : decl_cast<TranslationUnitDecl>(get<Decl*>(get_module(callee.fn)->owner))->cfgs)
+    for(auto &cfg : get_unit(ctx.dx)->cfgs)
       config += cfg + '\0';
 
     if (!config.empty())
       config.pop_back();
 
     store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, ctx.make_expr<StringLiteralExpr>(config, loc));
+
+    return true;
+  }
+
+  //|///////////////////// __srcdir__ ///////////////////////////////////////
+  bool eval_builtin_srcdir(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto path = dirname(get_module(ctx.dx)->file());
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, ctx.make_expr<StringLiteralExpr>(path, loc));
+
+    return true;
+  }
+
+  //|///////////////////// __bindir__ ///////////////////////////////////////
+  bool eval_builtin_bindir(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto path = std::string();
+
+    for(auto &cfg : get_unit(ctx.dx)->cfgs)
+      if (cfg.substr(0, 16) == "zaa.build.outdir")
+        path = cfg.substr(17);
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, ctx.make_expr<StringLiteralExpr>(path, loc));
 
     return true;
   }
@@ -3782,6 +3810,12 @@ namespace
         case Builtin::__cfg__:
           return eval_builtin_cfgs(ctx, fx, dst, call);
 
+        case Builtin::__srcdir__:
+          return eval_builtin_srcdir(ctx, fx, dst, call);
+
+        case Builtin::__bindir__:
+          return eval_builtin_bindir(ctx, fx, dst, call);
+
         case Builtin::is_const_eval:
           store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, true);
           return true;
@@ -4046,6 +4080,8 @@ namespace
       ctx.diag.error("invalid arguments");
       return false;
     }
+
+    fx.locals.reserve(mir.locals.size());
 
     for(size_t i = mir.args_end, end = mir.locals.size(); i != end; ++i)
     {

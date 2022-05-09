@@ -185,6 +185,22 @@ Decl *parent_decl(Decl *decl)
 
 }
 
+//|///////////////////// get_unit ///////////////////////////////////////////
+TranslationUnitDecl *get_unit(Scope const &scope)
+{
+  auto parent = scope.owner;
+
+  while (parent != std::variant<Decl*, Stmt*>())
+  {
+    if (auto decl = get_if<Decl*>(&parent); decl && *decl && (*decl)->kind() == Decl::TranslationUnit)
+      return decl_cast<TranslationUnitDecl>(*decl);
+
+    parent = std::visit([](auto &v) { return v->owner; }, parent);
+  }
+
+  return nullptr;
+}
+
 //|///////////////////// get_module /////////////////////////////////////////
 ModuleDecl *get_module(Scope const &scope)
 {

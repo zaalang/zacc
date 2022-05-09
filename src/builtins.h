@@ -251,6 +251,8 @@ namespace Builtin
 
     __cfg,
     __cfg__,
+    __srcdir__,
+    __bindir__,
 
     Module,
   };

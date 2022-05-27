@@ -166,6 +166,7 @@ namespace
         return PrecLevel::Range;
 
       case Token::question:
+      case Token::questionquestion:
         return PrecLevel::Conditional;
 
       case Token::pipepipe:
@@ -228,6 +229,7 @@ namespace
       case Token::exclaim: return UnaryOpExpr::LNot;
       case Token::plusplus: return UnaryOpExpr::PreInc;
       case Token::minusminus: return UnaryOpExpr::PreDec;
+      case Token::questionexclaim: return UnaryOpExpr::Unwrap;
       case Token::amp: return UnaryOpExpr::Ref;
       case Token::star: return UnaryOpExpr::Fer;
       case Token::ampamp: return UnaryOpExpr::Fwd;
@@ -275,6 +277,7 @@ namespace
       case Token::pipeequal: return BinaryOpExpr::OrAssign;
       case Token::dotdot: return BinaryOpExpr::Range;
       case Token::dotdotequal: return BinaryOpExpr::RangeEq;
+      case Token::questionquestion: return BinaryOpExpr::Coalesce;
 
       default:
         throw logic_error("invalid binary op");
@@ -400,6 +403,8 @@ namespace
       case Token::less: case Token::lessless: case Token::lesslessequal: case Token::lessequal:
       case Token::greater: case Token::greatergreater: case Token::greatergreaterequal: case Token::greaterequal:
       case Token::equal: case Token::equalequal:
+      case Token::questionquestion:
+      case Token::questionexclaim:
       case Token::spaceship:
       case Token::kw_yield:
       case Token::kw_await:
@@ -2107,6 +2112,10 @@ namespace
       case Token::minusminus:
         ctx.consume_token();
         return sema.make_unary_expression(UnaryOpExpr::PostDec, lhs, op.loc);
+
+      case Token::questionexclaim:
+        ctx.consume_token();
+        return sema.make_unary_expression(UnaryOpExpr::Unwrap, lhs, op.loc);
 
       default:
         return lhs;

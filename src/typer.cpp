@@ -1100,6 +1100,10 @@ namespace
         dst = type(Builtin::Type_StringLiteral);
         break;
 
+      case Expr::Typeid:
+        dst = type(Builtin::Type_TypeidLiteral);
+        break;
+
       case Expr::Lambda:
         resolve_type(ctx, scope, decl_cast<TagDecl>(expr_cast<LambdaExpr>(typedecl->expr)->decl), typeref, dst, sema);
         break;

@@ -63,6 +63,8 @@ struct Token
 
     hash,
     question,
+    questionquestion,
+    questionexclaim,
     l_square,
     r_square,
     l_paren,

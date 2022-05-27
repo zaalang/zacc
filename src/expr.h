@@ -275,6 +275,7 @@ class UnaryOpExpr : public Expr
       PreDec,
       PostInc,
       PostDec,
+      Unwrap,
       Begin,
       End,
       Ref,
@@ -346,6 +347,7 @@ class BinaryOpExpr : public Expr
       XorAssign,
       Range,
       RangeEq,
+      Coalesce,
     };
 
     static Ident *binaryop_idents[];

@@ -24,6 +24,7 @@ Ident *UnaryOpExpr::unaryop_idents[] = {
   /* PreDec,    */ Ident::from("--"),
   /* PostInc,   */ Ident::from("++"),
   /* PostDec,   */ Ident::from("--"),
+  /* Unwrap,    */ Ident::from("?!"),
   /* Begin,     */ Ident::from("begin"),
   /* End,       */ Ident::from("end"),
   /* Ref,       */ Ident::from("&"),
@@ -67,6 +68,7 @@ Ident *BinaryOpExpr::binaryop_idents[] = {
   /* XorAssign, */ Ident::from("^="),
   /* Range,     */ Ident::from(".."),
   /* RangeEq,   */ Ident::from("..="),
+  /* Coalesce,  */ Ident::from("??"),
 };
 
 namespace

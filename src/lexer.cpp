@@ -251,8 +251,21 @@ namespace
         break;
 
       case '?':
-        ptr += 1;
-        type = Token::question;
+        if (ptr[1] == '!')
+        {
+          ptr += 2;
+          type = Token::questionexclaim;
+        }
+        else if (ptr[1] == '?')
+        {
+          ptr += 2;
+          type = Token::questionquestion;
+        }
+        else
+        {
+          ptr += 1;
+          type = Token::question;
+        }
         break;
 
       case '[':

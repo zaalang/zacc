@@ -490,7 +490,7 @@ std::ostream &operator <<(std::ostream &os, Type const &type)
     case Type::Function:
       if (auto &fn = static_cast<FunctionType const &>(type); true)
       {
-        os << *fn.returntype << *fn.paramtuple;
+        os << *fn.returntype << " fn"<< *fn.paramtuple;
       }
       break;
 

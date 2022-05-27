@@ -1522,6 +1522,18 @@ namespace
         ctx.diag.error("unresolved type argument", decl, decl->loc());
     }
 
+    for(auto sx = tagtype->decl; sx; sx = parent_decl(sx))
+    {
+      if (sx->kind() == Decl::Function)
+      {
+        for(auto parm : decl_cast<FunctionDecl>(sx)->parms)
+        {
+          if (auto j = scope.find_type(parm); j != scope.typeargs.end())
+            tx.set_type(parm, j->second);
+        }
+      }
+    }
+
     return resolve_type(ctx, tx, decl_cast<TagDecl>(tagtype->decl));
   }
 
@@ -1703,7 +1715,9 @@ namespace
     seed_stack(stack, scope);
 
     // For typeof's in a requires clause parameter block, don't allow self references
-    if (is_fn_scope(stack.back()) && (decl_cast<FunctionDecl>(get<Decl*>(stack.back().owner))->flags & FunctionDecl::DeclType) == FunctionDecl::RequiresDecl)
+    if (is_fn_scope(stack.back()) && (
+          (decl_cast<FunctionDecl>(get<Decl*>(stack.back().owner))->flags & FunctionDecl::DeclType) == FunctionDecl::RequiresDecl ||
+          (decl_cast<FunctionDecl>(get<Decl*>(stack.back().owner))->flags & FunctionDecl::DeclType) == FunctionDecl::MatchDecl))
       stack.pop_back();
 
     if (typedecl->expr->kind() == Expr::DeclRef && expr_cast<DeclRefExpr>(typedecl->expr)->decl->kind() == Decl::DeclRef)
@@ -1712,6 +1726,11 @@ namespace
 
       if (!expr_cast<DeclRefExpr>(typedecl->expr)->base && declref->argless)
       {
+        if (declref->name == string_view("__decl__"))
+        {
+          return ctx.declidliteraltype;
+        }
+
         if (auto vardecl = find_vardecl(ctx, stack, declref->name); vardecl)
         {
           return resolve_deref(ctx, resolve_type(ctx, stack.back(), decl_cast<VarDecl>(vardecl)), vardecl->type);
@@ -1722,7 +1741,7 @@ namespace
           for(auto sx = stack.rbegin(); sx != stack.rend(); ++sx)
           {
             if (auto owner = get_if<Decl*>(&sx->owner); owner && *owner && is_tag_decl(*owner))
-              return resolve_type(ctx, scope, *owner);
+              return resolve_type(ctx, *sx, *owner);
           }
         }
       }
@@ -8488,6 +8507,9 @@ namespace
 
         if (is_reference_type(decl_cast<VarDecl>(type_cast<TagType>(thistype)->fieldvars[index])->type))
           parms[0].type = resolve_as_value(ctx, parms[0].type);
+
+        if (parms[0].type.flags & MIR::Local::XValue)
+          parms[0].type.flags = (parms[0].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
 
         if (!lower_new(ctx, result, address, type, parms, namedparms, fn->loc()))
           return;

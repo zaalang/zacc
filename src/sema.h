@@ -41,6 +41,7 @@ class Sema
     SwitchStmt *switch_statement(SourceLocation loc);
     ExprStmt *expression_statement(SourceLocation loc);
     NullStmt *null_statement(SourceLocation loc);
+    GotoStmt *goto_statement(SourceLocation loc);
     ThrowStmt *throw_statement(SourceLocation loc);
     BreakStmt *break_statement(SourceLocation loc);
     ContinueStmt *continue_statement(SourceLocation loc);

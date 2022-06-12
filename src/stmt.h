@@ -36,6 +36,7 @@ class Stmt
       Rof,
       While,
       Switch,
+      Goto,
       Try,
       Throw,
       Break,
@@ -229,6 +230,20 @@ class SwitchStmt : public Stmt
 };
 
 
+//---------------------- GotoStmt -------------------------------------------
+//---------------------------------------------------------------------------
+
+class GotoStmt : public Stmt
+{
+  public:
+    GotoStmt(SourceLocation loc);
+
+    Expr *label = nullptr;
+
+    void dump(int indent) const override;
+};
+
+
 //---------------------- TryStmt --------------------------------------------
 //---------------------------------------------------------------------------
 
@@ -330,6 +345,7 @@ template<> inline auto stmt_cast<ForStmt>(Stmt *stmt) { assert(stmt && stmt->kin
 template<> inline auto stmt_cast<RofStmt>(Stmt *stmt) { assert(stmt && stmt->kind() == Stmt::Rof); return static_cast<RofStmt*>(stmt); };
 template<> inline auto stmt_cast<WhileStmt>(Stmt *stmt) { assert(stmt && stmt->kind() == Stmt::While); return static_cast<WhileStmt*>(stmt); };
 template<> inline auto stmt_cast<SwitchStmt>(Stmt *stmt) { assert(stmt && stmt->kind() == Stmt::Switch); return static_cast<SwitchStmt*>(stmt); };
+template<> inline auto stmt_cast<GotoStmt>(Stmt *stmt) { assert(stmt && stmt->kind() == Stmt::Goto); return static_cast<GotoStmt*>(stmt); };
 template<> inline auto stmt_cast<TryStmt>(Stmt *stmt) { assert(stmt && stmt->kind() == Stmt::Try); return static_cast<TryStmt*>(stmt); };
 template<> inline auto stmt_cast<ThrowStmt>(Stmt *stmt) { assert(stmt && stmt->kind() == Stmt::Throw); return static_cast<ThrowStmt*>(stmt); };
 template<> inline auto stmt_cast<BreakStmt>(Stmt *stmt) { assert(stmt && stmt->kind() == Stmt::Break); return static_cast<BreakStmt*>(stmt); };

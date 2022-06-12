@@ -161,6 +161,12 @@ NullStmt *Sema::null_statement(SourceLocation loc)
   return ast->make_stmt<NullStmt>(loc);
 }
 
+//|///////////////////// goto_statement /////////////////////////////////////
+GotoStmt *Sema::goto_statement(SourceLocation loc)
+{
+  return ast->make_stmt<GotoStmt>(loc);
+}
+
 //|///////////////////// throw_statement ////////////////////////////////////
 ThrowStmt *Sema::throw_statement(SourceLocation loc)
 {

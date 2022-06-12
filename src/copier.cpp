@@ -1195,6 +1195,12 @@ namespace
     return result;
   }
 
+  //|///////////////////// goto_statement ///////////////////////////////////
+  Stmt *copier_stmt(CopierContext &ctx, GotoStmt *gotoo)
+  {
+    return new GotoStmt(gotoo->loc());
+  }
+
   //|///////////////////// try_statement ////////////////////////////////////
   Stmt *copier_stmt(CopierContext &ctx, TryStmt *trys)
   {
@@ -1288,6 +1294,10 @@ namespace
 
       case Stmt::Switch:
         stmt = copier_stmt(ctx, stmt_cast<SwitchStmt>(stmt));
+        break;
+
+      case Stmt::Goto:
+        stmt = copier_stmt(ctx, stmt_cast<GotoStmt>(stmt));
         break;
 
       case Stmt::Try:

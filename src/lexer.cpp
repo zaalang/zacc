@@ -659,6 +659,11 @@ namespace
           type = Token::kw_for;
         break;
 
+      case 'g':
+        if (identifier == "goto")
+          type = Token::kw_goto;
+        break;
+
       case 'i':
         if (identifier == "if")
           type = Token::kw_if;

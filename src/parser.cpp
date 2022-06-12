@@ -4228,15 +4228,32 @@ namespace
     {
       ctx.consume_token(Token::kw_case);
 
-      if (ctx.tok == Token::identifier || ctx.tok == Token::kw_typeof)
-      {
-        auto name = parse_qualified_name(ctx, sema);
+      auto tok = ctx.tok;
+      auto lexcursor = ctx.lexcursor;
 
-        casse->label = sema.make_declref_expression(name, ctx.tok.loc);
-      }
-      else
+      while (!casse->label)
       {
-        casse->label = parse_expression(ctx, sema);
+        switch (tok.type)
+        {
+          case Token::hash:
+          case Token::dotdot:
+          case Token::dotdotequal:
+          case Token::colon:
+          case Token::eof:
+            if (casse->label = parse_expression(ctx, sema); !casse->label)
+              return nullptr;
+            break;
+
+          case Token::l_paren:
+            if (casse->label = sema.make_declref_expression(parse_qualified_name(ctx, sema), ctx.tok.loc); !casse->label)
+              return nullptr;
+            break;
+
+          default:
+            break;
+        }
+
+        lexcursor = lex(ctx.text, lexcursor, tok);
       }
 
       if (ctx.try_consume_token(Token::l_paren))
@@ -5033,6 +5050,28 @@ namespace
       return nullptr;
   }
 
+  //|///////////////////// parse_goto_statement /////////////////////////////
+  Stmt *parse_goto_statement(ParseContext &ctx, Sema &sema)
+  {
+    auto retrn = sema.goto_statement(ctx.tok.loc);
+
+    ctx.consume_token(Token::kw_goto);
+
+    retrn->label = parse_expression(ctx, sema);
+
+    if (!ctx.try_consume_token(Token::semi))
+    {
+      ctx.diag.error("expected semi", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
+
+    return retrn;
+
+    resume:
+      ctx.comsume_til_resumable();
+      return nullptr;
+  }
+
   //|///////////////////// parse_try_statement //////////////////////////////
   Stmt *parse_try_statement(ParseContext &ctx, Sema &sema)
   {
@@ -5319,6 +5358,9 @@ namespace
 
       case Token::arrow:
         return parse_injection_statement(ctx, sema);
+
+      case Token::kw_goto:
+        return parse_goto_statement(ctx, sema);
 
       case Token::hash:
         switch (auto tok = ctx.token(1); tok.type)

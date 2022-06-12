@@ -46,6 +46,7 @@ namespace
     vector<MIR::block_t> breaks;
     vector<MIR::block_t> continues;
     vector<MIR::block_t> returns;
+    vector<std::tuple<MIR::block_t, Expr*>> gotos;
 
     struct Barrier
     {
@@ -60,6 +61,7 @@ namespace
       MIR::block_t firstbreak;
       MIR::block_t firstcontinue;
       MIR::block_t firstreturn;
+      MIR::block_t firstgoto;
       vector<MIR::Statement> retires;
 
       Diag::Marker diagstate;
@@ -125,6 +127,7 @@ namespace
       barrier.firstbreak = breaks.size();
       barrier.firstcontinue = continues.size();
       barrier.firstreturn = returns.size();
+      barrier.firstgoto = gotos.size();
 
       barrier.diagstate = diag.marker();
 
@@ -144,26 +147,32 @@ namespace
 
         for(auto i = barrier.firstthrow; i < throws.size(); ++i)
         {
-          if (throws[i] != currentblockid)
-            mir.blocks[throws[i]].statements.insert(mir.blocks[throws[i]].statements.end(), barrier.retires.rbegin(), barrier.retires.rend());
+          if (auto blk = throws[i]; blk != currentblockid)
+            mir.blocks[blk].statements.insert(mir.blocks[blk].statements.end(), barrier.retires.rbegin(), barrier.retires.rend());
         }
 
         for(auto i = barrier.firstbreak; i < breaks.size(); ++i)
         {
-          if (breaks[i] != currentblockid)
-            mir.blocks[breaks[i]].statements.insert(mir.blocks[breaks[i]].statements.end(), barrier.retires.rbegin(), barrier.retires.rend());
+          if (auto blk = breaks[i]; blk != currentblockid)
+            mir.blocks[blk].statements.insert(mir.blocks[blk].statements.end(), barrier.retires.rbegin(), barrier.retires.rend());
         }
 
         for(auto i = barrier.firstcontinue; i < continues.size(); ++i)
         {
-          if (continues[i] != currentblockid)
-            mir.blocks[continues[i]].statements.insert(mir.blocks[continues[i]].statements.end(), barrier.retires.rbegin(), barrier.retires.rend());
+          if (auto blk = continues[i]; blk != currentblockid)
+            mir.blocks[blk].statements.insert(mir.blocks[blk].statements.end(), barrier.retires.rbegin(), barrier.retires.rend());
         }
 
         for(auto i = barrier.firstreturn; i < returns.size(); ++i)
         {
-          if (returns[i] != currentblockid)
-            mir.blocks[returns[i]].statements.insert(mir.blocks[returns[i]].statements.end(), barrier.retires.rbegin(), barrier.retires.rend());
+          if (auto blk = returns[i]; blk != currentblockid)
+            mir.blocks[blk].statements.insert(mir.blocks[blk].statements.end(), barrier.retires.rbegin(), barrier.retires.rend());
+        }
+
+        for(auto i = barrier.firstgoto; i < gotos.size(); ++i)
+        {
+          if (auto blk = get<0>(gotos[i]); blk != currentblockid)
+            mir.blocks[blk].statements.insert(mir.blocks[blk].statements.end(), barrier.retires.rbegin(), barrier.retires.rend());
         }
 
         if (mir.throws && errorarg == 1)
@@ -5399,34 +5408,32 @@ namespace
 
     auto callee = find_callee(ctx, ctx.stack, scope, decl, parms, namedparms);
 
-    if (!callee)
+    callee.overloads.erase(std::remove_if(callee.overloads.begin(), callee.overloads.end(), [&](auto &fx){
+
+      if (is_throws(ctx, scope, fx.fn) != (type->throwtype != ctx.voidtype))
+        return true;
+
+      if (fx.fn->parms.size() != parms.size())
+        return true;
+
+      if (find_returntype(ctx, fx).type != type->returntype)
+        return true;
+
+      return false;
+
+    }), callee.overloads.end());
+
+    if (callee.overloads.size() != 1)
     {
       ctx.diag.error("unable to resolve function cast", ctx.stack.back(), loc);
       diag_callee(ctx, callee, parms, namedparms);
       return false;
     }
 
-    if (is_throws(ctx, scope, callee.fx.fn) != (type->throwtype != ctx.voidtype))
-    {
-      ctx.diag.error("throw type mismatch on function cast", ctx.stack.back(), loc);
-      return false;
-    }
-
-    if (parms.size() != callee.fx.fn->parms.size())
-    {
-      ctx.diag.error("parameter count mismatch on function cast", ctx.stack.back(), loc);
-      return false;
-    }
+    callee.fx = callee.overloads[0];
 
     if (type->throwtype != ctx.voidtype)
       callee.fx.throwtype = type->throwtype;
-
-    if (find_returntype(ctx, callee.fx).type != type->returntype)
-    {
-      ctx.diag.error("return type mismatch on function cast", ctx.stack.back(), loc);
-      diag_callee(ctx, callee, parms, namedparms);
-      return false;
-    }
 
     result.type = MIR::Local(type, MIR::Local::Const | MIR::Local::Reference);
     result.value = MIR::RValue::literal(ctx.mir.make_expr<FunctionPointerExpr>(callee.fx, loc));
@@ -5435,7 +5442,7 @@ namespace
   }
 
   //|///////////////////// lower_label //////////////////////////////////////
-  bool lower_label(LowerContext &ctx, size_t &result, Type *type, Expr *label)
+  bool lower_label(LowerContext &ctx, vector<size_t> &result, Type *type, Expr *label)
   {
     MIR::Fragment value;
 
@@ -5479,24 +5486,72 @@ namespace
 
     if (is_constant(ctx, value) && get_if<BoolLiteralExpr*>(&value.value.get<MIR::RValue::Constant>()))
     {
-      result = get<BoolLiteralExpr*>(value.value.get<MIR::RValue::Constant>())->value();
+      auto literal = get<BoolLiteralExpr*>(value.value.get<MIR::RValue::Constant>());
+
+      result.push_back(literal->value());
 
       return true;
     }
 
     if (is_constant(ctx, value) && get_if<CharLiteralExpr*>(&value.value.get<MIR::RValue::Constant>()))
     {
-      result = get<CharLiteralExpr*>(value.value.get<MIR::RValue::Constant>())->value().value;
+      auto literal = get<CharLiteralExpr*>(value.value.get<MIR::RValue::Constant>());
+
+      result.push_back(literal->value().value);
 
       return true;
     }
 
     if (is_constant(ctx, value) && get_if<IntLiteralExpr*>(&value.value.get<MIR::RValue::Constant>()))
     {
-      result = get<IntLiteralExpr*>(value.value.get<MIR::RValue::Constant>())->value().value;
+      auto literal = get<IntLiteralExpr*>(value.value.get<MIR::RValue::Constant>());
 
-      if (get<IntLiteralExpr*>(value.value.get<MIR::RValue::Constant>())->value().sign < 0)
-        result = -result;
+      result.push_back(literal->value().sign * literal->value().value);
+
+      return true;
+    }
+
+    if (is_constant(ctx, value) && is_tuple_type(value.type.type))
+    {
+      auto tuple = get<CompoundLiteralExpr*>(value.value.get<MIR::RValue::Constant>());
+
+      Numeric::Int beg = {};
+      Numeric::Int end = {};
+
+      if (tuple->fields.size() == 2 && tuple->fields[0]->kind() == Expr::CharLiteral && tuple->fields[1]->kind() == Expr::CharLiteral)
+      {
+        beg = expr_cast<CharLiteralExpr>(tuple->fields[0])->value();
+        end = expr_cast<CharLiteralExpr>(tuple->fields[1])->value();
+      }
+
+      if (tuple->fields.size() == 3 && tuple->fields[0]->kind() == Expr::CharLiteral && tuple->fields[1]->kind() == Expr::CharLiteral && tuple->fields[2]->kind() == Expr::VoidLiteral)
+      {
+        beg = expr_cast<CharLiteralExpr>(tuple->fields[0])->value();
+        end = expr_cast<CharLiteralExpr>(tuple->fields[1])->value() + Numeric::int_literal(1);
+      }
+
+      if (tuple->fields.size() == 2 && tuple->fields[0]->kind() == Expr::IntLiteral && tuple->fields[1]->kind() == Expr::IntLiteral)
+      {
+        beg = expr_cast<IntLiteralExpr>(tuple->fields[0])->value();
+        end = expr_cast<IntLiteralExpr>(tuple->fields[1])->value();
+      }
+
+      if (tuple->fields.size() == 3 && tuple->fields[0]->kind() == Expr::IntLiteral && tuple->fields[1]->kind() == Expr::IntLiteral && tuple->fields[2]->kind() == Expr::VoidLiteral)
+      {
+        beg = expr_cast<IntLiteralExpr>(tuple->fields[0])->value();
+        end = expr_cast<IntLiteralExpr>(tuple->fields[1])->value() + Numeric::int_literal(1);
+      }
+
+      if (end <= beg || end - beg > Numeric::int_literal(256))
+      {
+        ctx.diag.error("invalid label range", ctx.stack.back(), label->loc());
+        return false;
+      }
+
+      for(auto i = beg; i != end; i = i + Numeric::int_literal(1))
+      {
+        result.push_back(i.sign * i.value);
+      }
 
       return true;
     }
@@ -8000,6 +8055,27 @@ namespace
 
     ctx.mir.locals[arg].type = resolve_type(ctx, voidvar->type);
     ctx.mir.locals[arg].flags = MIR::Local::LValue;
+
+    if (voidvar->flags & VarDecl::Static)
+    {
+      if (is_reference_type(voidvar->type))
+      {
+        ctx.diag.error("invalid reference type", ctx.stack.back(), voidvar->loc());
+        return;
+      }
+
+      ctx.mir.statics.emplace_back(arg, MIR::RValue::literal(ctx.mir.make_expr<VoidLiteralExpr>(voidvar->loc())));
+      ctx.barriers.back().retires.erase(ctx.barriers.back().retires.end() - 1);
+
+      if (voidvar->flags & VarDecl::ThreadLocal)
+        ctx.mir.locals[arg].flags |= MIR::Local::ThreadLocal;
+
+      if (voidvar->flags & VarDecl::CacheAligned)
+        ctx.mir.locals[arg].flags |= MIR::Local::CacheAligned;
+
+      if (voidvar->flags & VarDecl::PageAligned)
+        ctx.mir.locals[arg].flags |= MIR::Local::PageAligned;
+    }
 
     if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
       realise_destructor(ctx, arg, voidvar->loc());
@@ -10524,16 +10600,10 @@ namespace
 
       if (casse->label)
       {
-        auto value = size_t(-1);
+        vector<size_t> values;
 
-        if (!lower_label(ctx, value, condition.type.type, casse->label))
+        if (!lower_label(ctx, values, condition.type.type, casse->label))
           return;
-
-        if (std::find_if(ctx.mir.blocks[block_cond].terminator.targets.begin(), ctx.mir.blocks[block_cond].terminator.targets.end(), [&](auto &target) { return get<0>(target) == value; }) != ctx.mir.blocks[block_cond].terminator.targets.end())
-        {
-          ctx.diag.error("duplicate label in switch", ctx.stack.back(), decl->loc());
-          cout << value << " " << *condition.type.type << endl;
-        }
 
         if (casse->parm)
         {
@@ -10545,9 +10615,15 @@ namespace
             return;
           }
 
+          if (values.size() != 1)
+          {
+            ctx.diag.error("case parameter requires unique label", ctx.stack.back(), decl->loc());
+            return;
+          }
+
           MIR::Fragment parm;
 
-          auto field = find_field(ctx, type_cast<CompoundType>(base.type.type), value);
+          auto field = find_field(ctx, type_cast<CompoundType>(base.type.type), values[0]);
 
           if (!lower_field(ctx, parm, base, field, casevar->loc()))
             return;
@@ -10555,7 +10631,16 @@ namespace
           lower_decl(ctx, casevar, parm);
         }
 
-        ctx.mir.blocks[block_cond].terminator.targets.emplace_back(value, ctx.currentblockid);
+        for(auto value : values)
+        {
+          if (std::find_if(ctx.mir.blocks[block_cond].terminator.targets.begin(), ctx.mir.blocks[block_cond].terminator.targets.end(), [&](auto &target) { return get<0>(target) == value; }) != ctx.mir.blocks[block_cond].terminator.targets.end())
+          {
+            ctx.diag.error("duplicate label in switch", ctx.stack.back(), decl->loc());
+            cout << value << " " << *condition.type.type << endl;
+          }
+
+          ctx.mir.blocks[block_cond].terminator.targets.emplace_back(value, ctx.currentblockid);
+        }
       }
       else
       {
@@ -10585,8 +10670,38 @@ namespace
     for(auto &block_body : block_bodys)
       ctx.mir.blocks[block_body].terminator.blockid = ctx.currentblockid;
 
+    for(auto i = ctx.barriers.back().firstgoto; i < ctx.gotos.size(); ++i)
+    {
+      auto [blk, label] = ctx.gotos[i];
+
+      vector<size_t> values;
+
+      if (!lower_label(ctx, values, condition.type.type, label))
+        return;
+
+      if (values.size() != 1)
+        ctx.diag.error("invalid label in goto", ctx.stack.back(), label->loc());
+
+      auto j = std::find_if(ctx.mir.blocks[block_cond].terminator.targets.begin(), ctx.mir.blocks[block_cond].terminator.targets.end(), [&](auto &target) { return get<0>(target) == values[0]; });
+
+      if (j == ctx.mir.blocks[block_cond].terminator.targets.end())
+        ctx.diag.error("unknown label in goto", ctx.stack.back(), label->loc());
+
+      if (j != ctx.mir.blocks[block_cond].terminator.targets.end())
+        ctx.mir.blocks[blk].terminator.blockid = get<1>(*j);
+    }
+
+    ctx.gotos.resize(ctx.barriers.back().firstgoto);
+
     ctx.stack.pop_back();
     ctx.retire_barrier(sm);
+  }
+
+  //|///////////////////// lower_goto_statement /////////////////////////////
+  void lower_goto_statement(LowerContext &ctx, GotoStmt *gotoo)
+  {
+    ctx.gotos.push_back(std::make_tuple(ctx.currentblockid, gotoo->label));
+    ctx.unreachable = Unreachable::Unwind;
   }
 
   //|///////////////////// lower_try_statement //////////////////////////////
@@ -10676,7 +10791,7 @@ namespace
   }
 
   //|///////////////////// lower_break_statement ////////////////////////////
-  void lower_break_statement(LowerContext &ctx, BreakStmt *breck)
+  void lower_break_statement(LowerContext &ctx, BreakStmt *brek)
   {
     ctx.breaks.push_back(ctx.currentblockid);
     ctx.unreachable = Unreachable::Unwind;
@@ -10872,6 +10987,10 @@ namespace
         lower_switch_statement(ctx, stmt_cast<SwitchStmt>(stmt));
         break;
 
+      case Stmt::Goto:
+        lower_goto_statement(ctx, stmt_cast<GotoStmt>(stmt));
+        break;
+
       case Stmt::Try:
         lower_try_statement(ctx, stmt_cast<TryStmt>(stmt));
         break;
@@ -10973,6 +11092,9 @@ namespace
 
       if (!ctx.continues.empty())
         ctx.diag.error("unhandled continue statement", ctx.stack.back(), fn->loc());
+
+      if (!ctx.gotos.empty())
+        ctx.diag.error("unhandled goto statement", ctx.stack.back(), fn->loc());
 
       if (!ctx.unreachable && ctx.mir.locals[0].type != ctx.voidtype && !(ctx.mir.fx.fn->flags & FunctionDecl::Constructor))
         ctx.diag.error("missing return statement", ctx.stack.back(), fn->loc());

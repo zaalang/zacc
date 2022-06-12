@@ -75,6 +75,10 @@ std::ostream &operator <<(std::ostream &os, Stmt const &stmt)
       os << "Switch";
       break;
 
+    case Stmt::Goto:
+      os << "Goto";
+      break;
+
     case Stmt::Try:
       os << "Try";
       break;
@@ -379,6 +383,27 @@ void SwitchStmt::dump(int indent) const
   for(auto &decl : decls)
   {
     decl->dump(indent + 2);
+  }
+}
+
+
+//|--------------------- GotoStmt -------------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// GotoStmt::Constructor //////////////////////////////
+GotoStmt::GotoStmt(SourceLocation loc)
+  : Stmt(Goto, loc)
+{
+}
+
+//|///////////////////// GotoStmt::dump /////////////////////////////////////
+void GotoStmt::dump(int indent) const
+{
+  cout << spaces(indent) << "GotoStmt " << this << " <" << m_loc << ">\n";
+
+  if (label)
+  {
+    label->dump(indent + 2);
   }
 }
 

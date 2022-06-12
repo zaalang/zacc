@@ -1511,6 +1511,7 @@ namespace
             auto voidvar = sema.voidvar_declaration(var->loc());
 
             voidvar->name = var->name;
+            voidvar->flags = var->flags;
             voidvar->type = sema.make_typeref(call->callee);
 
             declstmt->decl = voidvar;
@@ -1652,6 +1653,12 @@ namespace
     ctx.stack.pop_back();
   }
 
+  //|///////////////////// goto_statement //////////////////////////////////
+  void semantic_goto_statement(SemanticContext &ctx, GotoStmt *gotoo, Sema &sema)
+  {
+    semantic_expr(ctx, gotoo->label, sema);
+  }
+
   //|///////////////////// try_statement ////////////////////////////////////
   void semantic_try_statement(SemanticContext &ctx, TryStmt *trys, Sema &sema)
   {
@@ -1746,6 +1753,10 @@ namespace
 
       case Stmt::Switch:
         semantic_switch_statement(ctx, stmt_cast<SwitchStmt>(stmt), sema);
+        break;
+
+      case Stmt::Goto:
+        semantic_goto_statement(ctx, stmt_cast<GotoStmt>(stmt), sema);
         break;
 
       case Stmt::Try:

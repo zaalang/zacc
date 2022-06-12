@@ -383,7 +383,7 @@ namespace
         return is_dependant_type(ctx, type_cast<ReferenceType>(type)->type);
 
       case Type::Array:
-        return is_dependant_type(ctx, type_cast<ArrayType>(type)->type);
+        return is_dependant_type(ctx, type_cast<ArrayType>(type)->type) || is_dependant_type(ctx, type_cast<ArrayType>(type)->size);
 
       case Type::Tuple:
 
@@ -1949,6 +1949,11 @@ namespace
   {
     ctx.stack.emplace_back(casse);
 
+    if (casse->label)
+    {
+      resolve_expr(ctx, ctx.stack.back(), casse->label, sema);
+    }
+
     if (casse->body)
     {
       typer_statement(ctx, casse->body, sema);
@@ -2328,6 +2333,15 @@ namespace
     ctx.stack.pop_back();
   }
 
+  //|///////////////////// typer_goto_statement //////////////////////////////
+  void typer_goto_statement(TyperContext &ctx, GotoStmt *gotoo, Sema &sema)
+  {
+    if (gotoo->label)
+    {
+      resolve_expr(ctx, ctx.stack.back(), gotoo->label, sema);
+    }
+  }
+
   //|///////////////////// typer_try_statement //////////////////////////////
   void typer_try_statement(TyperContext &ctx, TryStmt *trys, Sema &sema)
   {
@@ -2403,6 +2417,10 @@ namespace
 
       case Stmt::Switch:
         typer_switch_statement(ctx, stmt_cast<SwitchStmt>(stmt), sema);
+        break;
+
+      case Stmt::Goto:
+        typer_goto_statement(ctx, stmt_cast<GotoStmt>(stmt), sema);
         break;
 
       case Stmt::Try:

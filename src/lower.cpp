@@ -3189,6 +3189,28 @@ namespace
           if (fn->match)
           {
             viable &= match_arguments(ctx, scope, fx, expr_cast<MatchExpr>(fn->match));
+
+            for(size_t i = 0, k = 0; i < fn->parms.size(); ++i)
+            {
+              auto parm = decl_cast<ParmVarDecl>(fn->parms[i]);
+
+              if (is_refn_type(ctx, parm))
+              {
+                if (k < parms.size())
+                {
+                  if (!is_resolved_type(parms[k].type.type) && !deduce_type(ctx, fnscope, fx, parm, parms[k].type))
+                    viable = false;
+                }
+
+                else if (auto j = namedparms.find(parm->name); j != namedparms.end())
+                {
+                  if (!is_resolved_type(j->second.type.type) && !deduce_type(ctx, fnscope, fx, parm, j->second.type))
+                    viable = false;
+                }
+              }
+
+              k = is_pack_type(parm->type) ? parms.size() : k + 1;
+            }
           }
         }
 
@@ -3804,7 +3826,7 @@ namespace
         assert(false);
     }
 
-    throw std::logic_error("invalid map_builtin");
+    throw logic_error("invalid map_builtin");
   }
 
   //|///////////////////// find_callee //////////////////////////////////////
@@ -9833,7 +9855,7 @@ namespace
     auto sm = ctx.push_barrier();
     ctx.stack.emplace_back(fors, ctx.stack.back().typeargs);
 
-    vector<tuple<RangeVarDecl*, MIR::local_t, MIR::local_t>> ranges;
+    vector<tuple<RangeVarDecl*, MIR::local_t, MIR::local_t, MIR::local_t>> ranges;
 
     for(auto &init : fors->inits)
     {
@@ -9856,6 +9878,8 @@ namespace
 
         if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
           realise_destructor(ctx, arg, rangevar->range->loc());
+
+        ctx.mir.add_varinfo(arg, rangevar);
 
         auto beg = ctx.add_variable();
 
@@ -9901,7 +9925,7 @@ namespace
             realise_destructor(ctx, end, rangevar->loc());
         }
 
-        ranges.push_back({ rangevar, beg, end});
+        ranges.push_back({ rangevar, arg, beg, end});
 
         continue;
       }
@@ -9927,11 +9951,11 @@ namespace
       vector<MIR::Fragment> parms(2);
       map<Ident*, MIR::Fragment> namedparms;
 
-      auto beg = get<1>(range);
+      auto beg = get<2>(range);
       parms[0].type = ctx.mir.locals[beg];
       parms[0].value = MIR::RValue::local(MIR::RValue::Val, beg, get<0>(range)->loc());
 
-      auto end = get<2>(range);
+      auto end = get<3>(range);
       parms[1].type = ctx.mir.locals[end];
       parms[1].value = MIR::RValue::local(MIR::RValue::Val, end, get<0>(range)->loc());
 
@@ -9952,8 +9976,8 @@ namespace
     for(auto &range : ranges)
     {
       MIR::Fragment value;
-      value.type = ctx.mir.locals[get<1>(range)];
-      value.value = MIR::RValue::local(MIR::RValue::Val, get<1>(range), get<0>(range)->loc());
+      value.type = ctx.mir.locals[get<2>(range)];
+      value.value = MIR::RValue::local(MIR::RValue::Val, get<2>(range), get<0>(range)->loc());
 
       if (!lower_deref(ctx, value, value, get<0>(range)->loc()))
         return;
@@ -9996,12 +10020,17 @@ namespace
 
     for(auto &range : ranges)
     {
+      ctx.add_statement(MIR::Statement::storageloop(get<1>(range)));
+    }
+
+    for(auto &range : ranges)
+    {
       MIR::Fragment increment;
 
       vector<MIR::Fragment> parms(1);
       map<Ident*, MIR::Fragment> namedparms;
 
-      auto beg = get<1>(range);
+      auto beg = get<2>(range);
       parms[0].type = ctx.mir.locals[beg];
       parms[0].value = MIR::RValue::local(MIR::RValue::Val, beg, get<0>(range)->loc());
 
@@ -10021,6 +10050,14 @@ namespace
     for(auto &iter : fors->iters)
     {
       lower_statement(ctx, iter);
+    }
+
+    for(auto &init : fors->inits)
+    {
+      if (init->kind() == Stmt::Declaration && stmt_cast<DeclStmt>(init)->decl->kind() == Decl::StmtVar)
+      {
+        ctx.add_statement(MIR::Statement::storageloop(ctx.locals[stmt_cast<DeclStmt>(init)->decl]));
+      }
     }
 
     ctx.add_block(MIR::Terminator::gotoer(block_loop));
@@ -10053,7 +10090,7 @@ namespace
     auto sm = ctx.push_barrier();
     ctx.stack.emplace_back(rofs, ctx.stack.back().typeargs);
 
-    vector<tuple<RangeVarDecl*, MIR::local_t, MIR::local_t>> ranges;
+    vector<tuple<RangeVarDecl*, MIR::local_t, MIR::local_t, MIR::local_t>> ranges;
 
     for(auto &init : rofs->inits)
     {
@@ -10076,6 +10113,8 @@ namespace
 
         if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
           realise_destructor(ctx, arg, rangevar->range->loc());
+
+        ctx.mir.add_varinfo(arg, rangevar);
 
         auto beg = ctx.add_variable();
 
@@ -10121,7 +10160,7 @@ namespace
             realise_destructor(ctx, end, rangevar->loc());
         }
 
-        ranges.push_back({ rangevar, beg, end });
+        ranges.push_back({ rangevar, arg, beg, end });
 
         continue;
       }
@@ -10147,11 +10186,11 @@ namespace
       vector<MIR::Fragment> parms(2);
       map<Ident*, MIR::Fragment> namedparms;
 
-      auto beg = get<1>(range);
+      auto beg = get<2>(range);
       parms[0].type = ctx.mir.locals[beg];
       parms[0].value = MIR::RValue::local(MIR::RValue::Val, beg, get<0>(range)->loc());
 
-      auto end = get<2>(range);
+      auto end = get<3>(range);
       parms[1].type = ctx.mir.locals[end];
       parms[1].value = MIR::RValue::local(MIR::RValue::Val, end, get<0>(range)->loc());
 
@@ -10176,7 +10215,7 @@ namespace
       vector<MIR::Fragment> parms(1);
       map<Ident*, MIR::Fragment> namedparms;
 
-      auto end = get<2>(range);
+      auto end = get<3>(range);
       parms[0].type = ctx.mir.locals[end];
       parms[0].value = MIR::RValue::local(MIR::RValue::Val, end, get<0>(range)->loc());
 
@@ -10196,8 +10235,8 @@ namespace
     for(auto &range : ranges)
     {
       MIR::Fragment value;
-      value.type = ctx.mir.locals[get<2>(range)];
-      value.value = MIR::RValue::local(MIR::RValue::Val, get<2>(range), get<0>(range)->loc());
+      value.type = ctx.mir.locals[get<3>(range)];
+      value.value = MIR::RValue::local(MIR::RValue::Val, get<3>(range), get<0>(range)->loc());
 
       if (!lower_deref(ctx, value, value, get<0>(range)->loc()))
         return;
@@ -10239,6 +10278,19 @@ namespace
     ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1));
 
     auto block_step = ctx.currentblockid;
+
+    for(auto &range : ranges)
+    {
+      ctx.add_statement(MIR::Statement::storageloop(get<1>(range)));
+    }
+
+    for(auto &init : rofs->inits)
+    {
+      if (init->kind() == Stmt::Declaration && stmt_cast<DeclStmt>(init)->decl->kind() == Decl::StmtVar)
+      {
+        ctx.add_statement(MIR::Statement::storageloop(ctx.locals[stmt_cast<DeclStmt>(init)->decl]));
+      }
+    }
 
     ctx.add_block(MIR::Terminator::gotoer(block_loop));
 
@@ -10501,6 +10553,14 @@ namespace
     ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1));
 
     auto block_step = ctx.currentblockid;
+
+    for(auto &init : wile->inits)
+    {
+      if (init->kind() == Stmt::Declaration)
+      {
+        ctx.add_statement(MIR::Statement::storageloop(ctx.locals[stmt_cast<DeclStmt>(init)->decl]));
+      }
+    }
 
     ctx.add_block(MIR::Terminator::gotoer(block_loop));
 
@@ -11456,6 +11516,15 @@ MIR const &lower(FnSig const &fx, TypeTable &typetable, Diag &diag)
       diag << j->diag;
 
     return j->mir;
+  }
+
+  auto rr = recursion_counter<__COUNTER__>();
+
+  if (rr.count > 256)
+  {
+    diag.error("unable to lower function", fx.fn, fx.fn->loc());
+
+    throw runtime_error("recursion limit reached");
   }
 
   LowerContext ctx(typetable, diag);

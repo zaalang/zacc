@@ -247,6 +247,7 @@ class MIR
           Construct,
           StorageLive,
           StorageDead,
+          StorageLoop,
         };
 
         Kind kind;
@@ -258,6 +259,7 @@ class MIR
         static Statement construct(local_t dst, RValue const &src) { return { Construct, dst, src }; }
         static Statement storagelive(local_t dst) { return { StorageLive, dst }; }
         static Statement storagedead(local_t dst) { return { StorageDead, dst }; }
+        static Statement storageloop(local_t dst) { return { StorageLoop, dst }; }
 
       protected:
 

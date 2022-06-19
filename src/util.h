@@ -110,6 +110,25 @@ auto zip(Containters && ...containers)
   return iterator_pair(zip_iterator(containers.begin()...), zip_iterator(containers.end()...));
 }
 
+//-------------------------- recursion_counter ------------------------------
+//---------------------------------------------------------------------------
+
+template<int>
+class recursion_counter
+{
+  public:
+    inline static int count = 0;
+
+    recursion_counter()
+    {
+      count += 1;
+    }
+
+    ~recursion_counter()
+    {
+      count -= 1;
+    }
+};
 
 //-------------------------- escape -----------------------------------------
 //---------------------------------------------------------------------------

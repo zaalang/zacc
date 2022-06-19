@@ -1,0 +1,74 @@
+import std.stdio;
+import std.circular_buffer;
+
+using std;
+
+fn test_empty()
+{
+  var c = std::circular_buffer<int>::with_capacity(3);
+  assert(c.empty());
+  c.push_back(1);
+  assert(!c.empty());
+  c.clear();
+  assert(c.empty());
+}
+
+fn test_len()
+{
+  var c = std::circular_buffer<int>::with_capacity(3);
+  assert(c.len == 0);
+  c.push_back(1);
+  assert(c.len == 1);
+  c.push_back(2);
+  assert(c.len == 2);
+  c.push_back(3);
+  assert(c.len == 3);
+  c.erase(c.begin());
+  assert(c.len == 2);
+  c.erase(c.begin());
+  assert(c.len == 1);
+  c.erase(c.begin());
+  assert(c.len == 0);
+}
+
+fn test_size()
+{
+  var c = std::circular_buffer<int>();
+  assert(c.len == 0);
+  c.resize(2);
+  assert(c.len == 2);
+  assert(std::distance(c.begin, c.end) == 2);
+  c.resize(10);
+  assert(c.len == 10);
+  assert(std::distance(c.begin, c.end) == 10);
+}
+
+fn test_wrap()
+{
+  var c = std::circular_buffer<int, N:4>();
+  assert(c.len == 0);
+  assert(c.capacity == 4);
+  c.push_back(1);
+  assert(c.len == 1);
+  c.push_front(2);
+  assert(c.len == 2);
+  c.push_back(3);
+  assert(c.len == 3);
+  c.push_front(4);
+  assert(c.len == 4);
+  c.push_back(5);
+  assert(c.len == 4);
+  c.pop_back();
+  assert(c.len == 3);
+  c.pop_front();
+  assert(c.len == 2);
+  assert(c == [1, 3]);
+}
+
+fn main()
+{
+  #test_empty();
+  #test_len();
+  #test_size();
+  #test_wrap();
+}

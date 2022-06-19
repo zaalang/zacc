@@ -261,50 +261,63 @@ namespace
   //|///////////////////// annotations //////////////////////////////////////
   vector<Annotation> annotations(Context &ctx, FunctionDecl *fn)
   {
-    for(auto attr : fn->attributes)
+    vector<Annotation> result;
+
+    if (fn->flags & FunctionDecl::Lifetimed)
     {
-      auto attribute = decl_cast<AttributeDecl>(attr);
-
-      if (attribute->name == "lifetime")
+      for(auto attr : fn->attributes)
       {
-        vector<Annotation> result;
+        auto attribute = decl_cast<AttributeDecl>(attr);
 
-        auto i = attribute->options.find_first_not_of(" \t", 1);
-
-        while (i < attribute->options.length() - 1)
+        if (attribute->name == "lifetime")
         {
-          auto j = attribute->options.find_first_of("(", i);
+          auto i = attribute->options.find_first_not_of(" \t", 1);
 
-          for(int indent = 0; j != string::npos; )
+          while (i < attribute->options.length() - 1)
           {
-            if (attribute->options[j] == '(')
-              indent += 1;
+            auto j = attribute->options.find_first_of("(", i);
 
-            if (attribute->options[j] == ')')
-              if (--indent <= 0)
-                break;
+            for(int indent = 0; j != string::npos; )
+            {
+              if (attribute->options[j] == '(')
+                indent += 1;
 
-            j += 1;
+              if (attribute->options[j] == ')')
+                if (--indent <= 0)
+                  break;
+
+              j += 1;
+            }
+
+            auto annotation = parse(ctx, string_view(attribute->options).substr(i, j - i + 1), SourceLocation { attribute->loc().lineno, attribute->loc().charpos + int(i) + 8 });
+
+            result.push_back(annotation);
+
+            i = attribute->options.find_first_not_of(" \t,", j + 1);
           }
-
-          auto annotation = parse(ctx, string_view(attribute->options).substr(i, j - i + 1), SourceLocation { attribute->loc().lineno, attribute->loc().charpos + int(i) + 8 });
-
-          result.push_back(annotation);
-
-          i = attribute->options.find_first_not_of(" \t,", j + 1);
         }
-
-        return result;
       }
     }
 
-    return {};
+    return result;
+  }
+
+  //|///////////////////// has_launder //////////////////////////////////////
+  bool has_launder(Context &ctx, vector<Annotation> const &annotations)
+  {
+    for(auto &annotation : annotations)
+    {
+      if (annotation.type == Annotation::launder)
+        return true;
+    }
+
+    return false;
   }
 
   //|///////////////////// has_consume //////////////////////////////////////
-  bool has_consume(Context &ctx, FunctionDecl *fn, Decl *parm)
+  bool has_consume(Context &ctx, vector<Annotation> const &annotations, Decl *parm)
   {
-    for(auto &annotation : annotations(ctx, fn))
+    for(auto &annotation : annotations)
     {
       if (annotation.type == Annotation::consume)
       {
@@ -317,9 +330,9 @@ namespace
   }
 
   //|///////////////////// has_poison ///////////////////////////////////////
-  //bool has_poison(Context &ctx, FunctionDecl *fn, Decl *parm)
+  //bool has_poison(Context &ctx, vector<Annotation> const &annotations, Decl *parm)
   //{
-  //  for(auto &annotation : annotations(ctx, fn))
+  //  for(auto &annotation : annotations)
   //  {
   //    if (annotation.type == Annotation::poison)
   //    {
@@ -330,6 +343,23 @@ namespace
   //
   //  return false;
   //}
+
+  //|///////////////////// is_rvalue //////////////////////////////////////
+  bool is_rvalue(Context &ctx, MIR::Local const &local)
+  {
+    if (local.flags & MIR::Local::RValue)
+      return true;
+
+    if (is_reference_type(local.type))
+    {
+      auto lhs = remove_reference_type(local.type);
+
+      if (is_qualarg_type(lhs) && (type_cast<QualArgType>(lhs)->qualifiers & QualArgType::RValue))
+        return true;
+    }
+
+    return false;
+  }
 
   //|///////////////////// apply ////////////////////////////////////////////
   void apply(Context &ctx, MIR const &mir, Annotation const &annotation, MIR::local_t dst, FnSig const &callee, vector<MIR::local_t> const &args)
@@ -689,7 +719,9 @@ namespace
     if (callee.fn->flags & FunctionDecl::Destructor)
       return;
 
-    if (callee.fn->name == Ident::op_assign || callee.fn->name == std::string_view("launder"))
+    auto notations = annotations(ctx, callee.fn);
+
+    if (callee.fn->name == Ident::op_assign || has_launder(ctx, notations))
     {
 #if 0
       for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
@@ -804,12 +836,9 @@ namespace
       }
     }
 
-    if (callee.fn->flags & FunctionDecl::Lifetimed)
+    for(auto &annotation : notations)
     {
-      for(auto &annotation : annotations(ctx, callee.fn))
-      {
-        apply(ctx, mir, annotation, dst, callee, args);
-      }
+      apply(ctx, mir, annotation, dst, callee, args);
     }
   }
 
@@ -894,11 +923,53 @@ namespace
     ctx.threads[0].locals[statement.dst].live = false;
   }
 
+  //|///////////////////// analyse_storage_loop /////////////////////////////
+  void analyse_storage_loop(Context &ctx, MIR const &mir, MIR::Statement const &statement)
+  {
+    auto arg = statement.dst;
+
+    auto loc = [&]() {
+      for(auto &info : mir.varinfos)
+        if (info.local == statement.dst)
+          return info.vardecl->loc();
+      return mir.fx.fn->loc();
+    };
+
+#if 0
+      for(auto dep : ctx.threads[0].locals[arg].depends_upon)
+        cout << "loop: " << *dep << endl;
+#endif
+
+    switch (ctx.state(arg))
+    {
+      case State::ok:
+        break;
+
+      case State::dangling:
+        ctx.diag.error("potentially dangling loop variable", mir.fx.fn, loc());
+        break;
+
+      case State::consumed:
+        if (!is_rvalue(ctx, mir.locals[arg]))
+          ctx.diag.error("potentially consumed loop variable", mir.fx.fn, loc());
+        break;
+
+      case State::poisoned:
+        ctx.diag.error("potentially poisoned loop variable", mir.fx.fn, loc());
+        break;
+    }
+
+    ctx.threads[0].locals[arg].consumed = false;
+    ctx.threads[0].locals[arg].consumed_fields.clear();
+  }
+
   //|///////////////////// analyse //////////////////////////////////////////
   void analyse(Context &ctx, MIR const &mir)
   {
     if (mir.fx.fn->flags & FunctionDecl::Defaulted)
       return;
+
+    auto notations = annotations(ctx, mir.fx.fn);
 
     ctx.add_thread(0, vector<Context::Storage>(mir.locals.size() + mir.args_end));
 
@@ -977,6 +1048,10 @@ namespace
           case MIR::Statement::StorageDead:
             analyse_storage_dead(ctx, mir, statement);
             break;
+
+          case MIR::Statement::StorageLoop:
+            analyse_storage_loop(ctx, mir, statement);
+            break;
         }
       }
 
@@ -1020,12 +1095,12 @@ namespace
     size_t arg = mir.args_beg;
     for(auto &parm : mir.fx.parameters())
     {
-      if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type))
+      if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type) && !is_rvalue(ctx, mir.locals[arg]))
       {
-        if (ctx.threads[0].locals[arg + mir.locals.size()].consumed && !has_consume(ctx, mir.fx.fn, parm))
+        if (ctx.threads[0].locals[arg + mir.locals.size()].consumed && !has_consume(ctx, notations, parm))
           ctx.diag.warn("missing consume annotation", mir.fx.fn, parm->loc());
 
-        //if (ctx.threads[0].locals[arg + mir.locals.size()].toxic && !has_poison(ctx, mir.fx.fn, parm))
+        //if (ctx.threads[0].locals[arg + mir.locals.size()].toxic && !has_poison(ctx, notations, parm))
         //  ctx.diag.warn("missing poison annotation", mir.fx.fn, parm->loc());
       }
 

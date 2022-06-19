@@ -325,6 +325,10 @@ std::ostream &operator <<(std::ostream &os, MIR::Statement const &statement)
     case MIR::Statement::StorageDead:
       os << "StorageDead(_" << statement.dst << ")";
       break;
+
+    case MIR::Statement::StorageLoop:
+      os << "StorageLoop(_" << statement.dst << ")";
+      break;
   }
 
   return os;

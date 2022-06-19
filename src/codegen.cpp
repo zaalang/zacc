@@ -4428,6 +4428,9 @@ namespace
 
       case MIR::Statement::StorageDead:
         break;
+
+      case MIR::Statement::StorageLoop:
+        break;
     }
   }
 

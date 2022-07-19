@@ -69,6 +69,7 @@ Ident *BinaryOpExpr::binaryop_idents[] = {
   /* Range,     */ Ident::from(".."),
   /* RangeEq,   */ Ident::from("..="),
   /* Coalesce,  */ Ident::from("??"),
+  /* Index,     */ Ident::from("[]"),
 };
 
 namespace

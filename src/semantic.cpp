@@ -836,7 +836,7 @@ namespace
       {
         auto var = sema.parm_declaration(capture->loc());
         var->name = decl_cast<LambdaVarDecl>(capture)->name;
-        var->type = sema.make_reference(sema.make_qualarg(remove_const_type(remove_reference_type(decl_cast<LambdaVarDecl>(capture)->type))));
+        var->type = sema.make_reference(sema.make_qualarg(remove_qualifiers_type(decl_cast<LambdaVarDecl>(capture)->type)));
 
         ctor->parms.push_back(var);
       }
@@ -1292,6 +1292,11 @@ namespace
       if (attribute->name == "lifetime")
       {
         fn->flags |= FunctionDecl::Lifetimed;
+      }
+
+      if (attribute->name == "noinline")
+      {
+        fn->flags |= FunctionDecl::NoInline;
       }
 
       if (attribute->name == "weak")

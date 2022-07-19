@@ -144,6 +144,7 @@ namespace Builtin
 
     StringLen,
     StringData,
+    StringIndex,
     StringBegin,
     StringEnd,
     StringSlice,

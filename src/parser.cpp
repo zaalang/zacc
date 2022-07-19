@@ -1736,7 +1736,12 @@ namespace
 
     if (ctx.try_consume_token(Token::less))
     {
+      auto qualcast = ctx.try_consume_token(Token::ampamp);
+
       type = parse_type(ctx, sema);
+
+      if (qualcast)
+        type = sema.make_qualarg(type);
 
       if (!ctx.try_consume_token(Token::greater))
       {

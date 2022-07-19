@@ -33,6 +33,24 @@ using namespace std;
 
 namespace
 {
+  struct FunctionContext
+  {
+    Scope scope;
+
+    struct Local
+    {
+      long flags = 0;
+      Type *type = nullptr;
+
+      size_t size = 0;
+      void *alloc = nullptr;
+    };
+
+    vector<Local> locals;
+
+    size_t errorarg = 0;
+  };
+
   struct EvalContext
   {
     Scope dx;
@@ -76,6 +94,27 @@ namespace
       return new T(std::forward<Args>(args)...);
     }
 
+    vector<vector<FunctionContext::Local>> stackpool;
+
+    vector<FunctionContext::Local> make_frame()
+    {
+      vector<FunctionContext::Local> frame;
+
+      if (!stackpool.empty())
+      {
+        frame = std::move(stackpool.back());
+        stackpool.pop_back();
+      }
+
+      return frame;
+    }
+
+    void pool_frame(vector<FunctionContext::Local> &&frame)
+    {
+      frame.clear();
+      stackpool.push_back(std::move(frame));
+    }
+
     Diag &outdiag;
 
     EvalContext(Scope const &dx, TypeTable &typetable, Diag &diag)
@@ -94,23 +133,6 @@ namespace
     {
       outdiag << diag;
     }
-  };
-
-  struct FunctionContext
-  {
-    Scope scope;
-
-    struct Local
-    {
-      Type *type = nullptr;
-
-      size_t size = 0;
-      void *alloc = nullptr;
-    };
-
-    vector<Local> locals;
-
-    size_t errorarg = 0;
   };
 
   template <typename T>
@@ -168,24 +190,18 @@ namespace
   {
     FunctionContext::Local result;
 
-    auto type = local.type;
-
-    if (local.flags & MIR::Local::Reference)
-      type = ctx.typetable.find_or_create<PointerType>(type);
-
-    result.type = type;
-    result.size = sizeof_type(type);
-    result.alloc = ctx.allocate(result.size, alignof_type(type));
+    result.type = local.type;
+    result.flags = local.flags;
+    result.size = (local.flags & MIR::Local::Reference) ? sizeof(void*) : sizeof_type(local.type);
+    result.alloc = ctx.allocate(result.size, alignof(void*));
 
     return result;
   }
 
   //|///////////////////// load /////////////////////////////////////////////
-  void *load_ptr(EvalContext &ctx, void *alloc, Type *type)
+  void *load_ptr(EvalContext &ctx, void *alloc)
   {
     void *value;
-
-    assert(is_pointference_type(type));
 
     memcpy(&value, alloc, sizeof(value));
 
@@ -195,7 +211,7 @@ namespace
   template<typename T = void>
   T* load_ptr(EvalContext &ctx, FunctionContext &fx, size_t src)
   {
-    return static_cast<T*>(load_ptr(ctx, fx.locals[src].alloc, fx.locals[src].type));
+    return static_cast<T*>(load_ptr(ctx, fx.locals[src].alloc));
   }
 
   //|///////////////////// load /////////////////////////////////////////////
@@ -373,11 +389,9 @@ namespace
   }
 
   //|///////////////////// store ////////////////////////////////////////////
-  void store(EvalContext &ctx, void *alloc, Type *type, void *value)
+  void store(EvalContext &ctx, void *alloc, void const *value)
   {
-    assert(is_pointference_type(type));
-
-    memcpy(alloc, &value, sizeof(void*));
+    memcpy(alloc, &value, sizeof(value));
   }
 
   //|///////////////////// store ////////////////////////////////////////////
@@ -589,11 +603,11 @@ namespace
         break;
 
       case Expr::PointerLiteral:
-        store(ctx, alloc, type, (void*)nullptr);
+        store(ctx, alloc, nullptr);
         break;
 
       case Expr::FunctionPointer:
-        store(ctx, alloc, type, (void*)value);
+        store(ctx, alloc, value);
         break;
 
       case Expr::StringLiteral:
@@ -655,7 +669,7 @@ namespace
     }
     else if (is_pointer_type(type))
     {
-      auto ptr = load_ptr(ctx, alloc, type);
+      auto ptr = load_ptr(ctx, alloc);
 
       if (ptr == 0)
         return ctx.make_expr<PointerLiteralExpr>(loc);
@@ -667,7 +681,7 @@ namespace
     }
     else if (is_reference_type(type))
     {
-      auto ptr = load_ptr(ctx, alloc, type);
+      auto ptr = load_ptr(ctx, alloc);
 
       if (is_function_type(remove_const_type(remove_reference_type(type))))
         return static_cast<FunctionPointerExpr*>(ptr);
@@ -927,7 +941,7 @@ namespace
       return false;
     }
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, (void*)nullptr);
+    store(ctx, fx.locals[dst].alloc, nullptr);
 
     return true;
   }
@@ -944,7 +958,7 @@ namespace
       return false;
     }
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, (void*)literal);
+    store(ctx, fx.locals[dst].alloc, literal);
 
     return true;
   }
@@ -1029,7 +1043,6 @@ namespace
   {
     auto &[op, arg, fields, loc] = variable;
 
-    auto lhs = fx.locals[dst].type;
     auto rhs = fx.locals[arg].type;
     auto src = fx.locals[arg].alloc;
 
@@ -1037,8 +1050,10 @@ namespace
     {
       if (field.op == MIR::RValue::Val)
       {
-        src = load_ptr(ctx, src, rhs);
-        rhs = remove_pointference_type(rhs);
+        src = load_ptr(ctx, src);
+
+        if (&field != &fields.front() || !(fx.locals[arg].flags & MIR::Local::Reference))
+          rhs = remove_pointference_type(rhs);
       }
 
       switch (rhs = remove_const_type(rhs); rhs->klass())
@@ -1058,12 +1073,6 @@ namespace
           assert(false);
       }
     }
-
-    if (op == MIR::RValue::Ref)
-      lhs = remove_pointference_type(lhs);
-
-    if (op == MIR::RValue::Fer)
-      rhs = remove_pointference_type(rhs);
 
     switch (op)
     {
@@ -1208,7 +1217,7 @@ namespace
     auto &[callee, args, loc] = call;
 
     auto arg = load_ptr(ctx, fx, args[0]);
-    auto argtype = remove_pointference_type(fx.locals[args[0]].type);
+    auto argtype = fx.locals[args[0]].type;
 
     if (is_int(argtype))
     {
@@ -1272,7 +1281,7 @@ namespace
     {
       void *result;
 
-      auto lhs = load_ptr(ctx, arg, argtype);
+      auto lhs = load_ptr(ctx, arg);
 
       switch (callee.fn->builtin)
       {
@@ -1288,7 +1297,7 @@ namespace
           assert(false);
       }
 
-      store(ctx, arg, argtype, result);
+      store(ctx, arg, result);
     }
     else
     {
@@ -1297,7 +1306,7 @@ namespace
       return false;
     }
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, arg);
+    store(ctx, fx.locals[dst].alloc, arg);
 
     return true;
   }
@@ -1494,7 +1503,7 @@ namespace
           assert(false);
       }
 
-      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
+      store(ctx, fx.locals[dst].alloc, result);
     }
     else if (is_pointference_type(fx.locals[args[0]].type) && is_pointference_type(fx.locals[args[1]].type))
     {
@@ -1517,7 +1526,7 @@ namespace
           assert(false);
       }
 
-      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
+      store(ctx, fx.locals[dst].alloc, result);
     }
     else
     {
@@ -1609,7 +1618,7 @@ namespace
     auto &[callee, args, loc] = call;
 
     auto arg = load_ptr(ctx, fx, args[0]);
-    auto argtype = remove_pointference_type(fx.locals[args[0]].type);
+    auto argtype = fx.locals[args[0]].type;
 
     if (is_int(argtype) && is_int(fx.locals[args[1]].type))
     {
@@ -1763,7 +1772,7 @@ namespace
     {
       void *result;
 
-      auto lhs = load_ptr(ctx, arg, argtype);
+      auto lhs = load_ptr(ctx, arg);
       auto rhs = load_int(ctx, fx, args[1]);
 
       auto size = sizeof_type(remove_pointference_type(argtype));
@@ -1788,7 +1797,7 @@ namespace
           assert(false);
       }
 
-      store(ctx, arg, argtype, result);
+      store(ctx, arg, result);
     }
     else
     {
@@ -1797,7 +1806,7 @@ namespace
       return false;
     }
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, arg);
+    store(ctx, fx.locals[dst].alloc, arg);
 
     return true;
   }
@@ -2075,11 +2084,11 @@ namespace
 
     if (lhs == nullptr)
     {
-      ctx.diag.error("null pointer dereference", ctx.dx, loc);
+      ctx.diag.error("null pointer dereference", fx.scope, loc);
       return false;
     }
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, lhs);
+    store(ctx, fx.locals[dst].alloc, lhs);
 
     return true;
   }
@@ -2106,7 +2115,7 @@ namespace
 
     memcpy(lhs, fx.locals[args[1]].alloc, fx.locals[args[1]].size);
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, lhs);
+    store(ctx, fx.locals[dst].alloc, lhs);
 
     return true;
   }
@@ -2130,7 +2139,26 @@ namespace
 
     auto src = load_string(ctx, fx, args[0]);
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, (void*)src.data());
+    store(ctx, fx.locals[dst].alloc, src.data());
+
+    return true;
+  }
+
+  //|///////////////////// slice_index //////////////////////////////////////
+  bool eval_builtin_slice_index(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto lhs = load_string(ctx, fx, args[0]);
+    auto rhs = load_ptr(ctx, fx, args[1]);
+
+    if (rhs < lhs.data() || lhs.data() + lhs.length() <= rhs)
+    {
+      ctx.diag.error("string subscript overflow", fx.scope, loc);
+      return false;
+    }
+
+    store(ctx, fx.locals[dst].alloc, rhs);
 
     return true;
   }
@@ -2142,7 +2170,7 @@ namespace
 
     auto src = load_string(ctx, fx, args[0]);
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, (void*)(src.data() + src.length()));
+    store(ctx, fx.locals[dst].alloc, src.data() + src.length());
 
     return true;
   }
@@ -2205,7 +2233,7 @@ namespace
 
     auto lhs = load_ptr(ctx, fx, args[0]);
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, lhs);
+    store(ctx, fx.locals[dst].alloc, lhs);
 
     return true;
   }
@@ -2216,19 +2244,34 @@ namespace
     auto &[callee, args, loc] = call;
 
     auto lhs = load_ptr(ctx, fx, args[0]);
-    auto rhs = load_int(ctx, fx, args[1]);
 
     auto arraytype = type_cast<ArrayType>(remove_const_type(remove_pointer_type(fx.locals[args[0]].type)));
 
-    if (rhs.value >= array_len(arraytype))
+    if (is_int_type(fx.locals[args[1]].type))
     {
-      ctx.diag.error("array subscript overflow", fx.scope, loc);
-      return false;
+      auto rhs = load_int(ctx, fx, args[1]);
+
+      if (rhs.value >= array_len(arraytype))
+      {
+        ctx.diag.error("array subscript overflow", fx.scope, loc);
+        return false;
+      }
+
+      store(ctx, fx.locals[dst].alloc, (void*)((size_t)lhs + rhs.value * sizeof_type(arraytype->type)));
     }
 
-    auto result = (void*)((size_t)lhs + rhs.value * sizeof_type(arraytype->type));
+    if (is_pointer_type(fx.locals[args[1]].type))
+    {
+      auto rhs = load_ptr(ctx, fx, args[1]);
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
+      if (rhs < lhs || (void*)((size_t)lhs + array_len(arraytype) * sizeof_type(arraytype->type)) <= rhs)
+      {
+        ctx.diag.error("array subscript overflow", fx.scope, loc);
+        return false;
+      }
+
+      store(ctx, fx.locals[dst].alloc, rhs);
+    }
 
     return true;
   }
@@ -2242,9 +2285,7 @@ namespace
 
     auto arraytype = type_cast<ArrayType>(remove_const_type(remove_pointer_type(fx.locals[args[0]].type)));
 
-    auto result = (void*)((size_t)lhs + array_len(arraytype) * sizeof_type(arraytype->type));
-
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
+    store(ctx, fx.locals[dst].alloc, (void*)((size_t)lhs + array_len(arraytype) * sizeof_type(arraytype->type)));
 
     return true;
   }
@@ -2283,9 +2324,9 @@ namespace
     {
       auto argtype = remove_const_type(remove_reference_type(paramtuple->fields[index]));
 
-      auto ptr = load_ptr(ctx, (void*)((size_t)rhs + offsetof_field(paramtuple, index)), paramtuple->fields[index]);
+      auto ptr = load_ptr(ctx, (void*)((size_t)rhs + offsetof_field(paramtuple, index)));
 
-      parms.push_back(FunctionContext::Local { argtype, sizeof_type(argtype), ptr });
+      parms.push_back(FunctionContext::Local { 0, argtype, sizeof_type(argtype), ptr });
     }
 
     return eval_function(ctx, mir.fx.fn, mir, std::move(parms));
@@ -2604,7 +2645,7 @@ namespace
 
     memset(dest, value.value, count.value);
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, dest);
+    store(ctx, fx.locals[dst].alloc, dest);
 
     return true;
   }
@@ -2620,7 +2661,7 @@ namespace
 
     memcpy(dest, source, count.value);
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, dest);
+    store(ctx, fx.locals[dst].alloc, dest);
 
     return true;
   }
@@ -2636,7 +2677,7 @@ namespace
 
     memmove(dest, source, count.value);
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, dest);
+    store(ctx, fx.locals[dst].alloc, dest);
 
     return true;
   }
@@ -2670,7 +2711,7 @@ namespace
 
     auto result = ctx.allocate(size.value, align->value().value);
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
+    store(ctx, fx.locals[dst].alloc, result);
 
     return true;
   }
@@ -2687,8 +2728,8 @@ namespace
     return true;
   }
 
-  //|///////////////////// atomic_store /////////////////////////////////////
-  bool eval_builtin_atomic_store(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  //|///////////////////// atomicstore /////////////////////////////////////
+  bool eval_builtin_atomicstore(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
     auto &[callee, args, loc] = call;
 
@@ -3563,7 +3604,7 @@ namespace
   //|///////////////////// __envp__ /////////////////////////////////////////
   bool eval_builtin_envp(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, environ);
+    store(ctx, fx.locals[dst].alloc, environ);
 
     return true;
   }
@@ -3665,6 +3706,9 @@ namespace
         case Builtin::StringBegin:
           return eval_builtin_slice_data(ctx, fx, dst, call);
 
+        case Builtin::StringIndex:
+          return eval_builtin_slice_index(ctx, fx, dst, call);
+
         case Builtin::StringEnd:
           return eval_builtin_slice_end(ctx, fx, dst, call);
 
@@ -3751,7 +3795,7 @@ namespace
           return eval_builtin_atomic_load(ctx, fx, dst, call);
 
         case Builtin::atomic_store:
-          return eval_builtin_atomic_store(ctx, fx, dst, call);
+          return eval_builtin_atomicstore(ctx, fx, dst, call);
 
         case Builtin::atomic_cmpxchg:
           return eval_builtin_atomic_cmpxchg(ctx, fx, dst, call);
@@ -3886,21 +3930,23 @@ namespace
         return false;
       }
 
-      vector<FunctionContext::Local> parms;
+      auto frame = ctx.make_frame();
 
-      parms.push_back(fx.locals[dst]);
+      frame.reserve(mir.locals.size());
+
+      frame.push_back(fx.locals[dst]);
 
       if (callee.throwtype)
       {
-        parms.push_back(fx.locals[fx.errorarg]);
+        frame.push_back(fx.locals[fx.errorarg]);
       }
 
       for(size_t i = 0; i < args.size(); ++i)
       {
-        parms.push_back(fx.locals[args[i]]);
+        frame.push_back(fx.locals[args[i]]);
       }
 
-      return eval_function(ctx, callee.fn, mir, std::move(parms));
+      return eval_function(ctx, callee.fn, mir, std::move(frame));
     }
   }
 
@@ -3909,42 +3955,79 @@ namespace
   {
     auto &[arg, loc] = cast;
 
-    if (is_int(fx.locals[dst].type) && is_int(fx.locals[arg].type))
+    auto lhs = fx.locals[dst].type;
+    auto rhs = fx.locals[arg].type;
+
+    if (fx.locals[dst].flags & MIR::Local::Reference)
+      lhs = ctx.typetable.find_or_create<ReferenceType>(lhs);
+
+    if (fx.locals[arg].flags & MIR::Local::Reference)
+      rhs = ctx.typetable.find_or_create<ReferenceType>(rhs);
+
+    if (is_int(lhs) && is_int(rhs))
     {
-      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, load_int(ctx, fx.locals[arg].alloc, fx.locals[arg].type));
+      auto value = load_int(ctx, fx.locals[arg].alloc, fx.locals[arg].type);
+
+      if (is_enum_type(lhs))
+        lhs = type_cast<TagType>(lhs)->fields[0];
+
+      if (!is_literal_valid(type_cast<BuiltinType>(lhs)->kind(), value))
+      {
+        ctx.diag.error("value out of range for required type", fx.scope, loc);
+        ctx.diag << "  cast value: '" << value << "' required type: '" << *lhs << "'\n";
+        return false;
+      }
+
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, value);
     }
-    else if (is_float(fx.locals[dst].type) && is_float(fx.locals[arg].type))
+    else if (is_float(lhs) && is_float(rhs))
     {
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, load_float(ctx, fx.locals[arg].alloc, fx.locals[arg].type));
     }
-    else if (is_int(fx.locals[dst].type) && is_float(fx.locals[arg].type))
+    else if (is_int(lhs) && is_float(rhs))
     {
-      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Numeric::int_cast<uint64_t>(load_float(ctx, fx.locals[arg].alloc, fx.locals[arg].type)));
+      auto value = Numeric::int_cast<uint64_t>(load_float(ctx, fx.locals[arg].alloc, fx.locals[arg].type));
+
+      if (is_enum_type(lhs))
+        lhs = type_cast<TagType>(lhs)->fields[0];
+
+      if (!is_literal_valid(type_cast<BuiltinType>(lhs)->kind(), value))
+      {
+        ctx.diag.error("value out of range for required type", fx.scope, loc);
+        ctx.diag << "  cast value: '" << value << "' required type: '" << *lhs << "'\n";
+        return false;
+      }
+
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, value);
     }
-    else if (is_float(fx.locals[dst].type) && is_int(fx.locals[arg].type))
+    else if (is_float(lhs) && is_int(rhs))
     {
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Numeric::float_cast<double>(load_int(ctx, fx.locals[arg].alloc, fx.locals[arg].type)));
     }
-    else if (is_pointference_type(fx.locals[dst].type) && is_null_type(fx.locals[arg].type))
+    else if (is_pointference_type(lhs) && is_null_type(rhs))
     {
-      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, (void*)nullptr);
+      store(ctx, fx.locals[dst].alloc, nullptr);
     }
-    else if (is_pointference_type(fx.locals[dst].type) && is_pointference_type(fx.locals[arg].type))
+    else if (is_pointference_type(lhs) && is_pointference_type(rhs))
     {
-      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, load_ptr(ctx, fx.locals[arg].alloc, fx.locals[arg].type));
+      store(ctx, fx.locals[dst].alloc, load_ptr(ctx, fx.locals[arg].alloc));
     }
-    else if (is_pointference_type(fx.locals[dst].type) && is_int_type(fx.locals[arg].type))
+    else if (is_pointference_type(lhs) && is_int_type(rhs))
     {
-      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, (void*)(load_int(ctx, fx.locals[arg].alloc, fx.locals[arg].type).value));
+      store(ctx, fx.locals[dst].alloc, (void*)(load_int(ctx, fx.locals[arg].alloc, fx.locals[arg].type).value));
     }
-    else if (is_int_type(fx.locals[dst].type) && is_pointference_type(fx.locals[arg].type))
+    else if (is_int_type(lhs) && is_pointference_type(rhs))
     {
-      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Numeric::int_literal(1, (size_t)load_ptr(ctx, fx.locals[arg].alloc, fx.locals[arg].type)));
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Numeric::int_literal(1, (size_t)load_ptr(ctx, fx.locals[arg].alloc)));
+    }
+    else if (is_bool_type(lhs) && is_pointference_type(rhs))
+    {
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, load_ptr(ctx, fx.locals[arg].alloc) != nullptr);
     }
     else
     {
       ctx.diag.error("invalid static cast", fx.scope, loc);
-      ctx.diag << "  src type: '" << *fx.locals[arg].type << "' dst type: '" << *fx.locals[dst].type << "'\n";
+      ctx.diag << "  src type: '" << *rhs << "' dst type: '" << *lhs << "'\n";
     }
 
     return true;
@@ -3978,19 +4061,19 @@ namespace
 
       if (fragment->kind() == Decl::EnumConstant && (!is_decl_scope(ctx.dx) || get<Decl*>(ctx.dx.owner)->kind() != Decl::Enum))
       {
-        ctx.diag.error("invalid constant fragment in non-enum", ctx.dx, loc);
+        ctx.diag.error("invalid constant fragment in non-enum", fx.scope, loc);
         continue;
       }
 
       if (fragment->kind() == Decl::Requires && (!is_decl_scope(ctx.dx) || get<Decl*>(ctx.dx.owner)->kind() != Decl::Concept))
       {
-        ctx.diag.error("invalid requires fragment in non-concept", ctx.dx, loc);
+        ctx.diag.error("invalid requires fragment in non-concept", fx.scope, loc);
         continue;
       }
 
       if (fragment->kind() == Decl::Case && (!is_stmt_scope(ctx.dx) || get<Stmt*>(ctx.dx.owner)->kind() != Stmt::Switch))
       {
-        ctx.diag.error("invalid case fragment in non-switch", ctx.dx, loc);
+        ctx.diag.error("invalid case fragment in non-switch", fx.scope, loc);
         continue;
       }
 
@@ -4046,8 +4129,9 @@ namespace
     auto dst = statement.dst;
 
     FunctionContext::Local dest;
-    dest.type = remove_pointer_type(fx.locals[dst].type);
-    dest.alloc = load_ptr(ctx, fx.locals[dst - 1].alloc, fx.locals[dst - 1].type);
+    dest.type = fx.locals[dst].type;
+    dest.flags = fx.locals[dst - 1].flags;
+    dest.alloc = load_ptr(ctx, fx.locals[dst - 1].alloc);
     dest.size = sizeof_type(dest.type);
 
     if (dest.alloc == nullptr)
@@ -4062,7 +4146,7 @@ namespace
 
     swap(dest, fx.locals[dst]);
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, dest.alloc);
+    store(ctx, fx.locals[dst].alloc, dest.alloc);
 
     return true;
   }
@@ -4178,6 +4262,8 @@ namespace
       }
     }
 
+    ctx.pool_frame(std::move(fx.locals));
+
     return true;
   }
 
@@ -4210,7 +4296,7 @@ namespace
       {
         fx.locals.push_back(alloc(ctx, ctx.typetable.find_or_create<ReferenceType>(parms[k-1].type)));
 
-        store(ctx, fx.locals.back().alloc, fx.locals.back().type, fx.locals[arg++].alloc);
+        store(ctx, fx.locals.back().alloc, fx.locals[arg++].alloc);
       }
 
       args.push_back(arg);
@@ -4327,7 +4413,7 @@ EvalResult evaluate(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fr
   {
     if (mir.locals[0].flags & MIR::Local::Reference)
     {
-      returnvalue.alloc = load_ptr(ctx, returnvalue.alloc, returnvalue.type);
+      returnvalue.alloc = load_ptr(ctx, returnvalue.alloc);
       returnvalue.type = remove_const_type(remove_pointer_type(returnvalue.type));
       returnvalue.size = sizeof_type(returnvalue.type);
     }

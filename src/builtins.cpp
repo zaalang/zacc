@@ -422,7 +422,7 @@ namespace Builtin
     make_function(Array_Constructor, "pub fn #array<T>() -> T", FunctionDecl::Defaulted | FunctionDecl::Constructor, __LINE__);
     make_function(Array_Copytructor, "pub fn #array<T>(T&&) -> T", FunctionDecl::Defaulted, __LINE__);
     make_function(Array_Assignment, "pub fn =<T>(T mut &, T&&) -> T mut &", FunctionDecl::Defaulted, __LINE__);
-    make_function(Array_Destructor, "pub fn ~#array<T>(T mut &) -> void", FunctionDecl::Defaulted, __LINE__);
+    make_function(Array_Destructor, "pub fn ~#array<T>(T mut &) -> void", FunctionDecl::Defaulted | FunctionDecl::Destructor, __LINE__);
 
     make_function(Tuple_Constructor, "pub fn #tuple<T>() -> T", FunctionDecl::Defaulted | FunctionDecl::Constructor, __LINE__);
     make_function(Tuple_Inittructor, "pub fn #tuple<T>(T&&...) -> T", FunctionDecl::Defaulted, __LINE__);
@@ -430,9 +430,9 @@ namespace Builtin
     make_function(Tuple_CopytructorEx, "pub fn #tuple<T, U>(U&&) -> T", FunctionDecl::Defaulted, __LINE__);
     make_function(Tuple_Assignment, "pub fn =<T>(T mut &, T&&) -> T mut &", FunctionDecl::Defaulted, __LINE__);
     make_function(Tuple_AssignmentEx, "pub fn =<T, U>(T mut &, U&&) -> T mut &", FunctionDecl::Defaulted, __LINE__);
-    make_function(Tuple_Destructor, "pub fn ~#tuple<T>(T mut &) -> void", FunctionDecl::Defaulted, __LINE__);
+    make_function(Tuple_Destructor, "pub fn ~#tuple<T>(T mut &) -> void", FunctionDecl::Defaulted | FunctionDecl::Destructor, __LINE__);
 
-    make_function(Builtin_Destructor, "pub fn ~#builtin<T>(T mut &) -> void", __LINE__);
+    make_function(Builtin_Destructor, "pub fn ~#builtin<T>(T mut &) -> void", FunctionDecl::Builtin | FunctionDecl::Destructor, __LINE__);
 
     make_function(Plus, "pub const fn +<T>(T) -> T", __LINE__);
     make_function(Minus, "pub const fn -<T>(T) -> T", __LINE__);
@@ -495,6 +495,8 @@ namespace Builtin
     make_function(ArrayData, "pub fn data<T, N>(T[N] mut &) -> T mut *", __LINE__);
     make_function(ArrayIndex, "pub fn []<T, N>(T[N]&, usize) -> T&", __LINE__);
     make_function(ArrayIndex, "pub fn []<T, N>(T[N] mut &, usize) -> T mut &", __LINE__);
+    make_function(ArrayIndex, "pub fn []<T, N>(T[N]&, T*) -> T&", __LINE__);
+    make_function(ArrayIndex, "pub fn []<T, N>(T[N] mut &, T*) -> T mut &", __LINE__);
     make_function(ArrayBegin, "pub fn begin<T, N>(T[N]&) -> T*", __LINE__);
     make_function(ArrayBegin, "pub fn begin<T, N>(T[N] mut &) -> T mut *", __LINE__);
     make_function(ArrayEnd, "pub fn end<T, N>(T[N]&) -> T*", __LINE__);
@@ -510,6 +512,7 @@ namespace Builtin
 
     make_function(StringLen, "pub const fn len(#string) -> usize", __LINE__);
     make_function(StringData, "pub fn data(#string) -> u8*", __LINE__);
+    make_function(StringIndex, "pub fn [](#string, u8*) -> u8&", __LINE__);
     make_function(StringBegin, "pub fn begin(#string) -> u8*", __LINE__);
     make_function(StringEnd, "pub fn end(#string) -> u8*", __LINE__);
     make_function(StringSlice, "pub const fn [](#string, (usize, usize)) -> #string", __LINE__);
@@ -751,12 +754,12 @@ namespace Builtin
       case Builtin::Type_Ptr:
       case Builtin::Type_PtrLiteral:
         if (auto T = find_type(fn->args[0]); T != typeargs.end())
-          return is_pointer_type(T->second) || is_ptr_literal(T->second);
+          return is_pointer_type(remove_const_type(T->second)) || is_ptr_literal(T->second);
         break;
 
       case Builtin::Type_Ref:
         if (auto T = find_type(fn->args[0]); T != typeargs.end())
-          return is_reference_type(T->second);
+          return is_reference_type(remove_const_type(T->second));
         break;
 
       case Builtin::Array_Constructor:
@@ -902,12 +905,12 @@ namespace Builtin
 
       case Builtin::array_len:
         if (auto T = find_type(fn->args[0]); T != typeargs.end())
-          return is_array_type(T->second);
+          return is_array_type(remove_const_type(T->second));
         break;
 
       case Builtin::tuple_len:
         if (auto T = find_type(fn->args[0]); T != typeargs.end())
-          return is_tuple_type(T->second);
+          return is_tuple_type(remove_const_type(T->second));
         break;
 
       default:

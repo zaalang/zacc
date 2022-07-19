@@ -348,6 +348,7 @@ class BinaryOpExpr : public Expr
       Range,
       RangeEq,
       Coalesce,
+      Index,
     };
 
     static Ident *binaryop_idents[];

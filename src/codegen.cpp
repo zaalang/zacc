@@ -16,8 +16,10 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/InlineAsm.h>
-#include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/AssemblyAnnotationWriter.h>
+#include <llvm/IR/DIBuilder.h>
+#include <llvm/IR/LegacyPassManager.h>
+#include <llvm/Passes/PassBuilder.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/CodeGen/MachineFunctionPass.h>
 #include <llvm/Transforms/IPO.h>
@@ -25,10 +27,11 @@
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
-#include <llvm/IR/DIBuilder.h>
+#include <llvm/Analysis/LoopAnalysisManager.h>
+#include <llvm/Analysis/CGSCCPassManager.h>
+#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/Host.h>
 #include <llvm/Support/TargetSelect.h>
-#include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/ToolOutputFile.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/CommandLine.h>
@@ -1352,7 +1355,7 @@ namespace
 
   //|///////////////////// codegen_assign_constant //////////////////////////
   void codegen_assign_constant(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, CompoundLiteralExpr *literal)
-  {    
+  {
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
       ctx.diag.error("unresolved literal type", fx.fn, literal->loc());
@@ -2946,6 +2949,12 @@ namespace
     auto lhs = load(ctx, fx, args[0]);
     auto rhs = load(ctx, fx, args[1]);
 
+    if (is_pointference_type(type_cast<TupleType>(fx.mir.locals[dst].type)->fields[0]))
+      lhs = ctx.builder.CreatePointerCast(lhs, ctx.builder.getInt8Ty()->getPointerTo());
+
+    if (is_pointference_type(type_cast<TupleType>(fx.mir.locals[dst].type)->fields[1]))
+      rhs = ctx.builder.CreatePointerCast(rhs, ctx.builder.getInt8Ty()->getPointerTo());
+
     auto insert0 = llvm::UndefValue::get(llvm_type(ctx, fx.mir.locals[dst].type));
     auto insert1 = ctx.builder.CreateInsertValue(insert0, lhs, 0);
     auto insert2 = ctx.builder.CreateInsertValue(insert1, rhs, 1);
@@ -2988,6 +2997,25 @@ namespace
     store(ctx, fx, dst, ctx.builder.CreateExtractValue(lhs, 1));
   }
 
+  //|///////////////////// slice_index //////////////////////////////////////
+  void codegen_builtin_slice_index(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto lhs = load(ctx, fx, args[0]);
+    auto rhs = load(ctx, fx, args[1]);
+
+    auto elemtype = ctx.builder.getInt8Ty();
+
+    if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
+    {
+      codegen_assert_carry(ctx, fx, ctx.builder.CreateICmpULT(rhs, ctx.builder.CreateExtractValue(lhs, 1)));
+      codegen_assert_carry(ctx, fx, ctx.builder.CreateICmpULE(ctx.builder.CreateInBoundsGEP(elemtype, ctx.builder.CreateExtractValue(lhs, 1), ctx.builder.CreateExtractValue(lhs, 0)), rhs));
+    }
+
+    store(ctx, fx, dst, rhs);
+  }
+
   //|///////////////////// slice_end ////////////////////////////////////////
   void codegen_builtin_slice_end(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -2997,9 +3025,7 @@ namespace
 
     auto elemtype = ctx.builder.getInt8Ty();
 
-    auto result = ctx.builder.CreateInBoundsGEP(elemtype, ctx.builder.CreateExtractValue(lhs, 1), ctx.builder.CreateExtractValue(lhs, 0));
-
-    store(ctx, fx, dst, result);
+    store(ctx, fx, dst, ctx.builder.CreateInBoundsGEP(elemtype, ctx.builder.CreateExtractValue(lhs, 1), ctx.builder.CreateExtractValue(lhs, 0)));
   }
 
   //|///////////////////// array_data ///////////////////////////////////////
@@ -3023,12 +3049,24 @@ namespace
     auto arrayty = llvm_type(ctx, fx.mir.locals[args[0]].type);
     auto arraylen = array_len(type_cast<ArrayType>(fx.mir.locals[args[0]].type));
 
-    if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
-      codegen_assert_carry(ctx, fx, ctx.builder.CreateICmpUGE(rhs, llvm_int(rhs->getType(), arraylen)));
+    if (is_int_type(fx.mir.locals[args[1]].type))
+    {
+      if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
+        codegen_assert_carry(ctx, fx, ctx.builder.CreateICmpUGE(rhs, llvm_int(rhs->getType(), arraylen)));
 
-    auto result = ctx.builder.CreateInBoundsGEP(arrayty, lhs, { ctx.builder.getInt32(0), rhs });
+      rhs = ctx.builder.CreateInBoundsGEP(arrayty, lhs, { ctx.builder.getInt32(0), rhs });
+    }
 
-    store(ctx, fx, dst, result);
+    if (is_pointer_type(fx.mir.locals[args[1]].type))
+    {
+      if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
+      {
+        codegen_assert_carry(ctx, fx, ctx.builder.CreateICmpULT(rhs, ctx.builder.CreateInBoundsGEP(arrayty, lhs, { ctx.builder.getInt32(0), ctx.builder.getInt32(0) })));
+        codegen_assert_carry(ctx, fx, ctx.builder.CreateICmpULE(ctx.builder.CreateInBoundsGEP(arrayty, lhs, { ctx.builder.getInt32(0), ctx.builder.getInt32(arraylen) }), rhs));
+      }
+    }
+
+    store(ctx, fx, dst, rhs);
   }
 
   //|///////////////////// array_end ////////////////////////////////////////
@@ -3516,35 +3554,6 @@ namespace
 
       switch (callee.fn->builtin)
       {
-#if LLVM_VERSION_MAJOR < 13
-        case Builtin::atomic_xchg:
-          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Xchg, ptr, val, llvm_ordering(ordering->value().value));
-          break;
-
-        case Builtin::atomic_fetch_add:
-          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Add, ptr, val, llvm_ordering(ordering->value().value));
-          break;
-
-        case Builtin::atomic_fetch_sub:
-          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Sub, ptr, val, llvm_ordering(ordering->value().value));
-          break;
-
-        case Builtin::atomic_fetch_and:
-          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::And, ptr, val, llvm_ordering(ordering->value().value));
-          break;
-
-        case Builtin::atomic_fetch_xor:
-          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Xor, ptr, val, llvm_ordering(ordering->value().value));
-          break;
-
-        case Builtin::atomic_fetch_or:
-          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Or, ptr, val, llvm_ordering(ordering->value().value));
-          break;
-
-        case Builtin::atomic_fetch_nand:
-          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Nand, ptr, val, llvm_ordering(ordering->value().value));
-          break;
-#else
         case Builtin::atomic_xchg:
           result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Xchg, ptr, val, llvm::MaybeAlign(), llvm_ordering(ordering->value().value));
           break;
@@ -3572,7 +3581,7 @@ namespace
         case Builtin::atomic_fetch_nand:
           result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Nand, ptr, val, llvm::MaybeAlign(), llvm_ordering(ordering->value().value));
           break;
-#endif
+
         default:
           assert(false);
       }
@@ -3595,19 +3604,6 @@ namespace
 
       switch (callee.fn->builtin)
       {
-#if LLVM_VERSION_MAJOR < 13
-        case Builtin::atomic_xchg:
-          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Xchg, ptr, val, llvm_ordering(ordering->value().value));
-          break;
-
-        case Builtin::atomic_fetch_add:
-          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::FAdd, ptr, val, llvm_ordering(ordering->value().value));
-          break;
-
-        case Builtin::atomic_fetch_sub:
-          result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::FSub, ptr, val, llvm_ordering(ordering->value().value));
-          break;
-#else
         case Builtin::atomic_xchg:
           result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::Xchg, ptr, val, llvm::MaybeAlign(), llvm_ordering(ordering->value().value));
           break;
@@ -3619,7 +3615,7 @@ namespace
         case Builtin::atomic_fetch_sub:
           result = ctx.builder.CreateAtomicRMW(llvm::AtomicRMWInst::FSub, ptr, val, llvm::MaybeAlign(), llvm_ordering(ordering->value().value));
           break;
-#endif
+
         default:
           assert(false);
       }
@@ -3647,11 +3643,7 @@ namespace
     auto success_ordering = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[4])->second)->value);
     auto failure_ordering = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[5])->second)->value);
 
-#if LLVM_VERSION_MAJOR < 13
-    auto xchg = ctx.builder.CreateAtomicCmpXchg(ptr, cmp, val, llvm_ordering(success_ordering->value().value), llvm_ordering(failure_ordering->value().value));
-#else
     auto xchg = ctx.builder.CreateAtomicCmpXchg(ptr, cmp, val, llvm::MaybeAlign(), llvm_ordering(success_ordering->value().value), llvm_ordering(failure_ordering->value().value));
-#endif
 
     xchg->setWeak(weak->value().value != 0);
     xchg->setVolatile(true);
@@ -3698,8 +3690,11 @@ namespace
     auto src = expr_cast<StringLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[0])->second)->value);
     auto dsc = expr_cast<StringLiteralExpr>(type_cast<TypeLitType>(callee.find_type(callee.fn->parms[1])->second)->value);
 
-    vector<llvm::Value*> parms;
-    vector<llvm::Type*> parmstypes;
+    auto parms = vector<llvm::Value*>();
+    auto parmtypes = vector<llvm::Type*>();
+    auto attributes = llvm::AttributeList();
+
+    auto attrbuilder = llvm::AttrBuilder(ctx.context);
 
     auto paramtuple = type_cast<TupleType>(fx.mir.locals[args[0]].type);
 
@@ -3708,14 +3703,25 @@ namespace
       MIR::Local rhs;
       auto ptr = codegen_fields(ctx, fx, args[0], { MIR::RValue::Field{ MIR::RValue::Val, index } }, rhs);
 
+      attrbuilder.clear();
+
+      if (is_pointference_type(rhs.type))
+        attrbuilder.addTypeAttr(llvm::Attribute::ElementType, llvm_type(ctx, remove_pointference_type(rhs.type), true));
+
+      attributes = attributes.addParamAttributes(ctx.context, parmtypes.size(), attrbuilder);
+
       parms.push_back(load(ctx, fx, ptr, rhs.type, rhs.flags));
-      parmstypes.push_back(llvm_type(ctx, paramtuple->fields[index]));
+      parmtypes.push_back(llvm_type(ctx, paramtuple->fields[index]));
     }
 
-    auto asmty = llvm::FunctionType::get(ctx.builder.getInt64Ty(), parmstypes, false);
+    auto asmty = llvm::FunctionType::get(ctx.builder.getInt64Ty(), parmtypes, false);
     auto asmfn = llvm::InlineAsm::get(asmty, src->value(), dsc->value(), true, false, llvm::InlineAsm::AD_Intel);
 
-    store(ctx, fx, dst, ctx.builder.CreateCall(asmfn, parms));
+    auto asmcall = ctx.builder.CreateCall(asmfn, parms);
+
+    asmcall->setAttributes(attributes);
+
+    store(ctx, fx, dst, asmcall);
   }
 
   //|///////////////////// __argc__ /////////////////////////////////////////
@@ -3850,6 +3856,10 @@ namespace
         case Builtin::StringData:
         case Builtin::StringBegin:
           codegen_builtin_slice_data(ctx, fx, dst, call);
+          break;
+
+        case Builtin::StringIndex:
+          codegen_builtin_slice_index(ctx, fx, dst, call);
           break;
 
         case Builtin::StringEnd:
@@ -4507,10 +4517,10 @@ namespace
 
     auto returntype = llvm_type(ctx, fx.mir.locals[0].type);
 
-    vector<llvm::Type*> parmtypes;
+    auto parmtypes = vector<llvm::Type*>();
+    auto attributes = llvm::AttributeList();
 
-    llvm::AttrBuilder attrbuilder;
-    vector<llvm::AttrBuilder> parmattrs;
+    auto attrbuilder = llvm::AttrBuilder(ctx.context);
 
     if (is_firstarg_return(ctx, sig, fx.mir.locals[0]))
     {
@@ -4521,9 +4531,9 @@ namespace
       attrbuilder.addAttribute(llvm::Attribute::NonNull);
       attrbuilder.addDereferenceableAttr(sizeof_type(fx.mir.locals[0].type));
       attrbuilder.addAlignmentAttr(llvm_align(ctx, fx.mir.locals[0].type, fx.mir.locals[0].flags));
+      attributes = attributes.addParamAttributes(ctx.context, parmtypes.size(), attrbuilder);
 
       parmtypes.push_back(llvm_type(ctx, fx.mir.locals[0].type, true)->getPointerTo());
-      parmattrs.push_back(attrbuilder);
 
       returntype = ctx.builder.getVoidTy();
 
@@ -4541,9 +4551,9 @@ namespace
         attrbuilder.addAttribute(llvm::Attribute::NonNull);
         attrbuilder.addDereferenceableAttr(sizeof_type(fx.mir.locals[1].type));
         attrbuilder.addAlignmentAttr(llvm_align(ctx, fx.mir.locals[1].type, fx.mir.locals[0].flags));
+        attributes = attributes.addParamAttributes(ctx.context, parmtypes.size(), attrbuilder);
 
         parmtypes.push_back(llvm_type(ctx, fx.mir.locals[1].type, true)->getPointerTo());
-        parmattrs.push_back(attrbuilder);
 
         returntype = ctx.builder.getInt1Ty();
       }
@@ -4582,8 +4592,9 @@ namespace
         attrbuilder.addAlignmentAttr(llvm_align(ctx, remove_reference_type(fx.mir.locals[i].type), 0));
       }
 
+      attributes = attributes.addParamAttributes(ctx.context, parmtypes.size(), attrbuilder);
+
       parmtypes.push_back(argtype);
-      parmattrs.push_back(attrbuilder);
     }
 
     auto linkage = llvm::Function::InternalLinkage;
@@ -4594,25 +4605,27 @@ namespace
     auto fntype = llvm::FunctionType::get(returntype, parmtypes, false);
     auto fnprot = llvm::Function::Create(fntype, linkage, name, ctx.module);
 
-    fnprot->addFnAttr(llvm::Attribute::NoUnwind);
+    attrbuilder.clear();
+
+    attrbuilder.addAttribute(llvm::Attribute::NoUnwind);
 
     if (ctx.triple.getOS() == llvm::Triple::Win32)
-      fnprot->addFnAttr(llvm::Attribute::UWTable);
+      attrbuilder.addAttribute(llvm::Attribute::UWTable);
 
     if ((fx.fn->flags & FunctionDecl::DeclType) == FunctionDecl::ConstDecl)
-      fnprot->addFnAttr(llvm::Attribute::AlwaysInline);
+      attrbuilder.addAttribute(llvm::Attribute::AlwaysInline);
 
     if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None)
-      fnprot->addFnAttr("frame-pointer", "all");
+      attrbuilder.addAttribute("frame-pointer", "all");
 
     if (ctx.genopts.redzone == GenOpts::RedZone::None)
-      fnprot->addFnAttr(llvm::Attribute::NoRedZone);
+      attrbuilder.addAttribute(llvm::Attribute::NoRedZone);
 
     if (ctx.genopts.stackprotect != GenOpts::StackProtect::None)
-      fnprot->addFnAttr(llvm::Attribute::StackProtect);
+      attrbuilder.addAttribute(llvm::Attribute::StackProtect);
 
     if (fx.fn->flags & FunctionDecl::ExternNaked)
-      fnprot->addFnAttr(llvm::Attribute::Naked);
+      attrbuilder.addAttribute(llvm::Attribute::Naked);
 
     if (fx.fn->flags & FunctionDecl::ExternWin64)
       fnprot->setCallingConv(llvm::CallingConv::Win64);
@@ -4623,11 +4636,15 @@ namespace
     if (fx.fn->flags & FunctionDecl::ExternInterrupt)
       fnprot->setCallingConv(llvm::CallingConv::X86_INTR);
 
-    if (fx.fn->flags & FunctionDecl::NoReturn)
-      fnprot->addFnAttr(llvm::Attribute::NoReturn);
+    if (fx.fn->flags & FunctionDecl::NoInline)
+      attrbuilder.addAttribute(llvm::Attribute::NoInline);
 
-    for(size_t i = 0; i < parmattrs.size(); ++i)
-      fnprot->addParamAttrs(i, parmattrs[i]);
+    if (fx.fn->flags & FunctionDecl::NoReturn)
+      attrbuilder.addAttribute(llvm::Attribute::NoReturn);
+
+    attributes = attributes.addFnAttributes(ctx.context, attrbuilder);
+
+    fnprot->setAttributes(attributes);
 
 #if 0
     string buf;
@@ -5220,10 +5237,6 @@ namespace
     options.AllowFPOpFusion = llvm::FPOpFusion::Standard;
     options.ExceptionModel = llvm::ExceptionHandling::None;
 
-#if LLVM_VERSION_MAJOR == 12 && LLVM_VERSION_MINOR == 0
-    options.StackProtectorGuardOffset = (unsigned)-1;
-#endif
-
     auto relocmodel = llvm::Optional<llvm::Reloc::Model>();
     auto codemodel = llvm::Optional<llvm::CodeModel::Model>();
     auto optlevel = llvm::CodeGenOpt::None;
@@ -5313,52 +5326,59 @@ namespace
       return false;
     }
 
-    auto PMBuilder = llvm::PassManagerBuilder();
+    auto PB = llvm::PassBuilder(machine);
+    auto MPM = llvm::ModulePassManager();
+    auto LAM = llvm::LoopAnalysisManager();
+    auto FAM = llvm::FunctionAnalysisManager();
+    auto CGAM = llvm::CGSCCAnalysisManager();
+    auto MAM = llvm::ModuleAnalysisManager();
+    auto LMPM = llvm::legacy::PassManager();
 
-    PMBuilder.OptLevel = machine->getOptLevel();
-    PMBuilder.LibraryInfo = new llvm::TargetLibraryInfoImpl(llvm::Triple(triple));
+    PB.registerModuleAnalyses(MAM);
+    PB.registerCGSCCAnalyses(CGAM);
+    PB.registerFunctionAnalyses(FAM);
+    PB.registerLoopAnalyses(LAM);
+    PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
-    if (optlevel <= 1)
-      PMBuilder.Inliner = llvm::createAlwaysInlinerLegacyPass();
-    else
-      PMBuilder.Inliner = llvm::createFunctionInliningPass(PMBuilder.OptLevel, PMBuilder.SizeLevel, false);
+    switch (ctx.genopts.optlevel)
+    {
+      case GenOpts::OptLevel::None:
+        MPM = PB.buildO0DefaultPipeline(llvm::OptimizationLevel::O0);
+        break;
 
-    auto TLII = llvm::TargetLibraryInfoImpl(llvm::Triple(triple));
+      case GenOpts::OptLevel::Less:
+        MPM = PB.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::O1);
+        break;
 
-    auto FPM = llvm::legacy::FunctionPassManager(&ctx.module);
-    FPM.add(new llvm::TargetLibraryInfoWrapperPass(TLII));
-    FPM.add(llvm::createTargetTransformInfoWrapperPass(machine->getTargetIRAnalysis()));
-    PMBuilder.populateFunctionPassManager(FPM);
+      case GenOpts::OptLevel::Default:
+        MPM = PB.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::O2);
+        break;
 
-    auto MPM = llvm::legacy::PassManager();
-    MPM.add(new llvm::TargetLibraryInfoWrapperPass(TLII));
-    MPM.add(llvm::createTargetTransformInfoWrapperPass(machine->getTargetIRAnalysis()));
-    PMBuilder.populateModulePassManager(MPM);
+      case GenOpts::OptLevel::Aggressive:
+        MPM = PB.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::O3);
+        break;
+    }
 
-    FPM.doInitialization();
-
-    for(auto &func : ctx.module)
-      if (!func.isDeclaration())
-        FPM.run(func);
-
-    FPM.doFinalization();
+    LMPM.add(llvm::createTargetTransformInfoWrapperPass(machine->getTargetIRAnalysis()));
 
     switch (ctx.genopts.outputtype)
     {
       case GenOpts::OutputType::EmitAsm:
-        machine->addPassesToEmitFile(MPM, outstream, nullptr, llvm::CodeGenFileType::CGFT_AssemblyFile, false);
-        MPM.run(ctx.module);
+        machine->addPassesToEmitFile(LMPM, outstream, nullptr, llvm::CodeGenFileType::CGFT_AssemblyFile, false);
+        MPM.run(ctx.module, MAM);
         break;
 
       case GenOpts::OutputType::EmitObj:
-        machine->addPassesToEmitFile(MPM, outstream, nullptr, llvm::CodeGenFileType::CGFT_ObjectFile, false);
-        MPM.run(ctx.module);
+        machine->addPassesToEmitFile(LMPM, outstream, nullptr, llvm::CodeGenFileType::CGFT_ObjectFile, false);
+        MPM.run(ctx.module, MAM);
         break;
 
       case GenOpts::OutputType::EmitLL:
         ctx.module.print(outstream, nullptr);
         break;
     }
+
+    LMPM.run(ctx.module);
 
     return true;
   }

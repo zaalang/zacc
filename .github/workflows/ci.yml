@@ -10,7 +10,7 @@ jobs:
         uses: actions/checkout@v2
       - name: Create Build Environment
         run: |
-          sudo apt-get install -y gcc-10 llvm-12
+          sudo apt-get install -y gcc-10 llvm-14
           cmake -E make_directory ${{github.workspace}}/build
       - name: Configure
         env:
@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@v2
       - name: Create Build Environment
         run: |
-          sudo apt-get install -y clang-10 llvm-12
+          sudo apt-get install -y clang-10 llvm-14
           cmake -E make_directory ${{github.workspace}}/build
       - name: Configure
         env:
@@ -57,11 +57,11 @@ jobs:
         uses: actions/cache@v2
         with:
           path: llvm
-          key: llvm-libs-12.0.1
+          key: llvm-libs-14.0.6
       - name: Download LLVM
         if: steps.cache-llvm.outputs.cache-hit != 'true'
         run: |
-          iwr https://github.com/llvm/llvm-project/releases/download/llvmorg-12.0.1/llvm-12.0.1.src.tar.xz -OutFile llvm.tar.xz
+          iwr https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.6/llvm-14.0.6.src.tar.xz -OutFile llvm.tar.xz
           7z x llvm.tar.xz
           7z x llvm.tar
           mv llvm-* llvm-src

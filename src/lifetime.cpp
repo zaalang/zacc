@@ -82,6 +82,18 @@ namespace
       return true;
     }
 
+    bool is_shared(MIR::local_t arg1, MIR::local_t arg2, int depth = 5)
+    {
+      for(auto dep1 : threads[0].locals[arg1].depends_upon)
+      {
+        for(auto dep2: threads[0].locals[arg2].depends_upon)
+          if (get<1>(*dep2) == get<1>(*dep1) && is_common_field(get<2>(*dep2), get<2>(*dep1)))
+            return true;
+      }
+
+      return false;
+    }
+
     bool is_dangling(MIR::local_t arg, int depth = 5)
     {
       for(auto dep : threads[0].locals[arg].depends_upon)
@@ -182,6 +194,7 @@ namespace
       assign,
       follow,
       launder,
+      restrict,
     };
 
     Type type = unknown;
@@ -251,6 +264,12 @@ namespace
     {
       tok.type = Annotation::launder;
       tok.text = trim(src.substr(8), "( \t)");
+    }
+
+    if (src.substr(0, 8) == "restrict")
+    {
+      tok.type = Annotation::restrict;
+      tok.text = trim(src.substr(9), "( \t)");
     }
 
     tok.loc = loc;
@@ -646,6 +665,9 @@ namespace
       case Annotation::launder:
         break;
 
+      case Annotation::restrict:
+        break;
+
       default:
         ctx.diag.error("unknown lifetime annotation", callee.fn, annotation.loc);
     }
@@ -774,6 +796,34 @@ namespace
           ctx.diag.error("potentially poisoned variable access", mir.fx.fn, loc);
           break;
       }
+
+      for(auto &annotation : notations)
+      {
+        switch (annotation.type)
+        {
+          case Annotation::restrict: {
+
+            if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
+            {
+              for(auto const &[other_parm, other_arg] : zip(callee.parameters(), args))
+              {
+                if (other_arg == arg)
+                  continue;
+
+                if (ctx.is_shared(arg, other_arg))
+                  ctx.diag.error("potentially shared restrict value", mir.fx.fn, loc);
+              }
+
+              break;
+            }
+
+            break;
+          }
+
+          default:
+            break;
+        }
+      }
     }
 
     if (callee.fn->flags & FunctionDecl::Builtin)
@@ -816,6 +866,22 @@ namespace
     {
       switch (callee.fn->builtin)
       {
+        case Builtin::Default_Constructor:
+          if (is_lambda_type(mir.locals[dst].type))
+          {
+            auto lambda = decl_cast<LambdaDecl>(type_cast<TagType>(callee.fn->returntype)->decl);
+
+            for(auto &arg : args)
+            {
+              if (is_reference_type(decl_cast<LambdaVarDecl>(lambda->captures[&arg - &args.front()])->type))
+              {
+                // clone(arg)
+                ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[arg].depends_upon.begin(), ctx.threads[0].locals[arg].depends_upon.end());
+              }
+            }
+          }
+          break;
+
         case Builtin::Default_Copytructor:
           // clone(other)
           for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)

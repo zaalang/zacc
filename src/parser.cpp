@@ -1861,9 +1861,10 @@ namespace
   //|///////////////////// parse_subscript //////////////////////////////////
   Expr *parse_subscript(ParseContext &ctx, Expr *base, Sema &sema)
   {
+    auto loc = ctx.tok.loc;
+
     ctx.consume_token(Token::l_square);
 
-    auto loc = ctx.tok.loc;
     auto name = sema.make_declref(Ident::op_index, loc);
     auto parms = parse_expression_list(ctx, sema);
     auto namedparms = parse_named_expression_list(ctx, sema);

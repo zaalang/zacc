@@ -3696,26 +3696,44 @@ namespace
 
     auto attrbuilder = llvm::AttrBuilder(ctx.context);
 
-    auto paramtuple = type_cast<TupleType>(fx.mir.locals[args[0]].type);
-
-    for(size_t index = 0; index < paramtuple->fields.size(); ++index)
+    for(auto field : type_cast<TupleType>(fx.mir.locals[args[0]].type)->fields)
     {
-      MIR::Local rhs;
-      auto ptr = codegen_fields(ctx, fx, args[0], { MIR::RValue::Field{ MIR::RValue::Val, index } }, rhs);
-
-      attrbuilder.clear();
-
-      if (is_pointference_type(rhs.type))
-        attrbuilder.addTypeAttr(llvm::Attribute::ElementType, llvm_type(ctx, remove_pointference_type(rhs.type), true));
-
-      attributes = attributes.addParamAttributes(ctx.context, parmtypes.size(), attrbuilder);
-
-      parms.push_back(load(ctx, fx, ptr, rhs.type, rhs.flags));
-      parmtypes.push_back(llvm_type(ctx, paramtuple->fields[index]));
+      parmtypes.push_back(llvm_type(ctx, field));
     }
 
     auto asmty = llvm::FunctionType::get(ctx.builder.getInt64Ty(), parmtypes, false);
     auto asmfn = llvm::InlineAsm::get(asmty, src->value(), dsc->value(), true, false, llvm::InlineAsm::AD_Intel);
+
+    size_t arg = 0;
+    for(auto &constraint : asmfn->ParseConstraints())
+    {
+      if (constraint.hasArg())
+      {
+        if (arg < parmtypes.size())
+        {
+          MIR::Local rhs;
+          auto ptr = codegen_fields(ctx, fx, args[0], { MIR::RValue::Field{ MIR::RValue::Val, arg } }, rhs);
+
+          if (constraint.isIndirect)
+          {
+            if (!is_pointference_type(rhs.type))
+              ctx.diag.error("inline asm non-pointer indirect constraint", fx.fn, loc);
+
+            attrbuilder.clear();
+            attrbuilder.addTypeAttr(llvm::Attribute::ElementType, llvm_type(ctx, remove_pointference_type(rhs.type), true));
+
+            attributes = attributes.addParamAttributes(ctx.context, arg, attrbuilder);
+          }
+
+          parms.push_back(load(ctx, fx, ptr, rhs.type, rhs.flags));
+        }
+
+        ++arg;
+      }
+    }
+
+    if (arg != parmtypes.size())
+      ctx.diag.error("inline asm parameter count mismatch", fx.fn, loc);
 
     auto asmcall = ctx.builder.CreateCall(asmfn, parms);
 

@@ -168,6 +168,8 @@ namespace
 
       fields.insert(fields.end(), subfields.begin(), subfields.end());
 
+      fields[get<2>(*base).size()].op = MIR::RValue::Ref;
+
       return &field_allocator.back();
     }
 
@@ -684,10 +686,12 @@ namespace
       {
         case MIR::RValue::Val:
           ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[arg].depends_upon;
+          ctx.threads[0].locals[dst].immune = ctx.threads[0].locals[arg].immune;
           break;
 
         case MIR::RValue::Ref:
           ctx.threads[0].locals[dst].depends_upon.push_back(&variable);
+          ctx.threads[0].locals[dst].immune = true;
           break;
 
         case MIR::RValue::Fer:
@@ -700,14 +704,7 @@ namespace
           break;
       }
 
-      if (op == MIR::RValue::Ref && fields.empty())
-        ctx.threads[0].locals[dst].immune = true;
-
-      if (op == MIR::RValue::Val && fields.empty())
-        ctx.threads[0].locals[dst].immune = ctx.threads[0].locals[arg].immune;
-
       ctx.threads[0].locals[dst].poisoned = ctx.threads[0].locals[arg].poisoned;
-
       ctx.threads[0].locals[dst].consumed = ctx.threads[0].locals[arg].consumed;
     }
 
@@ -721,6 +718,7 @@ namespace
         case MIR::RValue::Ref:
           for(auto dep : ctx.threads[0].locals[arg].depends_upon)
             ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(dep, fields));
+          ctx.threads[0].locals[dst].immune = true;
           break;
 
         case MIR::RValue::Fer:

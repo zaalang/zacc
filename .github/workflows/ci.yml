@@ -75,7 +75,7 @@ jobs:
         working-directory: ${{github.workspace}}/llvm-src
         run: |
           cmake -E make_directory ${{github.workspace}}/llvm
-          cmake -Thost=x64 -DLLVM_TARGETS_TO_BUILD="X86" -DBUILD_SHARED_LIBS=OFF -DCMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH=OFF -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/llvm .
+          cmake -Thost=x64 -DLLVM_TARGETS_TO_BUILD="host" -DBUILD_SHARED_LIBS=OFF -DCMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH=OFF -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/llvm .
           cmake --build . --target install --config Release
       - name: Create Build Environment
         run: |

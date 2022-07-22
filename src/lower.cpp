@@ -2772,6 +2772,9 @@ namespace
       {
         auto returntype = find_returntype(ctx, refn);
 
+        if (is_reference_type(returntype.defn))
+          returntype = resolve_as_reference(ctx, returntype);
+
         if (!deduce_type(ctx, tx, scope, fx, remove_const_type(lhs), returntype.type))
           return false;
 

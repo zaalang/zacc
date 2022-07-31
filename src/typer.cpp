@@ -1739,6 +1739,9 @@ namespace
     resolve_type(ctx, ctx.stack.back(), var->type, sema);
 
     resolve_expr(ctx, ctx.stack.back(), var->value, sema);
+
+    for(auto &binding : var->bindings)
+      typer_decl(ctx, binding, sema);
   }
 
   //|///////////////////// parmvar //////////////////////////////////////////
@@ -1766,13 +1769,6 @@ namespace
   void typer_decl(TyperContext &ctx, ErrorVarDecl *var, Sema &sema)
   {
     resolve_type(ctx, ctx.stack.back(), var->type, sema);
-  }
-
-  //|///////////////////// rangevar /////////////////////////////////////////
-  void typer_decl(TyperContext &ctx, RangeVarDecl *var, Sema &sema)
-  {
-    resolve_type(ctx, ctx.stack.back(), var->type, sema);
-    resolve_expr(ctx, ctx.stack.back(), var->range, sema);
   }
 
   //|///////////////////// typearg //////////////////////////////////////////
@@ -1954,12 +1950,26 @@ namespace
       resolve_expr(ctx, ctx.stack.back(), casse->label, sema);
     }
 
+    if (casse->parm)
+    {
+      typer_decl(ctx, casse->parm, sema);
+    }
+
     if (casse->body)
     {
       typer_statement(ctx, casse->body, sema);
     }
 
     ctx.stack.pop_back();
+  }
+
+  //|///////////////////// casevar //////////////////////////////////////////
+  void typer_decl(TyperContext &ctx, CaseVarDecl *var, Sema &sema)
+  {
+    resolve_type(ctx, ctx.stack.back(), var->type, sema);
+
+    for(auto &binding : var->bindings)
+      typer_decl(ctx, binding, sema);
   }
 
   //|///////////////////// import ///////////////////////////////////////////
@@ -2083,10 +2093,6 @@ namespace
         typer_decl(ctx, decl_cast<ErrorVarDecl>(decl), sema);
         break;
 
-      case Decl::RangeVar:
-        typer_decl(ctx, decl_cast<RangeVarDecl>(decl), sema);
-        break;
-
       case Decl::TypeArg:
         typer_decl(ctx, decl_cast<TypeArgDecl>(decl), sema);
         break;
@@ -2145,6 +2151,10 @@ namespace
 
       case Decl::Case:
         typer_decl(ctx, decl_cast<CaseDecl>(decl), sema);
+        break;
+
+      case Decl::CaseVar:
+        typer_decl(ctx, decl_cast<CaseVarDecl>(decl), sema);
         break;
 
       case Decl::Import:

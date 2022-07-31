@@ -44,7 +44,7 @@ bool is_fn_decl(Decl const *decl)
 //|///////////////////// is_var_decl ////////////////////////////////////////
 bool is_var_decl(Decl const *decl)
 {
-  return decl->kind() == Decl::VoidVar || decl->kind() == Decl::StmtVar || decl->kind() == Decl::ParmVar || decl->kind() == Decl::FieldVar || decl->kind() == Decl::RangeVar || decl->kind() == Decl::ThisVar || decl->kind() == Decl::ErrorVar || decl->kind() == Decl::LambdaVar || decl->kind() == Decl::CaseVar;
+  return decl->kind() == Decl::VoidVar || decl->kind() == Decl::StmtVar || decl->kind() == Decl::ParmVar || decl->kind() == Decl::FieldVar || decl->kind() == Decl::ThisVar || decl->kind() == Decl::ErrorVar || decl->kind() == Decl::LambdaVar || decl->kind() == Decl::CaseVar;
 }
 
 //|///////////////////// is_tag_decl ////////////////////////////////////////
@@ -222,7 +222,6 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
     case Decl::ParmVar:
     case Decl::ThisVar:
     case Decl::FieldVar:
-    case Decl::RangeVar:
     case Decl::ErrorVar:
     case Decl::LambdaVar:
     case Decl::CaseVar:
@@ -608,7 +607,7 @@ VoidVarDecl::VoidVarDecl(SourceLocation loc)
 //|///////////////////// VoidVarDecl::dump //////////////////////////////////
 void VoidVarDecl::dump(int indent) const
 {
-  cout << spaces(indent) << "VoidVarDecl " << this << " <" << m_loc << "> '" << name << "'\n";
+  cout << spaces(indent) << "VoidVarDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 
   if (type)
   {
@@ -629,7 +628,7 @@ StmtVarDecl::StmtVarDecl(SourceLocation loc)
 //|///////////////////// StmtVarDecl::dump //////////////////////////////////
 void StmtVarDecl::dump(int indent) const
 {
-  cout << spaces(indent) << "StmtVarDecl " << this << " <" << m_loc << "> '" << name << "'\n";
+  cout << spaces(indent) << "StmtVarDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 
   if (type)
   {
@@ -639,6 +638,11 @@ void StmtVarDecl::dump(int indent) const
   if (value)
   {
     value->dump(indent + 2);
+  }
+
+  for(auto &binding : bindings)
+  {
+    binding->dump(indent + 2);
   }
 }
 
@@ -655,7 +659,7 @@ ParmVarDecl::ParmVarDecl(SourceLocation loc)
 //|///////////////////// ParmVarDecl::dump //////////////////////////////////
 void ParmVarDecl::dump(int indent) const
 {
-  cout << spaces(indent) << "ParmVarDecl " << this << " <" << m_loc << "> '" << name << "'\n";
+  cout << spaces(indent) << "ParmVarDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 
   if (type)
   {
@@ -781,7 +785,7 @@ ThisVarDecl::ThisVarDecl(SourceLocation loc)
 //|///////////////////// ThisVarDecl::dump //////////////////////////////////
 void ThisVarDecl::dump(int indent) const
 {
-  cout << spaces(indent) << "ThisVarDecl " << this << " <" << m_loc << "> '" << name << "'\n";
+  cout << spaces(indent) << "ThisVarDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 
   if (type)
   {
@@ -802,7 +806,7 @@ ErrorVarDecl::ErrorVarDecl(SourceLocation loc)
 //|///////////////////// ErrorVarDecl::dump /////////////////////////////////
 void ErrorVarDecl::dump(int indent) const
 {
-  cout << spaces(indent) << "ErrorVarDecl " << this << " <" << m_loc << "> '" << name << "'\n";
+  cout << spaces(indent) << "ErrorVarDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 
   if (type)
   {
@@ -823,7 +827,7 @@ FieldVarDecl::FieldVarDecl(SourceLocation loc)
 //|///////////////////// FieldVarDecl::dump /////////////////////////////////
 void FieldVarDecl::dump(int indent) const
 {
-  cout << spaces(indent) << "FieldVarDecl " << this << " <" << m_loc << "> '" << name << "'\n";
+  cout << spaces(indent) << "FieldVarDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 
   if (type)
   {
@@ -833,32 +837,6 @@ void FieldVarDecl::dump(int indent) const
   if (defult)
   {
     defult->dump(indent+ 2);
-  }
-}
-
-
-//|--------------------- RangeVarDecl ---------------------------------------
-//|--------------------------------------------------------------------------
-
-//|///////////////////// RangeVarDecl::Constructor //////////////////////////
-RangeVarDecl::RangeVarDecl(SourceLocation loc)
-  : VarDecl(RangeVar, loc)
-{
-}
-
-//|///////////////////// RangeVarDecl::dump /////////////////////////////////
-void RangeVarDecl::dump(int indent) const
-{
-  cout << spaces(indent) << "RangeVarDecl " << this << " <" << m_loc << "> '" << name << "'\n";
-
-  if (type)
-  {
-    type->dump(indent + 2);
-  }
-
-  if (range)
-  {
-    range->dump(indent + 2);
   }
 }
 
@@ -875,7 +853,7 @@ LambdaVarDecl::LambdaVarDecl(SourceLocation loc)
 //|///////////////////// LambdaVarDecl::dump ////////////////////////////////
 void LambdaVarDecl::dump(int indent) const
 {
-  cout << spaces(indent) << "LambdaVarDecl " << this << " <" << m_loc << "> '" << name << "'\n";
+  cout << spaces(indent) << "LambdaVarDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 
   if (type)
   {
@@ -958,11 +936,16 @@ CaseVarDecl::CaseVarDecl(SourceLocation loc)
 //|///////////////////// CaseVarDecl::dump //////////////////////////////////
 void CaseVarDecl::dump(int indent) const
 {
-  cout << spaces(indent) << "CaseVarDecl " << this << " <" << m_loc << "> '" << name << "'\n";
+  cout << spaces(indent) << "CaseVarDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 
   if (type)
   {
     type->dump(indent + 2);
+  }
+
+  for(auto &binding : bindings)
+  {
+    binding->dump(indent + 2);
   }
 }
 

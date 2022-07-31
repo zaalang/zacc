@@ -365,18 +365,36 @@ namespace
   //  return false;
   //}
 
-  //|///////////////////// is_rvalue //////////////////////////////////////
-  bool is_rvalue(Context &ctx, MIR::Local const &local)
+  //|///////////////////// is_const_reference ///////////////////////////////
+  bool is_const_reference(Context &ctx, MIR::Local const &local)
   {
-    if (local.flags & MIR::Local::RValue)
-      return true;
+    if (local.flags & MIR::Local::Reference)
+    {
+      return (local.flags & MIR::Local::Const);
+    }
 
     if (is_reference_type(local.type))
     {
-      auto lhs = remove_reference_type(local.type);
+      if (is_qualarg_reference(local.type))
+        return (type_cast<QualArgType>(remove_reference_type(local.type))->qualifiers & QualArgType::Const);
 
-      if (is_qualarg_type(lhs) && (type_cast<QualArgType>(lhs)->qualifiers & QualArgType::RValue))
-        return true;
+      return is_const_reference(local.type);
+    }
+
+    return false;
+  }
+
+  //|///////////////////// is_rvalue_reference //////////////////////////////
+  bool is_rvalue_reference(Context &ctx, MIR::Local const &local)
+  {
+    if (local.flags & MIR::Local::Reference)
+    {
+      return (local.flags & MIR::Local::RValue);
+    }
+
+    if (is_qualarg_reference(local.type))
+    {
+      return (type_cast<QualArgType>(remove_reference_type(local.type))->qualifiers & QualArgType::RValue);
     }
 
     return false;
@@ -762,11 +780,17 @@ namespace
 
         if (consumed_fields.empty())
         {
+          ctx.threads[0].locals[get<1>(*dep)].consumed = false;
+        }
+
+        if (get<2>(*dep).empty())
+        {
           ctx.threads[0].locals[get<1>(*dep)].immune = false;
           ctx.threads[0].locals[get<1>(*dep)].consumed = false;
           ctx.threads[0].locals[get<1>(*dep)].poisoned = false;
           ctx.threads[0].locals[get<1>(*dep)].toxic = false;
           ctx.threads[0].locals[get<1>(*dep)].depends_upon.clear();
+          ctx.threads[0].locals[get<1>(*dep)].consumed_fields.clear();
         }
       }
 
@@ -830,7 +854,7 @@ namespace
       {
         case Builtin::Assign:
           for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
-            ctx.threads[0].locals[get<1>(*dep)].depends_upon = ctx.threads[0].locals[args[1]].depends_upon;
+            ctx.threads[0].locals[get<1>(*dep)].depends_upon.insert(ctx.threads[0].locals[get<1>(*dep)].depends_upon.end(), ctx.threads[0].locals[args[1]].depends_upon.begin(), ctx.threads[0].locals[args[1]].depends_upon.end());
           ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[args[0]].depends_upon;
           break;
 
@@ -898,6 +922,17 @@ namespace
         default:
           break;
       }
+    }
+
+    if (is_rvalue_reference(ctx, mir.locals[dst].type))
+    {
+      auto arg = ctx.threads[0].locals.size();
+      for(auto &thread : ctx.threads)
+        thread.locals.push_back(Context::Storage());
+
+      ctx.threads[0].locals[dst].immune = true;
+      ctx.threads[0].locals[arg].live = true;
+      ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(arg));
     }
 
     for(auto &annotation : notations)
@@ -984,6 +1019,9 @@ namespace
     //    local.poisoned = true;
     //}
 
+    if ((mir.locals[statement.dst].flags & (MIR::Local::Const | MIR::Local::LValue | MIR::Local::RValue)) == MIR::Local::Const)
+      return;
+
     ctx.threads[0].locals[statement.dst].live = false;
   }
 
@@ -1014,7 +1052,7 @@ namespace
         break;
 
       case State::consumed:
-        if (!is_rvalue(ctx, mir.locals[arg]))
+        if (!is_rvalue_reference(ctx, mir.locals[arg]))
           ctx.diag.error("potentially consumed loop variable", mir.fx.fn, loc());
         break;
 
@@ -1047,6 +1085,11 @@ namespace
         ctx.threads[0].locals[arg + mir.locals.size()].live = true;
         ctx.threads[0].locals[arg].depends_upon.push_back(ctx.make_field(arg + mir.locals.size()));
       }
+    }
+
+    for(auto &[arg, value] : mir.statics)
+    {
+      ctx.threads[0].locals[arg].live = true;
     }
 
     for(size_t block_id = 0; block_id < mir.blocks.size(); ++block_id)
@@ -1156,16 +1199,34 @@ namespace
       ctx.threads[0].locals[arg].live = false;
     }
 
-    size_t arg = mir.args_beg;
+    auto arg = mir.args_beg;
     for(auto &parm : mir.fx.parameters())
     {
-      if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type) && !is_rvalue(ctx, mir.locals[arg]))
+      if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type) && !is_const_reference(ctx, mir.locals[arg]))
       {
-        if (ctx.threads[0].locals[arg + mir.locals.size()].consumed && !has_consume(ctx, notations, parm))
-          ctx.diag.warn("missing consume annotation", mir.fx.fn, parm->loc());
+        ctx.threads[0].locals[arg].live = true;
 
-        //if (ctx.threads[0].locals[arg + mir.locals.size()].toxic && !has_poison(ctx, notations, parm))
-        //  ctx.diag.warn("missing poison annotation", mir.fx.fn, parm->loc());
+        switch (ctx.state(arg))
+        {
+          case State::ok:
+            break;
+
+          case State::dangling:
+            ctx.diag.error("potentially dangling output value", mir.fx.fn, parm->loc());
+            break;
+
+          case State::consumed:
+            if (!is_rvalue_reference(ctx, mir.locals[arg]) && !has_consume(ctx, notations, parm))
+              ctx.diag.warn("missing consume annotation", mir.fx.fn, parm->loc());
+            break;
+
+          case State::poisoned:
+//            if (!is_rvalue_reference(ctx, mir.locals[arg]) && !has_poison(ctx, notations, parm))
+//              ctx.diag.warn("missing poison annotation", mir.fx.fn, parm->loc());
+            break;
+        }
+
+        ctx.threads[0].locals[arg].live = false;
       }
 
       arg += 1;

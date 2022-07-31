@@ -414,6 +414,9 @@ namespace
     semantic_type(ctx, var->type, sema);
 
     semantic_expr(ctx, var->value, sema);
+
+    for(auto &binding : var->bindings)
+      semantic_decl(ctx, binding, sema);
   }
 
   //|///////////////////// parmvar //////////////////////////////////////////
@@ -443,13 +446,6 @@ namespace
   void semantic_decl(SemanticContext &ctx, ErrorVarDecl *var, Sema &sema)
   {
     semantic_type(ctx, var->type, sema);
-  }
-
-  //|///////////////////// rangevar /////////////////////////////////////////
-  void semantic_decl(SemanticContext &ctx, RangeVarDecl *var, Sema &sema)
-  {
-    semantic_type(ctx, var->type, sema);
-    semantic_expr(ctx, var->range, sema);
   }
 
   //|///////////////////// declref //////////////////////////////////////////
@@ -1004,12 +1000,26 @@ namespace
       semantic_expr(ctx, casse->label, sema);
     }
 
+    if (casse->parm)
+    {
+      semantic_decl(ctx, casse->parm, sema);
+    }
+
     if (casse->body)
     {
       semantic_statement(ctx, casse->body, sema);
     }
 
     ctx.stack.pop_back();
+  }
+
+  //|///////////////////// casevar //////////////////////////////////////////
+  void semantic_decl(SemanticContext &ctx, CaseVarDecl *var, Sema &sema)
+  {
+    semantic_type(ctx, var->type, sema);
+
+    for(auto &binding : var->bindings)
+      semantic_decl(ctx, binding, sema);
   }
 
   //|///////////////////// import ///////////////////////////////////////////
@@ -1391,10 +1401,6 @@ namespace
         semantic_decl(ctx, decl_cast<ErrorVarDecl>(decl), sema);
         break;
 
-      case Decl::RangeVar:
-        semantic_decl(ctx, decl_cast<RangeVarDecl>(decl), sema);
-        break;
-
       case Decl::TypeArg:
         break;
 
@@ -1464,6 +1470,10 @@ namespace
 
       case Decl::Case:
         semantic_decl(ctx, decl_cast<CaseDecl>(decl), sema);
+        break;
+
+      case Decl::CaseVar:
+        semantic_decl(ctx, decl_cast<CaseVarDecl>(decl), sema);
         break;
 
       case Decl::Import:

@@ -59,7 +59,6 @@ class Sema
     ParmVarDecl *parm_declaration(SourceLocation loc);
     FieldVarDecl *field_declaration(SourceLocation loc);
     InitialiserDecl *initialiser_declaration(SourceLocation loc);
-    RangeVarDecl *rangevar_declaration(SourceLocation loc);
     VoidVarDecl *voidvar_declaration(SourceLocation loc);
     ErrorVarDecl *errorvar_declaration(SourceLocation loc);
     ThisVarDecl *thisvar_declaration(SourceLocation loc);

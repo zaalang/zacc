@@ -620,10 +620,6 @@ void DeclRefExpr::dump(int indent) const
         cout << spaces(indent + 2) << "StmtVarDecl " << decl << " '" << *decl << "'\n";
         break;
 
-      case Decl::RangeVar:
-        cout << spaces(indent + 2) << "RangeVarDecl " << decl << " '" << *decl << "'\n";
-        break;
-
       case Decl::ParmVar:
         cout << spaces(indent + 2) << "ParmVarDecl " << decl << " '" << *decl << "'\n";
         break;

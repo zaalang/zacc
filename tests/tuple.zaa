@@ -1,0 +1,76 @@
+import std.stdio;
+import std.vector;
+
+using std;
+
+fn test_empty()
+{
+  var c = ();
+  assert(c.len == 0);
+}
+
+fn test_tie()
+{
+  var a = i8(11);
+  var b = 'x';
+  var c = std::tuple(a, b);
+
+  std::tie(a, b) = (99, 'y');
+
+  assert(a == 99 && b == 'y');
+  assert(c.0 == 11 && c.1 == 'x');
+}
+
+fn test_cat()
+{
+  var a = ('a', true);
+  var b = ('b', false);
+  var c = std::tuple_cat(a, b);
+
+  assert(c.len == 4);
+  assert(c.0 == 'a' && c.1 == true && c.2 == 'b' && c.3 == false);
+}
+
+fn test_subset()
+{
+  var a = ('a', true, 'b', false);
+  var c = std::tuple_subset(a, 1 .. 3);
+
+  assert(c.len == 2);
+  assert(c.0 == true && c.1 == 'b');
+}
+
+fn test_as_tuple()
+{
+  struct as_tuple_t<T>
+  {
+    #{                                    // compile time block in declaritive context
+      var tuple = $typename ();           // type reflection of empty tuple
+
+      #for(const k : std::meta::fields_of($T))
+        tuple = std::meta::tuple_append(tuple, $T::#k);  // append reflection of field
+
+      -> { using type = $(tuple); }       // injection of type alias into struct scope
+    }
+  }
+
+  using as_tuple<T> = as_tuple_t<T>::type;
+
+  struct X
+  {
+    i32 i;
+    f64 j;
+    bool k;
+  }
+
+  std::assert(std::is_same<as_tuple<X>, (i32, f64, bool)>);
+}
+
+fn main()
+{
+  #test_empty();
+  #test_tie();
+  #test_cat();
+  #test_subset();
+  #test_as_tuple();
+}

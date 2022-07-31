@@ -125,6 +125,18 @@ bool is_const_type(Type const *type)
   return type->klass() == Type::Const;
 }
 
+//|///////////////////// is_const_pointer ///////////////////////////////////
+bool is_const_pointer(Type const *type)
+{
+  return type->klass() == Type::Pointer && type_cast<PointerType>(type)->type->klass() == Type::Const;
+}
+
+//|///////////////////// is_const_reference /////////////////////////////////
+bool is_const_reference(Type const *type)
+{
+  return type->klass() == Type::Reference && type_cast<ReferenceType>(type)->type->klass() == Type::Const;
+}
+
 //|///////////////////// is_builtin_type ////////////////////////////////////
 bool is_builtin_type(Type const *type)
 {
@@ -153,6 +165,12 @@ bool is_typearg_type(Type const *type)
 bool is_qualarg_type(Type const *type)
 {
   return type->klass() == Type::QualArg;
+}
+
+//|///////////////////// is_qualarg_reference ///////////////////////////////
+bool is_qualarg_reference(Type const *type)
+{
+  return type->klass() == Type::Reference && type_cast<ReferenceType>(type)->type->klass() == Type::QualArg;
 }
 
 //|///////////////////// is_typelit_type ////////////////////////////////////
@@ -322,7 +340,7 @@ Type *remove_pointer_type(Type *type)
 //|///////////////////// is_voidpointer_type ////////////////////////////////
 bool is_voidpointer_type(Type const *type)
 {
-  return is_pointference_type(type) && is_void_type(remove_const_type(remove_pointference_type(type)));
+  return is_pointference_type(type) && is_void_type(remove_qualifiers_type(type));
 }
 
 //|///////////////////// is_pointference_type ///////////////////////////////

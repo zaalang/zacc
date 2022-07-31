@@ -429,6 +429,9 @@ namespace
     result->type = copier_type(ctx, var->type);
     result->value = copier_expr(ctx, var->value);
 
+    for(auto &binding : var->bindings)
+      result->bindings.push_back(copier_decl(ctx, binding));
+
     return result;
   }
 
@@ -471,19 +474,6 @@ namespace
     return result;
   }
 
-  //|///////////////////// rangevar /////////////////////////////////////////
-  Decl *copier_decl(CopierContext &ctx, RangeVarDecl *var)
-  {
-    auto result = new RangeVarDecl(var->loc());
-
-    result->flags = var->flags;
-    result->name = copier_name(ctx, var->name);
-    result->type = copier_type(ctx, var->type);
-    result->range = copier_expr(ctx, var->range);
-
-    return result;
-  }
-
   //|///////////////////// lambdavar ////////////////////////////////////////
   Decl *copier_decl(CopierContext &ctx, LambdaVarDecl *var)
   {
@@ -506,6 +496,9 @@ namespace
     result->flags = var->flags;
     result->name = copier_name(ctx, var->name);
     result->type = copier_type(ctx, var->type);
+
+    for(auto &binding : var->bindings)
+      result->bindings.push_back(copier_decl(ctx, binding));
 
     return result;
   }
@@ -606,7 +599,6 @@ namespace
           case Decl::StmtVar:
           case Decl::ParmVar:
           case Decl::FieldVar:
-          case Decl::RangeVar:
           case Decl::ThisVar:
           case Decl::ErrorVar:
             result->name = decl_cast<VarDecl>(declid)->name;
@@ -955,10 +947,6 @@ namespace
 
       case Decl::ErrorVar:
         decl = copier_decl(ctx, decl_cast<ErrorVarDecl>(decl));
-        break;
-
-      case Decl::RangeVar:
-        decl = copier_decl(ctx, decl_cast<RangeVarDecl>(decl));
         break;
 
       case Decl::LambdaVar:

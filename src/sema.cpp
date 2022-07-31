@@ -269,12 +269,6 @@ InitialiserDecl *Sema::initialiser_declaration(SourceLocation loc)
   return ast->make_decl<InitialiserDecl>(loc);
 }
 
-//|///////////////////// rangevar_declaration ///////////////////////////////
-RangeVarDecl *Sema::rangevar_declaration(SourceLocation loc)
-{
-  return ast->make_decl<RangeVarDecl>(loc);
-}
-
 //|///////////////////// errorvar_declaration ///////////////////////////////
 ErrorVarDecl *Sema::errorvar_declaration(SourceLocation loc)
 {

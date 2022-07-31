@@ -54,7 +54,6 @@ class Decl
       Lambda,
       ThisVar,
       FieldVar,
-      RangeVar,
       ErrorVar,
       LambdaVar,
       Initialiser,
@@ -402,6 +401,7 @@ class VarDecl : public Decl
       Const = 0x02,
       Literal = 0x10,
       Static = 0x20,
+      Range = 0x40,
       ThreadLocal = 0x100,
       CacheAligned = 0x200,
       PageAligned = 0x400,
@@ -436,6 +436,8 @@ class StmtVarDecl : public VarDecl
     StmtVarDecl(SourceLocation loc);
 
     Expr *value = nullptr;
+
+    std::vector<Decl*> bindings;
 
     void dump(int indent) const override;
 };
@@ -571,20 +573,6 @@ class FieldVarDecl : public VarDecl
 };
 
 
-//---------------------- RangeVarDecl ---------------------------------------
-//---------------------------------------------------------------------------
-
-class RangeVarDecl : public VarDecl
-{
-  public:
-    RangeVarDecl(SourceLocation loc);
-
-    Expr *range = nullptr;
-
-    void dump(int indent) const override;
-};
-
-
 //---------------------- LambdaVarDecl --------------------------------------
 //---------------------------------------------------------------------------
 
@@ -647,6 +635,8 @@ class CaseVarDecl : public VarDecl
 {
   public:
     CaseVarDecl(SourceLocation loc);
+
+    std::vector<Decl*> bindings;
 
     void dump(int indent) const override;
 };
@@ -804,7 +794,6 @@ template<> inline auto decl_cast<VTableDecl>(Decl *decl) { assert(decl && decl->
 template<> inline auto decl_cast<LambdaDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Lambda); return static_cast<LambdaDecl*>(decl); };
 template<> inline auto decl_cast<ThisVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::ThisVar); return static_cast<ThisVarDecl*>(decl); };
 template<> inline auto decl_cast<FieldVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::FieldVar); return static_cast<FieldVarDecl*>(decl); };
-template<> inline auto decl_cast<RangeVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::RangeVar); return static_cast<RangeVarDecl*>(decl); };
 template<> inline auto decl_cast<ErrorVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::ErrorVar); return static_cast<ErrorVarDecl*>(decl); };
 template<> inline auto decl_cast<LambdaVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::LambdaVar); return static_cast<LambdaVarDecl*>(decl); };
 template<> inline auto decl_cast<InitialiserDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Initialiser); return static_cast<InitialiserDecl*>(decl); };

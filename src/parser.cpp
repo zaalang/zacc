@@ -468,6 +468,132 @@ namespace
     return nullptr;
   }
 
+  //|///////////////////// parse_var_defn ///////////////////////////////////
+  Type *parse_var_defn(ParseContext &ctx, long &flags, Decl *vararg, Sema &sema)
+  {
+    switch (ctx.tok.type)
+    {
+      case Token::kw_var:
+        break;
+
+      case Token::kw_let:
+        flags |= VarDecl::Const;
+        break;
+
+      case Token::kw_const:
+        flags |= VarDecl::Literal;
+        break;
+
+      case Token::kw_static:
+        flags |= VarDecl::Static;
+        break;
+
+      default:
+        assert(false);
+    }
+
+    ctx.consume_token();
+
+    if (flags & VarDecl::Static)
+    {
+      while (ctx.tok.text == "thread_local" || ctx.tok.text == "cache_aligned" || ctx.tok.text == "page_aligned")
+      {
+        if (ctx.tok.text == "thread_local")
+          flags |= VarDecl::ThreadLocal;
+
+        if (ctx.tok.text == "cache_aligned")
+          flags |= VarDecl::CacheAligned;
+
+        if (ctx.tok.text == "page_aligned")
+          flags |= VarDecl::PageAligned;
+
+        ctx.consume_token();
+      }
+    }
+
+    auto type = sema.make_typearg(vararg);
+
+    auto kw_mut = ctx.try_consume_token(Token::kw_mut);
+    auto kw_const = ctx.try_consume_token(Token::kw_const) || (flags & VarDecl::Const);
+
+    if (kw_mut && kw_const)
+      ctx.diag.warn("mut has no effect when const", ctx.text, ctx.tok.loc);
+
+    if (ctx.try_consume_token(Token::amp))
+    {
+      if (flags & VarDecl::Literal)
+        ctx.diag.error("literal cannot be a reference", ctx.text, ctx.tok.loc);
+
+      if (!kw_mut || kw_const)
+        type = sema.make_const(type);
+
+      type = sema.make_reference(type);
+    }
+
+    else if (ctx.try_consume_token(Token::ampamp))
+    {
+      if (kw_mut || kw_const)
+        ctx.diag.warn("invalid qualifiers", ctx.text, ctx.tok.loc);
+
+      type = sema.make_reference(sema.make_qualarg(type));
+    }
+
+    if (kw_const)
+      flags |= VarDecl::Const;
+
+    return type;
+  }
+
+  //|///////////////////// parse_var_bindings_list //////////////////////////
+  vector<Decl*> parse_var_bindings_list(ParseContext &ctx, Sema &sema)
+  {
+    vector<Decl*> bindings;
+
+    while (ctx.tok != Token::r_paren && ctx.tok != Token::semi && ctx.tok != Token::eof)
+    {
+      auto var = sema.var_declaration(ctx.tok.loc);
+
+      auto loc = ctx.tok.loc;
+
+      if (ctx.tok != Token::l_paren)
+      {
+        var->name = parse_ident(ctx, IdentUsage::VarName, sema);
+      }
+
+      if (ctx.try_consume_token(Token::l_paren))
+      {
+        var->bindings = parse_var_bindings_list(ctx, sema);
+
+        if (!ctx.try_consume_token(Token::r_paren))
+        {
+          ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+          break;
+        }
+      }
+
+      var->type = sema.make_reference(sema.make_qualarg(sema.make_typearg(sema.make_typearg(Ident::kw_var, ctx.tok.loc))));
+
+      auto name = Ident::make_index_ident(bindings.size());
+
+      if (ctx.try_consume_token(Token::colon))
+      {
+        if (!ctx.try_consume_token(Token::period))
+          ctx.diag.error("expected period", ctx.text, ctx.tok.loc);
+
+        name = parse_ident(ctx, IdentUsage::ScopedName, sema);
+      }
+
+      var->value = sema.make_declref_expression(sema.make_declref(name, loc), loc);
+
+      bindings.push_back(var);
+
+      if (!ctx.try_consume_token(Token::comma))
+        break;
+    }
+
+    return bindings;
+  }
+
   //|///////////////////// parse_typearg_list ///////////////////////////////
   vector<Type*> parse_typearg_list(ParseContext &ctx, Sema &sema)
   {
@@ -603,9 +729,16 @@ namespace
         break;
       }
 
-      if (ctx.try_consume_token(Token::ellipsis))
+      if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd)
       {
-        expr = sema.make_unary_expression(UnaryOpExpr::Unpack, expr, ctx.tok.loc);
+        auto fwd = expr_cast<UnaryOpExpr>(expr);
+
+        if (fwd->subexpr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(fwd->subexpr)->op() == UnaryOpExpr::Unpack)
+        {
+          expr = fwd->subexpr;
+          fwd->subexpr = expr_cast<UnaryOpExpr>(fwd->subexpr)->subexpr;
+          expr_cast<UnaryOpExpr>(expr)->subexpr = fwd;
+        }
       }
 
       exprs.push_back(expr);
@@ -702,44 +835,25 @@ namespace
       {
         auto stmt = sema.declaration_statement(ctx.tok.loc);
 
-        auto flags = 0;
+        auto var = sema.var_declaration(stmt->loc());
 
-        switch (ctx.tok.type)
+        var->type = parse_var_defn(ctx, var->flags, sema.make_typearg(Ident::kw_var, ctx.tok.loc), sema);
+
+        if (ctx.tok != Token::l_paren)
         {
-          case Token::kw_var:
-            break;
-
-          case Token::kw_let:
-            flags |= VarDecl::Const;
-            break;
-
-          case Token::kw_const:
-            flags |= VarDecl::Literal;
-            break;
-
-          default:
-            assert(false);
+          var->name = parse_ident(ctx, IdentUsage::VarName, sema);
         }
 
-        ctx.consume_token();
-
-        auto type = sema.make_typearg(sema.make_typearg(Ident::kw_var, ctx.tok.loc));
-
-        auto kw_mut = ctx.try_consume_token(Token::kw_mut);
-        auto kw_const = ctx.try_consume_token(Token::kw_const) || (flags & VarDecl::Const);
-
-        if (ctx.try_consume_token(Token::amp))
+        if (ctx.try_consume_token(Token::l_paren))
         {
-          if (!kw_mut || kw_const)
-            type = sema.make_const(type);
+          var->bindings = parse_var_bindings_list(ctx, sema);
 
-          type = sema.make_reference(type);
+          if (!ctx.try_consume_token(Token::r_paren))
+          {
+            ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+            break;
+          }
         }
-
-        if (kw_const)
-          flags |= VarDecl::Const;
-
-        auto name = parse_ident(ctx, IdentUsage::VarName, sema);
 
         if (ctx.tok != Token::colon && ctx.tok != Token::equal)
         {
@@ -747,41 +861,20 @@ namespace
           break;
         }
 
-        if (ctx.try_consume_token(Token::colon))
+        if (ctx.tok == Token::colon)
+          var->flags |= VarDecl::Range;
+
+        ctx.consume_token();
+
+        var->value = parse_expression(ctx, sema);
+
+        if (!var->value)
         {
-          auto var = sema.rangevar_declaration(stmt->loc());
-
-          var->name = name;
-          var->flags = flags;
-          var->type = type;
-          var->range = parse_expression(ctx, sema);
-
-          if (!var->range)
-          {
-            ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-            break;
-          }
-
-          stmt->decl = var;
+          ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+          break;
         }
 
-        if (ctx.try_consume_token(Token::equal))
-        {
-          auto var = sema.var_declaration(stmt->loc());
-
-          var->name = name;
-          var->flags = flags;
-          var->type = type;
-          var->value = parse_expression(ctx, sema);
-
-          if (!var->value)
-          {
-            ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-            break;
-          }
-
-          stmt->decl = var;
-        }
+        stmt->decl = var;
 
         stmts.push_back(stmt);
       }
@@ -820,31 +913,7 @@ namespace
 
       if (ctx.tok == Token::kw_var)
       {
-        ctx.consume_token(Token::kw_var);
-
-        var->type = sema.make_typearg(var->arg);
-
-        auto kw_mut = ctx.try_consume_token(Token::kw_mut);
-        auto kw_const = ctx.try_consume_token(Token::kw_const);
-
-        if (ctx.try_consume_token(Token::amp))
-        {
-          if (!kw_mut || kw_const)
-            var->type = sema.make_const(var->type);
-
-          var->type = sema.make_reference(var->type);
-        }
-
-        else if (ctx.try_consume_token(Token::ampamp))
-        {
-          if (kw_mut || kw_const)
-            ctx.diag.warn("invalid qualifiers", ctx.text, ctx.tok.loc);
-
-          var->type = sema.make_reference(sema.make_qualarg(var->type));
-        }
-
-        if (kw_const)
-          var->flags |= VarDecl::Const;
+        var->type = parse_var_defn(ctx, var->flags, var->arg, sema);
 
         var->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
@@ -2123,6 +2192,10 @@ namespace
         ctx.consume_token();
         return sema.make_unary_expression(UnaryOpExpr::Unwrap, lhs, op.loc);
 
+      case Token::ellipsis:
+        ctx.consume_token();
+        return sema.make_unary_expression(UnaryOpExpr::Unpack, lhs, op.loc);
+
       default:
         return lhs;
     }
@@ -2598,66 +2671,23 @@ namespace
   {
     auto var = sema.var_declaration(ctx.tok.loc);
 
-    switch (ctx.tok.type)
+    var->type = parse_var_defn(ctx, var->flags, sema.make_typearg(Ident::kw_var, ctx.tok.loc), sema);
+
+    if (ctx.tok != Token::l_paren)
     {
-      case Token::kw_var:
-        break;
-
-      case Token::kw_let:
-        var->flags |= VarDecl::Const;
-        break;
-
-      case Token::kw_const:
-        var->flags |= VarDecl::Literal;
-        break;
-
-      case Token::kw_static:
-        var->flags |= VarDecl::Static;
-        break;
-
-      default:
-        assert(false);
+      var->name = parse_ident(ctx, IdentUsage::VarName, sema);
     }
 
-    ctx.consume_token();
-
-    if (var->flags & VarDecl::Static)
+    if (ctx.try_consume_token(Token::l_paren))
     {
-      while (ctx.tok.text == "thread_local" || ctx.tok.text == "cache_aligned" || ctx.tok.text == "page_aligned")
+      var->bindings = parse_var_bindings_list(ctx, sema);
+
+      if (!ctx.try_consume_token(Token::r_paren))
       {
-        if (ctx.tok.text == "thread_local")
-          var->flags |= VarDecl::ThreadLocal;
-
-        if (ctx.tok.text == "cache_aligned")
-          var->flags |= VarDecl::CacheAligned;
-
-        if (ctx.tok.text == "page_aligned")
-          var->flags |= VarDecl::PageAligned;
-
-        ctx.consume_token();
+        ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+        goto resume;
       }
     }
-
-    var->type = sema.make_typearg(sema.make_typearg(Ident::kw_var, ctx.tok.loc));
-
-    auto kw_mut = ctx.try_consume_token(Token::kw_mut);
-    auto kw_const = ctx.try_consume_token(Token::kw_const) || (var->flags & VarDecl::Const);
-
-    if (kw_mut && kw_const)
-      ctx.diag.warn("mut has no effect when const", ctx.text, ctx.tok.loc);
-
-    if (ctx.try_consume_token(Token::amp))
-    {
-      if (!kw_mut || kw_const)
-        var->type = sema.make_const(var->type);
-
-      var->type = sema.make_reference(var->type);
-    }
-
-    if (kw_const)
-      var->flags |= VarDecl::Const;
-
-    var->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
     if (!ctx.try_consume_token(Token::equal))
     {
@@ -4250,7 +4280,7 @@ namespace
               return nullptr;
             break;
 
-          case Token::l_paren:
+          case Token::l_square:
             if (casse->label = sema.make_declref_expression(parse_qualified_name(ctx, sema), ctx.tok.loc); !casse->label)
               return nullptr;
             break;
@@ -4262,16 +4292,40 @@ namespace
         lexcursor = lex(ctx.text, lexcursor, tok);
       }
 
-      if (ctx.try_consume_token(Token::l_paren))
+      if (ctx.try_consume_token(Token::l_square))
       {
         auto var = sema.casevar_declaration(ctx.tok.loc);
 
-        var->name = parse_ident(ctx, IdentUsage::VarName, sema);
-        var->type = sema.make_reference(sema.make_typearg(sema.make_typearg(Ident::kw_var, var->loc())));
+        if (ctx.tok == Token::kw_var)
+        {
+          var->type = parse_var_defn(ctx, var->flags, sema.make_typearg(Ident::kw_var, ctx.tok.loc), sema);
+
+          if (ctx.tok != Token::l_paren)
+          {
+            var->name = parse_ident(ctx, IdentUsage::VarName, sema);
+          }
+
+          if (ctx.try_consume_token(Token::l_paren))
+          {
+            var->bindings = parse_var_bindings_list(ctx, sema);
+
+            if (!ctx.try_consume_token(Token::r_paren))
+            {
+              ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+              goto resume;
+            }
+          }
+        }
+        else
+        {
+          var->name = parse_ident(ctx, IdentUsage::VarName, sema);
+
+          var->type = sema.make_reference(sema.make_qualarg(sema.make_typearg(sema.make_typearg(Ident::kw_var, var->loc()))));
+        }
 
         casse->parm = var;
 
-        if (!ctx.try_consume_token(Token::r_paren))
+        if (!ctx.try_consume_token(Token::r_square))
         {
           ctx.diag.error("expected colon", ctx.text, ctx.tok.loc);
           goto resume;

@@ -747,6 +747,44 @@ namespace Builtin
 
     auto find_type = [&](Decl *decl) { return std::find_if(typeargs.begin(), typeargs.end(), [&](auto &k) { return k.first == decl; }); };
 
+    auto tuple_ex_match = [&](TupleType *lhs, TupleType *rhs) {
+
+      if (lhs->fields.size() != rhs->fields.size())
+        return false;
+
+      for(size_t index = 0; index < lhs->fields.size(); ++index)
+      {
+        auto lhsfield = remove_const_type(lhs->fields[index]);
+        auto rhsfield = remove_const_type(rhs->fields[index]);
+
+        if (is_reference_type(lhs->defns[index]))
+          lhsfield = remove_const_type(remove_reference_type(lhsfield));
+
+        if (is_reference_type(rhs->defns[index]))
+          rhsfield = remove_const_type(remove_reference_type(rhsfield));
+
+        while (is_pointference_type(lhsfield) && is_pointference_type(rhsfield))
+        {
+          lhsfield = remove_const_type(remove_pointference_type(lhsfield));
+          rhsfield = remove_const_type(remove_pointference_type(rhsfield));
+        }
+
+        if (rhsfield == type(Builtin::Type_IntLiteral) && (is_int_type(lhsfield) || is_char_type(lhsfield)))
+          continue;
+
+        if (rhsfield == type(Builtin::Type_FloatLiteral) && is_float_type(lhsfield))
+          continue;
+
+        if (rhsfield == type(Builtin::Type_PtrLiteral) && is_pointer_type(lhsfield))
+          continue;
+
+        if (lhsfield != rhsfield)
+          return false;
+      }
+
+      return true;
+    };
+
     auto fn = decl_cast<FunctionDecl>(decl);
 
     switch (fn->builtin)
@@ -790,7 +828,7 @@ namespace Builtin
       case Builtin::TupleEqEx:
       case Builtin::TupleCmpEx:
         if (auto T = find_type(fn->args[0]), U = find_type(fn->args[1]); T != typeargs.end() && U != typeargs.end())
-          return is_tuple_type(T->second) && is_tuple_type(U->second) && T->second != U->second && type_cast<TupleType>(T->second)->fields.size() == type_cast<TupleType>(U->second)->fields.size();
+          return is_tuple_type(T->second) && is_tuple_type(U->second) && T->second != U->second && tuple_ex_match(type_cast<TupleType>(T->second), type_cast<TupleType>(U->second));
         break;
 
       case Builtin::TupleLen:

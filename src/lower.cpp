@@ -337,6 +337,7 @@ namespace
   bool promote_type(LowerContext &ctx, Type *&lhs, Type *rhs);
   void lower_decl(LowerContext &ctx, ParmVarDecl *parmvar);
   bool lower_expr(LowerContext &ctx, MIR::Fragment &result, Expr *expr);
+  bool lower_expr(LowerContext &ctx, MIR::Fragment &result, VarDecl *vardecl, SourceLocation loc);
   void lower_statement(LowerContext &ctx, Stmt *stmt);
   void lower_expression(LowerContext &ctx, Expr *expr);
   void backfill(LowerContext &ctx, MIR &mir);
@@ -1245,11 +1246,13 @@ namespace
 
       if (auto vardecl = find_vardecl(ctx, stack, id); vardecl && (vardecl->flags & VarDecl::Literal))
       {
-        if (auto T = ctx.symbols.find(vardecl); T != ctx.symbols.end() && is_int_literal(ctx, T->second))
-        {
-          result.type = T->second.type.type;
-          result.value = get<IntLiteralExpr*>(T->second.value.get<MIR::RValue::Constant>());
-        }
+        MIR::Fragment literal;
+
+        if (!lower_expr(ctx, literal, vardecl, vardecl->loc()))
+          return size_t(-1);
+
+        result.type = literal.type.type;
+        result.value = get<IntLiteralExpr*>(literal.value.get<MIR::RValue::Constant>());
       }
 
       if (!result)
@@ -1457,7 +1460,7 @@ namespace
         {
           pack = remove_reference_type(pack);
 
-          if (is_const_type(remove_reference_type(type_cast<UnpackType>(field)->type)))
+          if (is_const_reference(type_cast<UnpackType>(field)->type))
             pack = remove_const_type(pack);
         }
 
@@ -1467,7 +1470,7 @@ namespace
           {
             if (is_reference_type(type_cast<UnpackType>(field)->type))
             {
-              if (is_const_type(remove_reference_type(type_cast<UnpackType>(field)->type)))
+              if (is_const_reference(type_cast<UnpackType>(field)->type))
                 element = ctx.typetable.find_or_create<ConstType>(element);
 
               element = ctx.typetable.find_or_create<ReferenceType>(element);
@@ -1681,7 +1684,7 @@ namespace
     {
       type = resolve_as_value(ctx, j->second.type).type;
     }
-    else if (vardecl->kind() == Decl::ParmVar)
+    else if (vardecl->kind() == Decl::ParmVar && !(vardecl->flags & VarDecl::Literal))
     {
       type = resolve_type_as_value(ctx, scope, decl_cast<ParmVarDecl>(vardecl));
     }
@@ -2024,6 +2027,9 @@ namespace
       case Type::TypeRef:
         return resolve_type(ctx, scope, type_cast<TypeRefType>(type));
 
+      case Type::Pack:
+        return resolve_type(ctx, scope, type_cast<PackType>(type)->type);
+
       default:
         assert(ctx.diag.has_errored());
     }
@@ -2055,7 +2061,6 @@ namespace
       case Decl::StmtVar:
       case Decl::ParmVar:
       case Decl::FieldVar:
-      case Decl::RangeVar:
       case Decl::ThisVar:
       case Decl::ErrorVar:
         return resolve_type(ctx, scope, decl_cast<VarDecl>(decl));
@@ -2138,7 +2143,7 @@ namespace
 
             if (auto argtype = type_cast<TupleType>(j->second)->fields[index]; argtype->klass() == Type::QualArg)
             {
-              field = ctx.typetable.find_or_create<QualArgType>(type_cast<QualArgType>(argtype)->qualifiers, field);
+              field = ctx.typetable.find_or_create<QualArgType>(type_cast<QualArgType>(argtype)->qualifiers, remove_const_type(field));
             }
           }
 
@@ -2295,8 +2300,11 @@ namespace
     size_t arg = mir.args_beg;
     for(auto &parm : fx.parameters())
     {
-      if (!deduce_type(ctx, scope, sig, decl_cast<ParmVarDecl>(parm), mir.locals[arg]))
-        return false;
+      if (is_typearg_type(remove_qualifiers_type(decl_cast<ParmVarDecl>(parm)->type)))
+      {
+        if (!deduce_type(ctx, scope, sig, decl_cast<ParmVarDecl>(parm), mir.locals[arg]))
+          return false;
+      }
 
       arg += 1;
     }
@@ -2719,9 +2727,9 @@ namespace
           {
             fields[i] = remove_reference_type(fields[i]);
 
-            if (fields[i]->klass() != Type::QualArg && is_qualarg_type(remove_reference_type(type_cast<TupleType>(rhs.type)->fields[i])))
+            if (fields[i]->klass() != Type::QualArg)
             {
-              if (!is_const_type(fields[i]) && type_cast<QualArgType>(remove_reference_type(type_cast<TupleType>(rhs.type)->fields[i]))->qualifiers & QualArgType::Const)
+              if (!is_const_type(fields[i]) && is_qualarg_reference(type_cast<TupleType>(rhs.type)->fields[i]) && (type_cast<QualArgType>(remove_reference_type(type_cast<TupleType>(rhs.type)->fields[i]))->qualifiers & QualArgType::Const))
                 return false;
             }
 
@@ -2843,20 +2851,20 @@ namespace
 
     bool make_const = false;
 
-    make_const |= is_pointer_type(lhs.type) && is_const_type(remove_pointer_type(lhs.type));
-    make_const |= is_reference_type(lhs.type) && is_const_type(remove_reference_type(lhs.type));
+    make_const |= is_const_pointer(lhs.type);
+    make_const |= is_const_reference(lhs.type);
 
     if (!fn->returntype)
     {
       promote_type(ctx, type, rhs.type);
 
-      make_const |= is_pointer_type(rhs.type) && is_const_type(remove_pointer_type(rhs.type));
-      make_const |= is_reference_type(rhs.type) && is_const_type(remove_reference_type(rhs.type));
+      make_const |= is_const_pointer(rhs.type);
+      make_const |= is_const_reference(rhs.type);
 
-      if (is_pointer_type(type) && !is_const_type(remove_pointer_type(type)) && make_const)
+      if (is_pointer_type(type) && !is_const_pointer(type) && make_const)
         type = ctx.typetable.find_or_create<PointerType>(ctx.typetable.find_or_create<ConstType>(remove_pointer_type(type)));
 
-      if (is_reference_type(type) && !is_const_type(remove_reference_type(type)) && make_const)
+      if (is_reference_type(type) && !is_const_reference(type) && make_const)
         type = ctx.typetable.find_or_create<ReferenceType>(ctx.typetable.find_or_create<ConstType>(remove_reference_type(type)));
 
       if (is_reference_type(lhs.type) && is_reference_type(rhs.type) && (lhs.flags & MIR::Local::RValue) != (rhs.flags & MIR::Local::RValue))
@@ -2879,10 +2887,13 @@ namespace
 
     promote_type(ctx, rhs.type, type);
 
-    if (is_pointer_type(rhs.type) && !is_const_type(remove_pointer_type(rhs.type)) && make_const)
+    if (is_tuple_type(rhs.type))
+      rhs.type = type;
+
+    if (is_pointer_type(rhs.type) && !is_const_pointer(rhs.type) && make_const)
       rhs.type = ctx.typetable.find_or_create<PointerType>(ctx.typetable.find_or_create<ConstType>(remove_pointer_type(rhs.type)));
 
-    if (is_reference_type(rhs.type) && !is_const_type(remove_reference_type(rhs.type)) && make_const)
+    if (is_reference_type(rhs.type) && !is_const_reference(rhs.type) && make_const)
       rhs.type = ctx.typetable.find_or_create<ReferenceType>(ctx.typetable.find_or_create<ConstType>(remove_reference_type(rhs.type)));
 
     if (is_pointer_type(rhs.type))
@@ -3167,7 +3178,7 @@ namespace
 
           else if (parm->defult)
           {
-            if (is_reference_type(parm->type) && is_qualarg_type(remove_reference_type(parm->type)))
+            if (is_qualarg_reference(parm->type))
               fx.set_type(parm, ctx.typetable.find_or_create<QualArgType>(MIR::Local::RValue, ctx.typetable.var_defn));
 
             continue;
@@ -3630,6 +3641,7 @@ namespace
                 break;
 
               default:
+                rank += s - 1;
                 break;
             }
 
@@ -3639,8 +3651,8 @@ namespace
 
         auto rankcast = [&](auto &self, Type const *type, MIR::Fragment const &src, int s) -> void {
 
-          auto lhs = remove_qualifiers_type(type);
-          auto rhs = remove_qualifiers_type(src.type.type);
+          auto lhs = remove_const_type(remove_reference_type(type));
+          auto rhs = src.type.type;
 
           while (is_tag_type(rhs))
           {
@@ -3661,8 +3673,11 @@ namespace
           if (lhs->klass() == Type::TypeArg)
             rank += s - 1;
 
-          if ((is_voidpointer_type(lhs) && !is_voidpointer_type(rhs)) || (is_builtin_type(lhs) && lhs != rhs))
-            rank += s;
+          if ((is_pointer_type(lhs) && !is_pointference_type(rhs)) || (is_builtin_type(lhs) && lhs != rhs))
+            rank += s - 1;
+
+          if (is_voidpointer_type(lhs) && !is_voidpointer_type(rhs))
+            rank += s - 1;
         };
 
         if (!is_pack_type(parm->type))
@@ -3687,9 +3702,9 @@ namespace
 
           rankargs(rankargs, parm->type, 1000000);
 
-          if (is_typearg_type(remove_const_type(remove_reference_type(parm->type))))
+          if (is_typearg_type(remove_qualifiers_type(parm->type)))
           {
-            auto typearg = type_cast<TypeArgType>(remove_const_type(remove_reference_type(parm->type)));
+            auto typearg = type_cast<TypeArgType>(remove_qualifiers_type(parm->type));
 
             if (!typearg->koncept || decl_cast<ConceptDecl>(typearg->koncept)->name == Ident::kw_var)
               rank += 1;
@@ -4289,6 +4304,27 @@ namespace
 
         return false;
 
+      case Type::Tuple:
+
+        if (!is_tuple_type(rhs))
+          return false;
+
+        if (type_cast<TupleType>(lhs)->fields.size() == type_cast<TupleType>(rhs)->fields.size())
+        {
+          auto defns = type_cast<TupleType>(lhs)->defns;
+          auto fields = type_cast<TupleType>(lhs)->fields;
+
+          for(size_t i = 0; i < fields.size(); ++i)
+            if (!promote_type(ctx, fields[i], type_cast<TupleType>(rhs)->fields[i]))
+              return false;
+
+          lhs = ctx.typetable.find_or_create<TupleType>(std::move(defns), std::move(fields));
+
+          return true;
+        }
+
+        return false;
+
       default: {
 
         Scope fx;
@@ -4300,14 +4336,6 @@ namespace
 
         if (deduce_type(ctx, tx, ctx.stack.back(), fx, rhs, lhs))
         {
-          if (lhs->klass() == Type::Tuple)
-          {
-            auto defns = type_cast<TupleType>(lhs)->defns;
-            auto fields = type_cast<TupleType>(rhs)->fields;
-
-            rhs = ctx.typetable.find_or_create<TupleType>(std::move(defns), std::move(fields));
-          }
-
           lhs = rhs;
 
           return true;
@@ -5657,41 +5685,47 @@ namespace
   //|///////////////////// lower_unpack /////////////////////////////////////
   bool lower_unpack(LowerContext &ctx, vector<MIR::Fragment> &parms, Expr *expr, SourceLocation loc)
   {
-    MIR::Fragment result;
+    MIR::Fragment base;
 
-    if (!lower_expr(ctx, result, expr))
+    if (!lower_expr(ctx, base, expr))
       return false;
 
-    auto arg = ctx.add_temporary();
+    if (base.value.kind() != MIR::RValue::Constant)
+    {
+      auto arg = ctx.add_temporary();
 
-    realise_as_reference(ctx, arg, result);
+      realise_as_reference(ctx, arg, base);
 
-    commit_type(ctx, arg, result.type.type, result.type.flags);
+      commit_type(ctx, arg, base.type.type, base.type.flags);
 
-    if (!is_tuple_type(result.type.type))
+      base.type = ctx.mir.locals[arg];
+      base.value = MIR::RValue::local(MIR::RValue::Val, arg, loc);
+    }
+
+    if (!is_tuple_type(base.type.type))
     {
       ctx.diag.error("tuple type required", ctx.stack.back(), loc);
       return false;
     }
 
-    auto pack = type_cast<TupleType>(result.type.type);
+    auto pack = type_cast<TupleType>(base.type.type);
 
     for(size_t index = 0; index < pack->fields.size(); ++index)
     {
-      MIR::Fragment field;
-      field.type = MIR::Local(pack->fields[index], pack->defns[index], result.type.flags);
-      field.value = MIR::RValue::field(MIR::RValue::Ref, arg, MIR::RValue::Field{ MIR::RValue::Val, index }, loc);
+      MIR::Fragment value = base;
 
-      if (!lower_expr_deref(ctx, field, loc))
+      auto field = find_field(ctx, type_cast<TupleType>(value.type.type), index);
+
+      if (!lower_field(ctx, value, value, field, loc))
         return false;
 
       if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd)
       {
-        if ((field.type.flags & MIR::Local::XValue) && !(field.type.flags & MIR::Local::Const))
-          field.type.flags = (field.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
+        if ((value.type.flags & MIR::Local::XValue) && !(value.type.flags & MIR::Local::Const))
+          value.type.flags = (value.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
       }
 
-      parms.push_back(std::move(field));
+      parms.push_back(std::move(value));
     }
 
     return true;
@@ -5741,18 +5775,29 @@ namespace
           break;
 
         default:
-          assert(false);
+          break;
       }
 
       if (expr->kind() == Expr::DeclRef)
       {
         auto declref = expr_cast<DeclRefExpr>(expr);
 
-        if (!declref->base && declref->decl->kind() == Decl::DeclRef)
+        if (declref->decl->kind() == Decl::DeclRef)
         {
-          if (auto vardecl = find_vardecl(ctx, ctx.stack, decl_cast<DeclRefDecl>(declref->decl)->name); vardecl && is_pack_type(vardecl->type))
+          auto name = decl_cast<DeclRefDecl>(declref->decl)->name;
+
+          if (name->kind() == Ident::Hash)
+            name = static_cast<HashIdent*>(name)->value();
+
+          if (auto vardecl = find_vardecl(ctx, ctx.stack, name); vardecl && is_pack_type(vardecl->type))
           {
-            auto len = tuple_len(type_cast<TupleType>(remove_qualifiers_type(ctx.symbols[vardecl].type.type)));
+            size_t len = 0;
+
+            if (auto j = ctx.stack.back().find_type(vardecl); j != ctx.stack.back().typeargs.end())
+            {
+              if (auto type = resolve_type_as_reference(ctx, ctx.stack.back(), decl_cast<ParmVarDecl>(vardecl)); is_tuple_type(type))
+                len = tuple_len(type_cast<TupleType>(type));
+            }
 
             if (iterations == size_t(-1))
               iterations = len;
@@ -5777,12 +5822,20 @@ namespace
 
     for(ctx.pack_expansion = 0; ctx.pack_expansion < iterations; ++ctx.pack_expansion)
     {
-      MIR::Fragment field;
+      if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Unpack)
+      {
+        if (!lower_unpack(ctx, parms, expr_cast<UnaryOpExpr>(expr)->subexpr, expr->loc()))
+          return false;
 
-      if (!lower_expr(ctx, field, expr))
+        continue;
+      }
+
+      MIR::Fragment parm;
+
+      if (!lower_expr(ctx, parm, expr))
         return false;
 
-      parms.push_back(std::move(field));
+      parms.push_back(std::move(parm));
     }
 
     ctx.pack_expansion = old_expansion;
@@ -5793,42 +5846,42 @@ namespace
   //|///////////////////// lower_parms //////////////////////////////////////
   bool lower_parms(LowerContext &ctx, vector<MIR::Fragment> &parms, map<Ident*, MIR::Fragment> &namedparms, vector<Expr*> const &exprs, map<Ident*, Expr*> const &namedexprs, SourceLocation loc)
   {
-    for(auto &parm : exprs)
+    for(auto &expr : exprs)
     {
-      if (parm->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(parm)->op() == UnaryOpExpr::Unpack)
+      if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Unpack)
       {
-        auto expr = expr_cast<UnaryOpExpr>(parm)->subexpr;
+        auto subexpr = expr_cast<UnaryOpExpr>(expr)->subexpr;
 
-        if (expr->kind() == Expr::Paren)
+        if (subexpr->kind() == Expr::Paren)
         {
-          if (!lower_expand(ctx, parms, expr_cast<ParenExpr>(expr)->subexpr, expr->loc()))
+          if (!lower_expand(ctx, parms, expr_cast<ParenExpr>(subexpr)->subexpr, subexpr->loc()))
             return false;
         }
         else
         {
-          if (!lower_unpack(ctx, parms, expr, expr->loc()))
+          if (!lower_unpack(ctx, parms, subexpr, subexpr->loc()))
             return false;
         }
+
+        continue;
       }
-      else
-      {
-        MIR::Fragment expr;
 
-        if (!lower_expr(ctx, expr, parm))
-          return false;
+      MIR::Fragment parm;
 
-        parms.push_back(std::move(expr));
-      }
-    }
-
-    for(auto &[name, parm] : namedexprs)
-    {
-      MIR::Fragment expr;
-
-      if (!lower_expr(ctx, expr, parm))
+      if (!lower_expr(ctx, parm, expr))
         return false;
 
-      namedparms.emplace(name, std::move(expr));
+      parms.push_back(std::move(parm));
+    }
+
+    for(auto &[name, expr] : namedexprs)
+    {
+      MIR::Fragment parm;
+
+      if (!lower_expr(ctx, parm, expr))
+        return false;
+
+      namedparms.emplace(name, std::move(parm));
     }
 
     return true;
@@ -6092,7 +6145,7 @@ namespace
     {
       result.type = resolve_as_reference(ctx, result.type);
 
-      if (is_qualarg_type(remove_reference_type(result.type.defn)))
+      if (is_qualarg_reference(result.type.defn))
         result.type.flags = (result.type.flags & ~MIR::Local::LValue) | MIR::Local::RValue;
 
       if ((callee.fn->flags & FunctionDecl::Builtin) && callee.fn->builtin == Builtin::ArrayIndex)
@@ -6579,7 +6632,7 @@ namespace
     lower_expr(ctx, result, paren->subexpr);
   }
 
-  //|///////////////////// lower_vardecl  ///////////////////////////////////
+  //|///////////////////// lower_vardecl ////////////////////////////////////
   bool lower_expr(LowerContext &ctx, MIR::Fragment &result, VarDecl *vardecl, SourceLocation loc)
   {
     auto j = ctx.locals.find(vardecl);
@@ -6595,6 +6648,15 @@ namespace
             result.type = resolve_type_as_reference(ctx, ctx.stack.back(), decl_cast<ParmVarDecl>(vardecl));
             result.type.flags = MIR::Local::Const | MIR::Local::Literal;
             result.value = MIR::RValue::literal(type_cast<TypeLitType>(j->second)->value);
+
+            if (is_pack_type(vardecl->type) && ctx.pack_expansion != size_t(-1))
+            {
+              if (auto field = find_field(ctx, type_cast<TupleType>(result.type.type), ctx.pack_expansion))
+              {
+                lower_field(ctx, result, result, field, loc);
+              }
+            }
+
             return true;
           }
         }
@@ -6662,7 +6724,7 @@ namespace
   }
 
   //|///////////////////// lower_declref /////////////////////////////////////
-  void lower_expr(LowerContext &ctx, MIR::Fragment &result, MIR::Fragment &base, DeclRefExpr *declref)
+  bool lower_expr(LowerContext &ctx, MIR::Fragment &result, MIR::Fragment &base, DeclRefExpr *declref)
   {
     Scope basescope;
     vector<MIR::Fragment> parms(1);
@@ -6686,7 +6748,7 @@ namespace
           {
             lower_field(ctx, result, base, field, declref->loc());
 
-            return;
+            return true;
           }
         }
       }
@@ -6709,7 +6771,7 @@ namespace
 
             lower_field(ctx, result, base, field, declref->loc());
 
-            return;
+            return true;
           }
         }
 
@@ -6728,10 +6790,13 @@ namespace
     {
       ctx.diag.error("cannot resolve function reference", ctx.stack.back(), declref->loc());
       diag_callee(ctx, callee, parms, namedparms);
-      return;
+      return false;
     }
 
-    lower_call(ctx, result, callee.fx, parms, namedparms, declref->loc());
+    if (!lower_call(ctx, result, callee.fx, parms, namedparms, declref->loc()))
+      return false;
+
+    return true;
   }
 
   //|///////////////////// lower_declref /////////////////////////////////////
@@ -7024,7 +7089,7 @@ namespace
         {
           for(size_t i = 0; i < tupletype->fields.size(); ++i)
           {
-            if (is_reference_type(tupletype->defns[i]) && is_const_type(remove_reference_type(tupletype->fields[i])))
+            if (is_const_reference(tupletype->fields[i]))
             {
               ctx.diag.error("invalid assignment to const field", ctx.stack.back(), loc);
               return false;
@@ -7041,7 +7106,7 @@ namespace
         return false;
       }
 
-      if (callee && (parms[0].type.flags & MIR::Local::RValue) && !is_qualarg_type(remove_reference_type(decl_cast<ParmVarDecl>(callee.fx.fn->parms[0])->type)))
+      if (callee && (parms[0].type.flags & MIR::Local::RValue) && !is_qualarg_reference(decl_cast<ParmVarDecl>(callee.fx.fn->parms[0])->type))
       {
         ctx.diag.error("invalid assignment to rvalue expression", ctx.stack.back(), loc);
         return false;
@@ -7051,6 +7116,25 @@ namespace
       {
         ctx.diag.error("invalid assignment to reference type", ctx.stack.back(), loc);
         return false;
+      }
+    }
+
+    if (callee && (callee.fx.fn->builtin == Builtin::Tuple_CopytructorEx || callee.fx.fn->builtin == Builtin::Tuple_AssignmentEx || callee.fx.fn->builtin == Builtin::TupleEqEx || callee.fx.fn->builtin == Builtin::TupleCmpEx))
+    {
+      auto lhs = type_cast<TupleType>(callee.fx.find_type(callee.fx.fn->args[0])->second);
+      auto rhs = type_cast<TupleType>(callee.fx.find_type(callee.fx.fn->args[1])->second);
+
+      if (!is_resolved_type(rhs))
+      {
+        auto defns = rhs->defns;
+        auto fields = rhs->fields;
+
+        for(size_t k = 0; k < fields.size(); ++k)
+        {
+          promote_type(ctx, fields[k], remove_const_type(remove_reference_type(lhs->fields[k])));
+        }
+
+        callee.fx.set_type(callee.fx.fn->args[1], ctx.typetable.find_or_create<TupleType>(std::move(defns), std::move(fields)));
       }
     }
 
@@ -7748,7 +7832,7 @@ namespace
       result.type.flags |= source.type.flags & MIR::Local::RValue;
       result.type.flags |= source.type.flags & MIR::Local::XValue;
 
-      if (is_qualarg_type(remove_reference_type(cast->type)))
+      if (is_qualarg_reference(cast->type))
         result.type.flags |= source.type.flags & MIR::Local::Const;
 
       realise_as_reference(ctx, arg, source);
@@ -7962,8 +8046,11 @@ namespace
   //|///////////////////// lower_lambda /////////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, LambdaExpr *lambda)
   {
+    Callee callee;
     vector<MIR::Fragment> parms;
     map<Ident*, MIR::Fragment> namedparms;
+
+    auto typescope = child_scope(ctx.stack.back(), lambda->decl);
 
     for(auto &capture : decl_cast<LambdaDecl>(lambda->decl)->captures)
     {
@@ -7972,17 +8059,23 @@ namespace
       if (!lower_expr(ctx, result, decl_cast<LambdaVarDecl>(capture)->value))
         return;
 
-      if (is_qualarg_type(remove_reference_type(decl_cast<LambdaVarDecl>(capture)->type)) && (result.type.flags & MIR::Local::Const))
-        result.type.type = ctx.typetable.find_or_create<ConstType>(result.type.type);
+      if (is_qualarg_reference(decl_cast<LambdaVarDecl>(capture)->type))
+      {
+        if ((result.type.flags & (MIR::Local::RValue | MIR::Local::Const)) == MIR::Local::RValue)
+          result.type.type = ctx.typetable.find_or_create<QualArgType>(QualArgType::RValue, result.type.type);
+
+        if (result.type.flags & MIR::Local::Const)
+          result.type.type = ctx.typetable.find_or_create<ConstType>(result.type.type);
+      }
+
+      typescope.set_type(decl_cast<LambdaVarDecl>(capture)->arg, result.type.type);
 
       parms.push_back(std::move(result));
     }
 
-    Callee callee;
-
     FindContext tx(ctx, decl_cast<LambdaDecl>(lambda->decl)->name, QueryFlags::Functions);
 
-    find_overloads(ctx, tx, child_scope(ctx.stack.back(), lambda->decl), parms, namedparms, callee.overloads);
+    find_overloads(ctx, tx, typescope, parms, namedparms, callee.overloads);
 
     resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
 
@@ -8105,42 +8198,128 @@ namespace
     return !!result.value;
   }
 
+  //|///////////////////// lower_vardecl ////////////////////////////////////
+  void lower_decl(LowerContext &ctx, VarDecl *vardecl, MIR::Fragment &value)
+  {
+    if (vardecl->flags & VarDecl::Literal)
+    {
+      if (!(value.type.flags & MIR::Local::Literal))
+        ctx.diag.error("non literal value", ctx.stack.back(), vardecl->loc());
+
+      ctx.symbols[vardecl] = value;
+
+      return;
+    }
+
+    if (vardecl->flags & VarDecl::Static)
+    {
+      auto arg = ctx.add_local();
+
+      if (is_reference_type(vardecl->type))
+        ctx.diag.error("invalid reference type", ctx.stack.back(), vardecl->loc());
+
+      ctx.mir.statics.emplace_back(arg, std::move(value.value));
+
+      if (!(vardecl->flags & VarDecl::Const))
+        value.type.flags &= ~MIR::Local::Const;
+
+      if (vardecl->flags & VarDecl::ThreadLocal)
+        value.type.flags |= MIR::Local::ThreadLocal;
+
+      if (vardecl->flags & VarDecl::CacheAligned)
+        value.type.flags |= MIR::Local::CacheAligned;
+
+      if (vardecl->flags & VarDecl::PageAligned)
+        value.type.flags |= MIR::Local::PageAligned;
+
+      value.type.flags |= MIR::Local::LValue;
+      value.type.flags &= ~MIR::Local::XValue;
+      value.type.flags &= ~MIR::Local::RValue;
+      value.type.flags &= ~MIR::Local::Literal;
+
+      commit_type(ctx, arg, value.type.type, value.type.flags);
+
+      ctx.mir.add_varinfo(arg, vardecl);
+
+      ctx.locals[vardecl] = arg;
+      ctx.symbols[vardecl].type = ctx.mir.locals[arg];
+
+      return;
+    }
+
+    auto arg = ctx.add_variable();
+
+    if (is_reference_type(vardecl->type))
+    {
+      if ((!is_qualarg_reference(vardecl->type) && !is_const_reference(vardecl->type)) && (value.type.flags & MIR::Local::Const))
+        ctx.diag.error("cannot bind to const reference", ctx.stack.back(), vardecl->loc());
+
+      realise_as_reference(ctx, arg, value, vardecl->flags & VarDecl::Const);
+
+      if (value.type.flags & (MIR::Local::XValue | MIR::Local::RValue))
+        value.type.type = ctx.typetable.find_or_create<QualArgType>(QualArgType::RValue, value.type.type);
+
+      if (is_const_reference(vardecl->type))
+        value.type.flags |= MIR::Local::Const;
+
+      value.type = resolve_as_value(ctx, value.type);
+    }
+    else
+    {
+      realise_as_value_type(ctx, arg, value, vardecl->flags & VarDecl::Const);
+    }
+
+    value.type.flags |= MIR::Local::LValue;
+    value.type.flags &= ~MIR::Local::XValue;
+    value.type.flags &= ~MIR::Local::RValue;
+
+    commit_type(ctx, arg, value.type.type, value.type.flags);
+
+    if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
+      realise_destructor(ctx, arg, vardecl->loc());
+
+    ctx.mir.add_varinfo(arg, vardecl);
+
+    ctx.locals[vardecl] = arg;
+    ctx.symbols[vardecl].type = ctx.mir.locals[arg];
+  }
+
   //|///////////////////// lower_voidvar ////////////////////////////////////
   void lower_decl(LowerContext &ctx, VoidVarDecl *voidvar)
   {
-    auto arg = ctx.add_variable();
+    MIR::Fragment value;
 
-    ctx.mir.locals[arg].type = resolve_type(ctx, voidvar->type);
-    ctx.mir.locals[arg].flags = MIR::Local::LValue;
+    value.type = resolve_type(ctx, voidvar->type);
+    value.type.flags = MIR::Local::LValue;
 
     if (voidvar->flags & VarDecl::Static)
     {
-      if (is_reference_type(voidvar->type))
-      {
-        ctx.diag.error("invalid reference type", ctx.stack.back(), voidvar->loc());
-        return;
-      }
-
-      ctx.mir.statics.emplace_back(arg, MIR::RValue::literal(ctx.mir.make_expr<VoidLiteralExpr>(voidvar->loc())));
-      ctx.barriers.back().retires.erase(ctx.barriers.back().retires.end() - 1);
-
-      if (voidvar->flags & VarDecl::ThreadLocal)
-        ctx.mir.locals[arg].flags |= MIR::Local::ThreadLocal;
-
-      if (voidvar->flags & VarDecl::CacheAligned)
-        ctx.mir.locals[arg].flags |= MIR::Local::CacheAligned;
-
-      if (voidvar->flags & VarDecl::PageAligned)
-        ctx.mir.locals[arg].flags |= MIR::Local::PageAligned;
+      value.value = MIR::RValue::literal(ctx.mir.make_expr<VoidLiteralExpr>(voidvar->loc()));
     }
 
-    if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
-      realise_destructor(ctx, arg, voidvar->loc());
+    lower_decl(ctx, voidvar, value);
+  }
 
-    ctx.mir.add_varinfo(arg, voidvar);
+  //|///////////////////// lower_stmtvar ////////////////////////////////////
+  void lower_decl(LowerContext &ctx, StmtVarDecl *stmtvar, MIR::Fragment &value)
+  {
+    lower_decl(ctx, decl_cast<VarDecl>(stmtvar), value);
 
-    ctx.locals[voidvar] = arg;
-    ctx.symbols[voidvar].type = ctx.mir.locals[arg];
+    for(auto &binding : stmtvar->bindings)
+    {
+      MIR::Fragment base;
+
+      if (!lower_expr(ctx, base, stmtvar, stmtvar->loc()))
+        return;
+
+      if (!lower_expr(ctx, value, base, expr_cast<DeclRefExpr>(decl_cast<StmtVarDecl>(binding)->value)))
+        return;
+
+      if (!(value.type.flags & MIR::Local::Reference))
+        ctx.diag.error("non reference type", ctx.stack.back(), stmtvar->loc());
+
+      lower_decl(ctx, decl_cast<StmtVarDecl>(binding), value);
+    }
   }
 
   //|///////////////////// lower_stmtvar ////////////////////////////////////
@@ -8153,18 +8332,20 @@ namespace
 
     if (stmtvar->flags & VarDecl::Literal)
     {
-      if (!(value.type.flags & MIR::Local::Literal))
-      {
-        ctx.diag.error("non literal value", ctx.stack.back(), stmtvar->loc());
-        return;
-      }
-
-      ctx.symbols[stmtvar] = value;
+      lower_decl(ctx, stmtvar, value);
 
       return;
     }
 
-    auto arg = ctx.add_variable();
+    if (stmtvar->flags & VarDecl::Static)
+    {
+      if (!(value.type.flags & MIR::Local::Literal))
+        ctx.diag.error("non literal static value", ctx.stack.back(), stmtvar->loc());
+
+      lower_decl(ctx, stmtvar, value);
+
+      return;
+    }
 
     if (is_unresolved_type(value.type.type))
     {
@@ -8181,140 +8362,46 @@ namespace
       return;
     }
 
-    if (stmtvar->flags & VarDecl::Static)
+    if (is_reference_type(stmtvar->type) && !is_qualarg_reference(stmtvar->type))
     {
-      if (!(value.type.flags & MIR::Local::Literal))
-      {
-        ctx.diag.error("non literal static value", ctx.stack.back(), stmtvar->loc());
-        return;
-      }
-
-      if (is_reference_type(stmtvar->type))
-      {
-        ctx.diag.error("invalid reference type", ctx.stack.back(), stmtvar->loc());
-        return;
-      }
-
-      ctx.mir.statics.emplace_back(arg, std::move(value.value));
-      ctx.barriers.back().retires.erase(ctx.barriers.back().retires.end() - 1);
-
-      if (!(stmtvar->flags & VarDecl::Const))
-        value.type.flags &= ~MIR::Local::Const;
-
-      if (stmtvar->flags & VarDecl::ThreadLocal)
-        value.type.flags |= MIR::Local::ThreadLocal;
-
-      if (stmtvar->flags & VarDecl::CacheAligned)
-        value.type.flags |= MIR::Local::CacheAligned;
-
-      if (stmtvar->flags & VarDecl::PageAligned)
-        value.type.flags |= MIR::Local::PageAligned;
-
-      value.type.flags &= ~MIR::Local::Literal;
-    }
-
-    else if (is_reference_type(stmtvar->type))
-    {
+#if 1
       if (!(value.type.flags & MIR::Local::Reference))
-      {
         ctx.diag.error("non reference type", ctx.stack.back(), stmtvar->loc());
-        return;
-      }
 
       if (value.type.flags & MIR::Local::RValue)
-      {
         ctx.diag.error("cannot bind to rvalue reference", ctx.stack.back(), stmtvar->loc());
-        return;
-      }
-
-      if (!is_const_type(remove_reference_type(stmtvar->type)) && (value.type.flags & MIR::Local::Const))
-      {
-        ctx.diag.error("cannot bind to const reference", ctx.stack.back(), stmtvar->loc());
-        return;
-      }
-
-      realise_as_reference(ctx, arg, value, stmtvar->flags & VarDecl::Const);
-
-      if (is_const_type(remove_reference_type(stmtvar->type)))
-        value.type.flags |= MIR::Local::Const;
-
-      value.type = resolve_as_value(ctx, value.type);
+#else
+      if (!is_const_reference(stmtvar->type) && (value.type.flags & MIR::Local::RValue))
+        ctx.diag.error("cannot bind to mutable rvalue reference", ctx.stack.back(), stmtvar->loc());
+#endif
     }
 
-    else
+    if (!is_reference_type(stmtvar->type))
     {
-      realise_as_value_type(ctx, arg, value, stmtvar->flags & VarDecl::Const);
-
       if (is_return_reference(ctx, stmtvar->value) && !(value.type.flags & MIR::Local::Const))
         value.type.type = ctx.typetable.find_or_create<PointerType>(remove_reference_type(value.type.type));
     }
 
-    value.type.flags |= MIR::Local::LValue;
-    value.type.flags &= ~MIR::Local::XValue;
-    value.type.flags &= ~MIR::Local::RValue;
-
-    commit_type(ctx, arg, value.type.type, value.type.flags);
-
-    if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference) && !(stmtvar->flags & VarDecl::Static))
-      realise_destructor(ctx, arg, stmtvar->loc());
-
-    ctx.mir.add_varinfo(arg, stmtvar);
-
-    ctx.locals[stmtvar] = arg;
-    ctx.symbols[stmtvar].type = ctx.mir.locals[arg];
+    lower_decl(ctx, stmtvar, value);
   }
 
-  //|///////////////////// lower_rangevar ///////////////////////////////////
-  void lower_decl(LowerContext &ctx, RangeVarDecl *rangevar, MIR::Fragment &value)
+  //|///////////////////// lower_casevar ////////////////////////////////////
+  void lower_decl(LowerContext &ctx, CaseVarDecl *casevar, MIR::Fragment &value)
   {
-    if (rangevar->flags & VarDecl::Literal)
+    lower_decl(ctx, decl_cast<VarDecl>(casevar), value);
+
+    for(auto &binding : casevar->bindings)
     {
-      if (!(value.type.flags & MIR::Local::Literal))
-      {
-        ctx.diag.error("non literal value", ctx.stack.back(), rangevar->loc());
+      MIR::Fragment base;
+
+      if (!lower_expr(ctx, base, casevar, casevar->loc()))
         return;
-      }
 
-      ctx.symbols[rangevar] = value;
-
-      return;
-    }
-
-    auto arg = ctx.add_variable();
-
-    if (is_reference_type(rangevar->type))
-    {
-      if (!is_const_type(remove_reference_type(rangevar->type)) && (value.type.flags & MIR::Local::Const))
-      {
-        ctx.diag.error("cannot bind to const reference", ctx.stack.back(), rangevar->loc());
+      if (!lower_expr(ctx, value, base, expr_cast<DeclRefExpr>(decl_cast<StmtVarDecl>(binding)->value)))
         return;
-      }
 
-      realise_as_reference(ctx, arg, value, rangevar->flags & VarDecl::Const);
-
-      if (is_const_type(remove_reference_type(rangevar->type)))
-        value.type.flags |= MIR::Local::Const;
-
-      value.type = resolve_as_value(ctx, value.type);
+      lower_decl(ctx, decl_cast<StmtVarDecl>(binding), value);
     }
-    else
-    {
-      realise_as_value_type(ctx, arg, value, rangevar->flags & VarDecl::Const);
-    }
-
-    value.type.flags |= MIR::Local::LValue;
-    value.type.flags &= ~MIR::Local::XValue;
-    value.type.flags &= ~MIR::Local::RValue;
-
-    commit_type(ctx, arg, value.type.type, value.type.flags);
-
-    if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
-      realise_destructor(ctx, arg, rangevar->loc());
-
-    ctx.mir.add_varinfo(arg, rangevar);
-
-    ctx.locals[rangevar] = arg;
-    ctx.symbols[rangevar].type = ctx.mir.locals[arg];
   }
 
   //|///////////////////// lower_parmvar ////////////////////////////////////
@@ -8333,30 +8420,6 @@ namespace
 
     ctx.locals[parmvar] = arg;
     ctx.symbols[parmvar].type = ctx.mir.locals[arg];
-  }
-
-  //|///////////////////// lower_casevar ////////////////////////////////////
-  void lower_decl(LowerContext &ctx, CaseVarDecl *casevar, MIR::Fragment &value)
-  {
-    auto arg = ctx.add_variable();
-
-    realise_as_reference(ctx, arg, value, casevar->flags & VarDecl::Const);
-
-    if (value.type.flags & (MIR::Local::XValue | MIR::Local::RValue))
-      value.type.type = ctx.typetable.find_or_create<QualArgType>(QualArgType::RValue, value.type.type);
-
-    value.type = resolve_as_value(ctx, value.type);
-
-    value.type.flags |= MIR::Local::LValue;
-    value.type.flags &= ~MIR::Local::XValue;
-    value.type.flags &= ~MIR::Local::RValue;
-
-    commit_type(ctx, arg, value.type.type, value.type.flags);
-
-    ctx.mir.add_varinfo(arg, casevar);
-
-    ctx.locals[casevar] = arg;
-    ctx.symbols[casevar].type = ctx.mir.locals[arg];
   }
 
   //|///////////////////// lower_errorvar ///////////////////////////////////
@@ -9890,79 +9953,82 @@ namespace
     auto sm = ctx.push_barrier();
     ctx.stack.emplace_back(fors, ctx.stack.back().typeargs);
 
-    vector<tuple<RangeVarDecl*, MIR::local_t, MIR::local_t, MIR::local_t>> ranges;
+    vector<tuple<StmtVarDecl*, MIR::local_t, MIR::local_t, MIR::local_t>> ranges;
 
     for(auto &init : fors->inits)
     {
       ctx.stack.back().goalpost = init;
 
-      if (init->kind() == Stmt::Declaration && stmt_cast<DeclStmt>(init)->decl->kind() == Decl::RangeVar)
+      if (init->kind() == Stmt::Declaration)
       {
-        auto rangevar = decl_cast<RangeVarDecl>(stmt_cast<DeclStmt>(init)->decl);
+        auto var = decl_cast<StmtVarDecl>(stmt_cast<DeclStmt>(init)->decl);
 
-        MIR::Fragment range;
-
-        auto arg = ctx.add_variable();
-
-        if (!lower_expr(ctx, range, rangevar->range))
-          return;
-
-        realise(ctx, arg, range);
-
-        commit_type(ctx, arg, range.type.type, range.type.flags);
-
-        if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
-          realise_destructor(ctx, arg, rangevar->range->loc());
-
-        ctx.mir.add_varinfo(arg, rangevar);
-
-        auto beg = ctx.add_variable();
-
+        if (var->flags & VarDecl::Range)
         {
-          MIR::Fragment iterator;
+          MIR::Fragment range;
 
-          vector<MIR::Fragment> parms(1);
-          map<Ident*, MIR::Fragment> namedparms;
+          auto arg = ctx.add_variable();
 
-          parms[0].type = ctx.mir.locals[arg];
-          parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, rangevar->loc());
-
-          if (!lower_expr(ctx, iterator, UnaryOpExpr::Begin, parms, namedparms, rangevar->loc()))
+          if (!lower_expr(ctx, range, var->value))
             return;
 
-          realise(ctx, beg, iterator);
+          realise(ctx, arg, range);
 
-          commit_type(ctx, beg, iterator.type.type, iterator.type.flags);
+          commit_type(ctx, arg, range.type.type, range.type.flags);
 
-          if (!(ctx.mir.locals[beg].flags & MIR::Local::Reference))
-            realise_destructor(ctx, beg, rangevar->loc());
+          if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
+            realise_destructor(ctx, arg, var->value->loc());
+
+          ctx.mir.add_varinfo(arg, var);
+
+          auto beg = ctx.add_variable();
+
+          {
+            MIR::Fragment iterator;
+
+            vector<MIR::Fragment> parms(1);
+            map<Ident*, MIR::Fragment> namedparms;
+
+            parms[0].type = ctx.mir.locals[arg];
+            parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, var->loc());
+
+            if (!lower_expr(ctx, iterator, UnaryOpExpr::Begin, parms, namedparms, var->loc()))
+              return;
+
+            realise(ctx, beg, iterator);
+
+            commit_type(ctx, beg, iterator.type.type, iterator.type.flags);
+
+            if (!(ctx.mir.locals[beg].flags & MIR::Local::Reference))
+              realise_destructor(ctx, beg, var->loc());
+          }
+
+          auto end = ctx.add_variable();
+
+          {
+            MIR::Fragment iterator;
+
+            vector<MIR::Fragment> parms(1);
+            map<Ident*, MIR::Fragment> namedparms;
+
+            parms[0].type = ctx.mir.locals[arg];
+            parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, var->loc());
+
+            if (!lower_expr(ctx, iterator, UnaryOpExpr::End, parms, namedparms, var->loc()))
+              return;
+
+            realise(ctx, end, iterator);
+
+            commit_type(ctx, end, iterator.type.type, iterator.type.flags);
+
+            if (!(ctx.mir.locals[end].flags & MIR::Local::Reference))
+              realise_destructor(ctx, end, var->loc());
+          }
+
+          ranges.push_back({ var, arg, beg, end});
+
+          continue;
         }
-
-        auto end = ctx.add_variable();
-
-        {
-          MIR::Fragment iterator;
-
-          vector<MIR::Fragment> parms(1);
-          map<Ident*, MIR::Fragment> namedparms;
-
-          parms[0].type = ctx.mir.locals[arg];
-          parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, rangevar->loc());
-
-          if (!lower_expr(ctx, iterator, UnaryOpExpr::End, parms, namedparms, rangevar->loc()))
-            return;
-
-          realise(ctx, end, iterator);
-
-          commit_type(ctx, end, iterator.type.type, iterator.type.flags);
-
-          if (!(ctx.mir.locals[end].flags & MIR::Local::Reference))
-            realise_destructor(ctx, end, rangevar->loc());
-        }
-
-        ranges.push_back({ rangevar, arg, beg, end});
-
-        continue;
       }
 
       lower_statement(ctx, init);
@@ -10093,7 +10159,7 @@ namespace
 
     for(auto &init : fors->inits)
     {
-      if (init->kind() == Stmt::Declaration && stmt_cast<DeclStmt>(init)->decl->kind() == Decl::StmtVar)
+      if (init->kind() == Stmt::Declaration)
       {
         ctx.add_statement(MIR::Statement::storageloop(ctx.locals[stmt_cast<DeclStmt>(init)->decl]));
       }
@@ -10129,79 +10195,82 @@ namespace
     auto sm = ctx.push_barrier();
     ctx.stack.emplace_back(rofs, ctx.stack.back().typeargs);
 
-    vector<tuple<RangeVarDecl*, MIR::local_t, MIR::local_t, MIR::local_t>> ranges;
+    vector<tuple<StmtVarDecl*, MIR::local_t, MIR::local_t, MIR::local_t>> ranges;
 
     for(auto &init : rofs->inits)
     {
       ctx.stack.back().goalpost = init;
 
-      if (init->kind() == Stmt::Declaration && stmt_cast<DeclStmt>(init)->decl->kind() == Decl::RangeVar)
+      if (init->kind() == Stmt::Declaration)
       {
-        auto rangevar = decl_cast<RangeVarDecl>(stmt_cast<DeclStmt>(init)->decl);
+        auto var = decl_cast<StmtVarDecl>(stmt_cast<DeclStmt>(init)->decl);
 
-        MIR::Fragment range;
-
-        auto arg = ctx.add_variable();
-
-        if (!lower_expr(ctx, range, rangevar->range))
-          return;
-
-        realise(ctx, arg, range);
-
-        commit_type(ctx, arg, range.type.type, range.type.flags);
-
-        if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
-          realise_destructor(ctx, arg, rangevar->range->loc());
-
-        ctx.mir.add_varinfo(arg, rangevar);
-
-        auto beg = ctx.add_variable();
-
+        if (var->flags & VarDecl::Range)
         {
-          MIR::Fragment iterator;
+          MIR::Fragment range;
 
-          vector<MIR::Fragment> parms(1);
-          map<Ident*, MIR::Fragment> namedparms;
+          auto arg = ctx.add_variable();
 
-          parms[0].type = ctx.mir.locals[arg];
-          parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, rangevar->loc());
-
-          if (!lower_expr(ctx, iterator, UnaryOpExpr::Begin, parms, namedparms, rangevar->loc()))
+          if (!lower_expr(ctx, range, var->value))
             return;
 
-          realise(ctx, beg, iterator);
+          realise(ctx, arg, range);
 
-          commit_type(ctx, beg, iterator.type.type, iterator.type.flags);
+          commit_type(ctx, arg, range.type.type, range.type.flags);
 
-          if (!(ctx.mir.locals[beg].flags & MIR::Local::Reference))
-            realise_destructor(ctx, beg, rangevar->loc());
+          if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
+            realise_destructor(ctx, arg, var->value->loc());
+
+          ctx.mir.add_varinfo(arg, var);
+
+          auto beg = ctx.add_variable();
+
+          {
+            MIR::Fragment iterator;
+
+            vector<MIR::Fragment> parms(1);
+            map<Ident*, MIR::Fragment> namedparms;
+
+            parms[0].type = ctx.mir.locals[arg];
+            parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, var->loc());
+
+            if (!lower_expr(ctx, iterator, UnaryOpExpr::Begin, parms, namedparms, var->loc()))
+              return;
+
+            realise(ctx, beg, iterator);
+
+            commit_type(ctx, beg, iterator.type.type, iterator.type.flags);
+
+            if (!(ctx.mir.locals[beg].flags & MIR::Local::Reference))
+              realise_destructor(ctx, beg, var->loc());
+          }
+
+          auto end = ctx.add_variable();
+
+          {
+            MIR::Fragment iterator;
+
+            vector<MIR::Fragment> parms(1);
+            map<Ident*, MIR::Fragment> namedparms;
+
+            parms[0].type = ctx.mir.locals[arg];
+            parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, var->loc());
+
+            if (!lower_expr(ctx, iterator, UnaryOpExpr::End, parms, namedparms, var->loc()))
+              return;
+
+            realise(ctx, end, iterator);
+
+            commit_type(ctx, end, iterator.type.type, iterator.type.flags);
+
+            if (!(ctx.mir.locals[end].flags & MIR::Local::Reference))
+              realise_destructor(ctx, end, var->loc());
+          }
+
+          ranges.push_back({ var, arg, beg, end });
+
+          continue;
         }
-
-        auto end = ctx.add_variable();
-
-        {
-          MIR::Fragment iterator;
-
-          vector<MIR::Fragment> parms(1);
-          map<Ident*, MIR::Fragment> namedparms;
-
-          parms[0].type = ctx.mir.locals[arg];
-          parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, rangevar->loc());
-
-          if (!lower_expr(ctx, iterator, UnaryOpExpr::End, parms, namedparms, rangevar->loc()))
-            return;
-
-          realise(ctx, end, iterator);
-
-          commit_type(ctx, end, iterator.type.type, iterator.type.flags);
-
-          if (!(ctx.mir.locals[end].flags & MIR::Local::Reference))
-            realise_destructor(ctx, end, rangevar->loc());
-        }
-
-        ranges.push_back({ rangevar, arg, beg, end });
-
-        continue;
       }
 
       lower_statement(ctx, init);
@@ -10329,7 +10398,7 @@ namespace
 
     for(auto &init : rofs->inits)
     {
-      if (init->kind() == Stmt::Declaration && stmt_cast<DeclStmt>(init)->decl->kind() == Decl::StmtVar)
+      if (init->kind() == Stmt::Declaration)
       {
         ctx.add_statement(MIR::Statement::storageloop(ctx.locals[stmt_cast<DeclStmt>(init)->decl]));
       }
@@ -10367,65 +10436,59 @@ namespace
 
     size_t iterations = size_t(-1);
     map<Ident*, StmtVarDecl*> vars;
-    vector<tuple<RangeVarDecl*, MIR::Fragment>> ranges;
+    vector<tuple<StmtVarDecl*, MIR::Fragment>> ranges;
 
     for(auto &init : fors->inits)
     {
       ctx.stack.back().goalpost = init;
 
-      if (init->kind() == Stmt::Declaration && stmt_cast<DeclStmt>(init)->decl->kind() == Decl::StmtVar)
+      if (init->kind() == Stmt::Declaration)
       {
         auto var = decl_cast<StmtVarDecl>(stmt_cast<DeclStmt>(init)->decl);
 
-        lower_statement(ctx, init);
+        if (var->flags & VarDecl::Range)
+        {
+          MIR::Fragment base;
+
+          if (!lower_expr(ctx, base, var->value))
+            return;
+
+          if (base.value.kind() != MIR::RValue::Constant)
+          {
+            auto arg = ctx.add_temporary();
+
+            realise_as_reference(ctx, arg, base);
+
+            commit_type(ctx, arg, base.type.type, base.type.flags);
+
+            base.type = ctx.mir.locals[arg];
+            base.value = MIR::RValue::local(MIR::RValue::Val, arg, var->value->loc());
+          }
+
+          if (is_tuple_type(base.type.type))
+          {
+            iterations = min(iterations, type_cast<TupleType>(base.type.type)->fields.size());
+
+            ranges.push_back({ var, base });
+
+            continue;
+          }
+
+          if (is_array_type(base.type.type))
+          {
+            iterations = min(iterations, array_len(type_cast<ArrayType>(base.type.type)));
+
+            ranges.push_back({ var, base });
+
+            continue;
+          }
+
+          ctx.diag.error("unsupported static for initialiser", ctx.stack.back(), var->value->loc());
+
+          continue;
+        }
 
         vars.emplace(var->name, var);
-
-        continue;
-      }
-
-      if (init->kind() == Stmt::Declaration && stmt_cast<DeclStmt>(init)->decl->kind() == Decl::RangeVar)
-      {
-        auto rangevar = decl_cast<RangeVarDecl>(stmt_cast<DeclStmt>(init)->decl);
-
-        MIR::Fragment base;
-
-        if (!lower_expr(ctx, base, rangevar->range))
-          return;
-
-        if (base.value.kind() != MIR::RValue::Constant)
-        {
-          auto arg = ctx.add_variable();
-
-          realise_as_reference(ctx, arg, base);
-
-          commit_type(ctx, arg, base.type.type, base.type.flags);
-
-          base.type = ctx.mir.locals[arg];
-          base.value = MIR::RValue::local(MIR::RValue::Val, arg, rangevar->loc());
-        }
-
-        if (is_tuple_type(base.type.type))
-        {
-          iterations = min(iterations, type_cast<TupleType>(base.type.type)->fields.size());
-
-          ranges.push_back({ rangevar, base });
-
-          continue;
-        }
-
-        if (is_array_type(base.type.type))
-        {
-          iterations = min(iterations, array_len(type_cast<ArrayType>(base.type.type)));
-
-          ranges.push_back({ rangevar, base });
-
-          continue;
-        }
-
-        ctx.diag.error("unsupported static for initialiser", ctx.stack.back(), rangevar->range->loc());
-
-        continue;
       }
 
       lower_statement(ctx, init);

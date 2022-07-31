@@ -2890,7 +2890,6 @@ namespace
       case Decl::StmtVar:
       case Decl::ParmVar:
       case Decl::FieldVar:
-      case Decl::RangeVar:
       case Decl::ThisVar:
       case Decl::ErrorVar:
         result = decl_cast<VarDecl>(declid)->name;

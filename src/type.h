@@ -407,11 +407,14 @@ bool is_typeid_type(Type const *type);
 bool is_signed_type(Type const *type);
 
 bool is_const_type(Type const *type);
+bool is_const_pointer(Type const *type);
+bool is_const_reference(Type const *type);
 bool is_builtin_type(Type const *type);
 bool is_pointer_type(Type const *type);
 bool is_reference_type(Type const *type);
 bool is_typearg_type(Type const *type);
 bool is_qualarg_type(Type const *type);
+bool is_qualarg_reference(Type const *type);
 bool is_typelit_type(Type const *type);
 bool is_array_type(Type const *type);
 bool is_tuple_type(Type const *type);

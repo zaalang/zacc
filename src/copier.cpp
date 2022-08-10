@@ -174,6 +174,12 @@ namespace
     return new CompoundLiteralExpr(fields, compoundliteral->loc());
   }
 
+  //|///////////////////// exprref_expression ///////////////////////////////
+  Expr *copier_expr(CopierContext &ctx, ExprRefExpr *exprref)
+  {
+    return new ExprRefExpr(copier_expr(ctx, exprref->expr), exprref->loc());
+  }
+
   //|///////////////////// paren_expression /////////////////////////////////
   Expr *copier_expr(CopierContext &ctx, ParenExpr *paren)
   {
@@ -352,6 +358,9 @@ namespace
       case Expr::CompoundLiteral:
         return copier_expr(ctx, expr_cast<CompoundLiteralExpr>(expr));
 
+      case Expr::ExprRef:
+        return copier_expr(ctx, expr_cast<ExprRefExpr>(expr));
+
       case Expr::Paren:
         return copier_expr(ctx, expr_cast<ParenExpr>(expr));
 
@@ -407,6 +416,31 @@ namespace
     return nullptr;
   }
 
+  //|///////////////////// IdentPattern /////////////////////////////////////
+  Decl *copier_decl(CopierContext &ctx, IdentPatternDecl *pattern)
+  {
+    auto result = new IdentPatternDecl(pattern->loc());
+
+    result->flags = pattern->flags;
+    result->name = copier_name(ctx, pattern->name);
+
+    return result;
+  }
+
+  //|///////////////////// TuplePattern /////////////////////////////////////
+  Decl *copier_decl(CopierContext &ctx, TuplePatternDecl *pattern)
+  {
+    auto result = new TuplePatternDecl(pattern->loc());
+
+    result->flags = pattern->flags;
+
+    for(auto &binding : pattern->bindings)
+      result->bindings.push_back(copier_decl(ctx, binding));
+
+    return result;
+  }
+
+
   //|///////////////////// voidvar //////////////////////////////////////////
   Decl *copier_decl(CopierContext &ctx, VoidVarDecl *var)
   {
@@ -415,6 +449,9 @@ namespace
     result->flags = var->flags;
     result->name = copier_name(ctx, var->name);
     result->type = copier_type(ctx, var->type);
+
+    if (var->pattern)
+      result->pattern = copier_decl(ctx, var->pattern);
 
     return result;
   }
@@ -429,8 +466,8 @@ namespace
     result->type = copier_type(ctx, var->type);
     result->value = copier_expr(ctx, var->value);
 
-    for(auto &binding : var->bindings)
-      result->bindings.push_back(copier_decl(ctx, binding));
+    if (var->pattern)
+      result->pattern = copier_decl(ctx, var->pattern);
 
     return result;
   }
@@ -497,8 +534,8 @@ namespace
     result->name = copier_name(ctx, var->name);
     result->type = copier_type(ctx, var->type);
 
-    for(auto &binding : var->bindings)
-      result->bindings.push_back(copier_decl(ctx, binding));
+    if (var->pattern)
+      result->pattern = copier_decl(ctx, var->pattern);
 
     return result;
   }
@@ -929,6 +966,14 @@ namespace
   {
     switch(decl->kind())
     {
+      case Decl::IdentPattern:
+        decl = copier_decl(ctx, decl_cast<IdentPatternDecl>(decl));
+        break;
+
+      case Decl::TuplePattern:
+        decl = copier_decl(ctx, decl_cast<TuplePatternDecl>(decl));
+        break;
+
       case Decl::VoidVar:
         decl = copier_decl(ctx, decl_cast<VoidVarDecl>(decl));
         break;

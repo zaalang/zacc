@@ -217,6 +217,25 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
       }
       break;
 
+    case Decl::IdentPattern:
+      if (auto &pattern = static_cast<IdentPatternDecl const &>(decl); true)
+      {
+        os << *pattern.name;
+      }
+      break;
+
+    case Decl::TuplePattern:
+      if (auto &pattern = static_cast<TuplePatternDecl const &>(decl); true)
+      {
+        os << '(';
+
+        for(auto &binding : pattern.bindings)
+          os << *binding << (&binding != &pattern.bindings.back() ? ", " : "");
+
+        os << ')';
+      }
+      break;
+
     case Decl::VoidVar:
     case Decl::StmtVar:
     case Decl::ParmVar:
@@ -231,6 +250,9 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
 
         if (var.name)
           os << ' ' << *var.name;
+
+        if (var.pattern)
+          os << ' ' << *var.pattern;
       }
       break;
 
@@ -585,6 +607,50 @@ void TypeArgDecl::dump(int indent) const
 }
 
 
+//|--------------------- IdentPattern ---------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// IdentPattern::Constructor //////////////////////////
+IdentPatternDecl::IdentPatternDecl(Ident *name, SourceLocation loc)
+  : Decl(IdentPattern, loc),
+    name(name)
+{
+}
+
+IdentPatternDecl::IdentPatternDecl(SourceLocation loc)
+  : Decl(IdentPattern, loc)
+{
+}
+
+//|///////////////////// IdentPatternDecl::dump /////////////////////////////
+void IdentPatternDecl::dump(int indent) const
+{
+  cout << spaces(indent) << "IdentPatternDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
+}
+
+
+//|--------------------- TuplePattern ---------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// TuplePattern::Constructor //////////////////////////
+TuplePatternDecl::TuplePatternDecl(vector<Decl*> const &bindings, SourceLocation loc)
+  : Decl(TuplePattern, loc),
+    bindings(bindings)
+{
+}
+
+TuplePatternDecl::TuplePatternDecl(SourceLocation loc)
+  : Decl(TuplePattern, loc)
+{
+}
+
+//|///////////////////// TuplePatternDecl::dump /////////////////////////////
+void TuplePatternDecl::dump(int indent) const
+{
+  cout << spaces(indent) << "TuplePatternDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
+}
+
+
 //|--------------------- VarDecl --------------------------------------------
 //|--------------------------------------------------------------------------
 
@@ -638,11 +704,6 @@ void StmtVarDecl::dump(int indent) const
   if (value)
   {
     value->dump(indent + 2);
-  }
-
-  for(auto &binding : bindings)
-  {
-    binding->dump(indent + 2);
   }
 }
 
@@ -941,11 +1002,6 @@ void CaseVarDecl::dump(int indent) const
   if (type)
   {
     type->dump(indent + 2);
-  }
-
-  for(auto &binding : bindings)
-  {
-    binding->dump(indent + 2);
   }
 }
 

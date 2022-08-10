@@ -243,22 +243,32 @@ void find_decl(Decl *decl, Ident *name, long flags, vector<Decl*> &results)
       break;
 
     case Decl::VoidVar:
-      if (decl_cast<VarDecl>(decl)->name == name && (flags & Variables))
-        results.push_back(decl);
-      break;
-
     case Decl::StmtVar:
-      if (decl_cast<VarDecl>(decl)->name == name && (flags & Variables))
-        results.push_back(decl);
-      for(auto &binding : decl_cast<StmtVarDecl>(decl)->bindings)
-        find_decl(binding, name, flags, results);
-      break;
-
     case Decl::CaseVar:
-      if (decl_cast<VarDecl>(decl)->name == name && (flags & Variables))
-        results.push_back(decl);
-      for(auto &binding : decl_cast<CaseVarDecl>(decl)->bindings)
-        find_decl(binding, name, flags, results);
+      if (flags & Variables)
+      {
+        if (decl_cast<VarDecl>(decl)->name == name)
+          results.push_back(decl);
+
+        if (auto pattern = decl_cast<VarDecl>(decl)->pattern; pattern)
+        {
+          switch (pattern->kind())
+          {
+            case Decl::IdentPattern:
+              if (decl_cast<IdentPatternDecl>(pattern)->name == name)
+                results.push_back(decl);
+              break;
+
+            case Decl::TuplePattern:
+              for(auto &binding : decl_cast<TuplePatternDecl>(pattern)->bindings)
+                find_decl(binding, name, flags, results);
+              break;
+
+            default:
+              assert(false);
+          }
+        }
+      }
       break;
 
     case Decl::ThisVar:

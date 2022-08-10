@@ -154,6 +154,12 @@ namespace
     }
   }
 
+  //|///////////////////// exprref_expression /////////////////////////////////
+  void semantic_expr(SemanticContext &ctx, ExprRefExpr *exprref, Sema &sema)
+  {
+    semantic_expr(ctx, exprref->expr, sema);
+  }
+
   //|///////////////////// paren_expression /////////////////////////////////
   void semantic_expr(SemanticContext &ctx, ParenExpr *paren, Sema &sema)
   {
@@ -333,6 +339,10 @@ namespace
         semantic_expr(ctx, expr_cast<CompoundLiteralExpr>(expr), sema);
         break;
 
+      case Expr::ExprRef:
+        semantic_expr(ctx, expr_cast<ExprRefExpr>(expr), sema);
+        break;
+
       case Expr::Paren:
         semantic_expr(ctx, expr_cast<ParenExpr>(expr), sema);
         break;
@@ -414,9 +424,6 @@ namespace
     semantic_type(ctx, var->type, sema);
 
     semantic_expr(ctx, var->value, sema);
-
-    for(auto &binding : var->bindings)
-      semantic_decl(ctx, binding, sema);
   }
 
   //|///////////////////// parmvar //////////////////////////////////////////
@@ -1017,9 +1024,6 @@ namespace
   void semantic_decl(SemanticContext &ctx, CaseVarDecl *var, Sema &sema)
   {
     semantic_type(ctx, var->type, sema);
-
-    for(auto &binding : var->bindings)
-      semantic_decl(ctx, binding, sema);
   }
 
   //|///////////////////// import ///////////////////////////////////////////
@@ -1528,6 +1532,7 @@ namespace
             voidvar->name = var->name;
             voidvar->flags = var->flags;
             voidvar->type = sema.make_typeref(call->callee);
+            voidvar->pattern = var->pattern;
 
             declstmt->decl = voidvar;
           }

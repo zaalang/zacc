@@ -41,6 +41,7 @@ class Expr
       FunctionPointer,
       ArrayLiteral,
       CompoundLiteral,
+      ExprRef,
       UnaryOp,
       BinaryOp,
       TernaryOp,
@@ -239,6 +240,20 @@ class CompoundLiteralExpr : public Expr
     std::string value() const;
 
     std::vector<Expr*> fields;
+
+    void dump(int indent) const override;
+};
+
+
+//---------------------- ExprRefExpr ----------------------------------------
+//---------------------------------------------------------------------------
+
+class ExprRefExpr : public Expr
+{
+  public:
+    ExprRefExpr(Expr *expr, SourceLocation loc);
+
+    Expr *expr;
 
     void dump(int indent) const override;
 };
@@ -596,6 +611,7 @@ template<> inline auto expr_cast<FunctionPointerExpr>(Expr *expr) { assert(expr 
 template<> inline auto expr_cast<StringLiteralExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::StringLiteral); return static_cast<StringLiteralExpr*>(expr); };
 template<> inline auto expr_cast<ArrayLiteralExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::ArrayLiteral); return static_cast<ArrayLiteralExpr*>(expr); };
 template<> inline auto expr_cast<CompoundLiteralExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::CompoundLiteral); return static_cast<CompoundLiteralExpr*>(expr); };
+template<> inline auto expr_cast<ExprRefExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::ExprRef); return static_cast<ExprRefExpr*>(expr); };
 template<> inline auto expr_cast<UnaryOpExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::UnaryOp); return static_cast<UnaryOpExpr*>(expr); };
 template<> inline auto expr_cast<BinaryOpExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::BinaryOp); return static_cast<BinaryOpExpr*>(expr); };
 template<> inline auto expr_cast<TernaryOpExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::TernaryOp); return static_cast<TernaryOpExpr*>(expr); };

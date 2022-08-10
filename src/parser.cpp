@@ -545,7 +545,7 @@ namespace
   }
 
   //|///////////////////// parse_var_bindings_list //////////////////////////
-  vector<Decl*> parse_var_bindings_list(ParseContext &ctx, Sema &sema)
+  vector<Decl*> parse_var_bindings_list(ParseContext &ctx, long flags, Sema &sema)
   {
     vector<Decl*> bindings;
 
@@ -555,6 +555,8 @@ namespace
 
       auto loc = ctx.tok.loc;
 
+      var->flags = flags & VarDecl::Literal;
+
       if (ctx.tok != Token::l_paren)
       {
         var->name = parse_ident(ctx, IdentUsage::VarName, sema);
@@ -562,7 +564,7 @@ namespace
 
       if (ctx.try_consume_token(Token::l_paren))
       {
-        var->bindings = parse_var_bindings_list(ctx, sema);
+        var->pattern = sema.tuple_pattern(parse_var_bindings_list(ctx, flags, sema), loc);
 
         if (!ctx.try_consume_token(Token::r_paren))
         {
@@ -721,6 +723,14 @@ namespace
       if (ctx.tok == Token::identifier && (ctx.token(1) == Token::colon || (ctx.token(1) == Token::question && ctx.token(2) == Token::colon)))
         break;
 
+      auto mutref = (ctx.tok == Token::amp) && (ctx.token(1) == Token::kw_mut);
+
+      if (mutref)
+      {
+        ctx.consume_token(Token::amp);
+        ctx.consume_token(Token::kw_mut);
+      }
+
       auto expr = parse_expression(ctx, sema);
 
       if (!expr)
@@ -739,6 +749,11 @@ namespace
           fwd->subexpr = expr_cast<UnaryOpExpr>(fwd->subexpr)->subexpr;
           expr_cast<UnaryOpExpr>(expr)->subexpr = fwd;
         }
+      }
+
+      if (mutref)
+      {
+        expr = sema.make_mutref_expression(expr, expr->loc());
       }
 
       exprs.push_back(expr);
@@ -767,7 +782,28 @@ namespace
 
       ctx.consume_token(Token::colon);
 
-      exprs.emplace(name, parse_expression(ctx, sema));
+      auto mutref = (ctx.tok == Token::amp) && (ctx.token(1) == Token::kw_mut);
+
+      if (mutref)
+      {
+        ctx.consume_token(Token::amp);
+        ctx.consume_token(Token::kw_mut);
+      }
+
+      auto expr = parse_expression(ctx, sema);
+
+      if (!expr)
+      {
+        ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+        break;
+      }
+
+      if (mutref)
+      {
+        expr = sema.make_mutref_expression(expr, expr->loc());
+      }
+
+      exprs.emplace(name, expr);
 
       if (!ctx.try_consume_token(Token::comma))
         break;
@@ -839,6 +875,8 @@ namespace
 
         var->type = parse_var_defn(ctx, var->flags, sema.make_typearg(Ident::kw_var, ctx.tok.loc), sema);
 
+        auto loc = ctx.tok.loc;
+
         if (ctx.tok != Token::l_paren)
         {
           var->name = parse_ident(ctx, IdentUsage::VarName, sema);
@@ -846,7 +884,7 @@ namespace
 
         if (ctx.try_consume_token(Token::l_paren))
         {
-          var->bindings = parse_var_bindings_list(ctx, sema);
+          var->pattern = sema.tuple_pattern(parse_var_bindings_list(ctx, var->flags, sema), loc);
 
           if (!ctx.try_consume_token(Token::r_paren))
           {
@@ -2673,6 +2711,8 @@ namespace
 
     var->type = parse_var_defn(ctx, var->flags, sema.make_typearg(Ident::kw_var, ctx.tok.loc), sema);
 
+    auto loc = ctx.tok.loc;
+
     if (ctx.tok != Token::l_paren)
     {
       var->name = parse_ident(ctx, IdentUsage::VarName, sema);
@@ -2680,7 +2720,7 @@ namespace
 
     if (ctx.try_consume_token(Token::l_paren))
     {
-      var->bindings = parse_var_bindings_list(ctx, sema);
+      var->pattern = sema.tuple_pattern(parse_var_bindings_list(ctx, var->flags, sema), loc);
 
       if (!ctx.try_consume_token(Token::r_paren))
       {
@@ -4300,6 +4340,8 @@ namespace
         {
           var->type = parse_var_defn(ctx, var->flags, sema.make_typearg(Ident::kw_var, ctx.tok.loc), sema);
 
+          auto loc = ctx.tok.loc;
+
           if (ctx.tok != Token::l_paren)
           {
             var->name = parse_ident(ctx, IdentUsage::VarName, sema);
@@ -4307,7 +4349,7 @@ namespace
 
           if (ctx.try_consume_token(Token::l_paren))
           {
-            var->bindings = parse_var_bindings_list(ctx, sema);
+            var->pattern = sema.tuple_pattern(parse_var_bindings_list(ctx, var->flags, sema), loc);
 
             if (!ctx.try_consume_token(Token::r_paren))
             {

@@ -66,6 +66,33 @@ fn test_as_tuple()
   std::assert(std::is_same<as_tuple<X>, (i32, f64, bool)>);
 }
 
+fn test_as_soa()
+{
+  struct vec3
+  {
+    float x;
+    float y;
+    float z;
+  }
+
+  struct soa<T, N>
+  {
+    #{
+      #for(const k : std::meta::fields_of($T))
+        -> { $($typeof(T::#k))[N] $(std::meta::name_of(k)); }
+    }
+
+    soa() = default;
+    ~soa() = default;
+  }
+
+  var vec3x4 = soa<vec3, 4>();
+
+  std::assert(vec3x4.x.len == 4);
+  std::assert(vec3x4.y.len == 4);
+  std::assert(vec3x4.z.len == 4);
+}
+
 fn main()
 {
   #test_empty();
@@ -73,4 +100,5 @@ fn main()
   #test_cat();
   #test_subset();
   #test_as_tuple();
+  #test_as_soa();
 }

@@ -45,6 +45,8 @@ class Decl
       Using,
       TypeAlias,
       TypeArg,
+      IdentPattern,
+      TuplePattern,
       VoidVar,
       StmtVar,
       ParmVar,
@@ -389,6 +391,31 @@ class TypeArgDecl : public Decl
 };
 
 
+//---------------------- Pattern --------------------------------------------
+//---------------------------------------------------------------------------
+
+class IdentPatternDecl : public Decl
+{
+  public:
+    IdentPatternDecl(SourceLocation loc);
+    IdentPatternDecl(Ident *name, SourceLocation loc);
+
+    Ident *name;
+
+    void dump(int indent) const override;
+};
+
+class TuplePatternDecl : public Decl
+{
+  public:
+    TuplePatternDecl(SourceLocation loc);
+    TuplePatternDecl(std::vector<Decl*> const &bindings, SourceLocation loc);
+
+    std::vector<Decl*> bindings;
+
+    void dump(int indent) const override;
+};
+
 //---------------------- VarDecl --------------------------------------------
 //---------------------------------------------------------------------------
 
@@ -412,6 +439,8 @@ class VarDecl : public Decl
 
     Ident *name = nullptr;
     Type *type = nullptr;
+
+    Decl *pattern = nullptr;
 };
 
 
@@ -436,8 +465,6 @@ class StmtVarDecl : public VarDecl
     StmtVarDecl(SourceLocation loc);
 
     Expr *value = nullptr;
-
-    std::vector<Decl*> bindings;
 
     void dump(int indent) const override;
 };
@@ -636,8 +663,6 @@ class CaseVarDecl : public VarDecl
   public:
     CaseVarDecl(SourceLocation loc);
 
-    std::vector<Decl*> bindings;
-
     void dump(int indent) const override;
 };
 
@@ -786,6 +811,8 @@ template<> inline auto decl_cast<ImportDecl>(Decl *decl) { assert(decl && decl->
 template<> inline auto decl_cast<UsingDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::Using); return static_cast<UsingDecl*>(decl); };
 template<> inline auto decl_cast<TypeAliasDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::TypeAlias); return static_cast<TypeAliasDecl*>(decl); };
 template<> inline auto decl_cast<TypeArgDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::TypeArg); return static_cast<TypeArgDecl*>(decl); };
+template<> inline auto decl_cast<IdentPatternDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::IdentPattern); return static_cast<IdentPatternDecl*>(decl); };
+template<> inline auto decl_cast<TuplePatternDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::TuplePattern); return static_cast<TuplePatternDecl*>(decl); };
 template<> inline auto decl_cast<VoidVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::VoidVar); return static_cast<VoidVarDecl*>(decl); };
 template<> inline auto decl_cast<StmtVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::StmtVar); return static_cast<StmtVarDecl*>(decl); };
 template<> inline auto decl_cast<ParmVarDecl>(Decl *decl) { assert(decl && decl->kind() == Decl::ParmVar); return static_cast<ParmVarDecl*>(decl); };

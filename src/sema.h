@@ -30,6 +30,9 @@ class Sema
 
     ModuleDecl *module_declaration(Ident *name, std::string_view file);
 
+    IdentPatternDecl *ident_pattern(Ident *name, SourceLocation loc);
+    TuplePatternDecl *tuple_pattern(std::vector<Decl*> const &decls, SourceLocation loc);
+
     FunctionDecl *function_declaration(SourceLocation loc);
     CompoundStmt *compound_statement(SourceLocation loc);
     TryStmt *try_statement(SourceLocation loc);
@@ -89,6 +92,7 @@ class Sema
     Expr *make_tuple_literal(std::vector<Expr*> const &fields, SourceLocation loc);
     Expr *make_void_literal(SourceLocation loc);
     Expr *make_pointer_literal(SourceLocation loc);
+    Expr *make_mutref_expression(Expr *expr, SourceLocation loc);
     Expr *make_paren_expression(Expr *subexpr, SourceLocation loc);
     Expr *make_unary_expression(UnaryOpExpr::OpCode op, Expr *subexpr, SourceLocation loc);
     Expr *make_binary_expression(BinaryOpExpr::OpCode op, Expr *lhs, Expr *rhs, SourceLocation loc);

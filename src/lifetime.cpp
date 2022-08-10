@@ -35,6 +35,7 @@ namespace
       bool consumed = false;
       bool immune = false;
       bool poisoned = false;
+      bool sealed = false;
       bool toxic = false;
       size_t borrowed = 0;
       vector<MIR::RValue::VariableData const *> depends_upon;
@@ -109,21 +110,12 @@ namespace
     {
       for(auto dep : threads[0].locals[arg].depends_upon)
       {
-#if 0
-        cout << "is_consumed: " << arg << " " << *dep << endl;
-        for(auto fld : threads[0].locals[get<1>(*dep)].consumed_fields)
-          cout << "           : has " << *fld << endl;
-#endif
-
         for(auto fld : threads[0].locals[get<1>(*dep)].consumed_fields)
           if (is_common_field(get<2>(*fld), get<2>(*dep)))
             return true;
-
-        if (depth != 0 && is_consumed(get<1>(*dep), depth - 1))
-          return true;
       }
 
-      return false;
+      return !threads[0].locals[arg].consumed_fields.empty();
     }
 
     bool is_poisoned(MIR::local_t arg, int depth = 5)
@@ -194,6 +186,7 @@ namespace
       depend,
       poison,
       assign,
+      append,
       follow,
       launder,
       restrict,
@@ -201,7 +194,7 @@ namespace
 
     Type type = unknown;
     SourceLocation loc;
-    std::string_view text;
+    string_view text;
   };
 
   string_view trim(string_view str, const char *characters = " \t\r\n")
@@ -253,6 +246,12 @@ namespace
     if (src.substr(0, 6) == "assign")
     {
       tok.type = Annotation::assign;
+      tok.text = trim(src.substr(7), "( \t)");
+    }
+
+    if (src.substr(0, 6) == "append")
+    {
+      tok.type = Annotation::append;
       tok.text = trim(src.substr(7), "( \t)");
     }
 
@@ -401,7 +400,7 @@ namespace
   }
 
   //|///////////////////// apply ////////////////////////////////////////////
-  void apply(Context &ctx, MIR const &mir, Annotation const &annotation, MIR::local_t dst, FnSig const &callee, vector<MIR::local_t> const &args)
+  void apply(Context &ctx, MIR const &mir, Annotation const &annotation, MIR::local_t dst, FnSig const &callee, vector<MIR::local_t> const &args, SourceLocation loc)
   {
     switch (annotation.type)
     {
@@ -413,16 +412,14 @@ namespace
           if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
           {
             for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+            {
               ctx.threads[0].locals[get<1>(*dep)].consumed = true;
-
-            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
               ctx.threads[0].locals[get<1>(*dep)].consumed_fields.insert(ctx.threads[0].locals[get<1>(*dep)].consumed_fields.end(), ctx.threads[0].locals[args[arg]].depends_upon.begin(), ctx.threads[0].locals[args[arg]].depends_upon.end());
-
 #if 0
-            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
               for(auto fld : ctx.threads[0].locals[get<1>(*dep)].consumed_fields)
                 cout << "consume: " << *fld << endl;
 #endif
+            }
 
             break;
           }
@@ -458,7 +455,7 @@ namespace
 
         if (arg == args.size())
         {
-          ctx.diag.error("unknown consume parameter", callee.fn, annotation.loc);
+          ctx.diag.error("unknown borrow parameter", callee.fn, annotation.loc);
         }
 
         break;
@@ -478,7 +475,7 @@ namespace
             }
             else
             {
-              ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[args[arg]].depends_upon;
+              ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[args[arg]].depends_upon.begin(), ctx.threads[0].locals[args[arg]].depends_upon.end());
             }
 
             break;
@@ -527,13 +524,17 @@ namespace
           if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
           {
 #if 0
+            cout << "poison: " << dst << " = " << callee << endl;
             for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-              cout << "poison: " << *dep << endl;
+              cout << "      : " << *dep << endl;
 #endif
 
-            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+            for(auto &dep : ctx.threads[0].locals[args[arg]].depends_upon)
             {
               ctx.threads[0].locals[get<1>(*dep)].toxic = true;
+
+              if (ctx.threads[0].locals[args[arg]].sealed && &dep != &ctx.threads[0].locals[args[arg]].depends_upon.back())
+                continue;
 
               for(auto &local : ctx.threads[0].locals)
               {
@@ -541,6 +542,9 @@ namespace
                   continue;
 
                 if (local.immune)
+                  continue;
+
+                if (local.sealed && local.depends_upon.back() == dep)
                   continue;
 
                 for(auto fld : local.depends_upon)
@@ -593,11 +597,8 @@ namespace
               ctx.threads[0].locals[get<1>(*dst)].depends_upon.clear();
               ctx.threads[0].locals[get<1>(*dst)].consumed_fields.clear();
 
-              apply(ctx, mir, rhs, get<1>(*dst), callee, args);
+              apply(ctx, mir, rhs, get<1>(*dst), callee, args, loc);
             }
-
-            ctx.threads[0].locals[args[arg]].immune = false;
-            ctx.threads[0].locals[args[arg]].poisoned = false;
 
             break;
           }
@@ -608,6 +609,35 @@ namespace
         if (arg == args.size())
         {
           ctx.diag.error("unknown assign parameter", callee.fn, annotation.loc);
+        }
+
+        break;
+      }
+
+      case Annotation::append: {
+
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of(',')));
+        auto rhs = parse(ctx, trim(annotation.text.substr(annotation.text.find_first_of(',') + 1)), annotation.loc);
+
+        size_t arg = 0;
+        for(auto &parm : callee.parameters())
+        {
+          if (decl_cast<ParmVarDecl>(parm)->name == lhs)
+          {
+            for(auto dst : ctx.threads[0].locals[args[arg]].depends_upon)
+            {
+              apply(ctx, mir, rhs, get<1>(*dst), callee, args, loc);
+            }
+
+            break;
+          }
+
+          arg += 1;
+        }
+
+        if (arg == args.size())
+        {
+          ctx.diag.error("unknown append parameter", callee.fn, annotation.loc);
         }
 
         break;
@@ -665,7 +695,7 @@ namespace
               target.text = lhs;
               target.loc = annotation.loc;
 
-              apply(ctx, mir, target, dst, callee, args);
+              apply(ctx, mir, target, dst, callee, args, loc);
 
               break;
             }
@@ -704,6 +734,7 @@ namespace
       {
         case MIR::RValue::Val:
           ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[arg].depends_upon;
+          ctx.threads[0].locals[dst].sealed = ctx.threads[0].locals[arg].sealed;
           ctx.threads[0].locals[dst].immune = ctx.threads[0].locals[arg].immune;
           break;
 
@@ -713,6 +744,8 @@ namespace
           break;
 
         case MIR::RValue::Fer:
+          if (ctx.state(arg) != State::ok)
+            ctx.diag.error("potentially invalid dereference", mir.fx.fn, loc);
           for(auto dep : ctx.threads[0].locals[arg].depends_upon)
             ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.begin(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.end());
           break;
@@ -794,9 +827,10 @@ namespace
         }
       }
 
-      ctx.threads[0].locals[args[0]].immune = false;
+      if (ctx.threads[0].locals[args[0]].immune)
+        ctx.threads[0].locals[args[0]].poisoned = false;
+
       ctx.threads[0].locals[args[0]].consumed = false;
-      ctx.threads[0].locals[args[0]].poisoned = false;
     }
 
     for(auto const &[parm, arg] : zip(callee.parameters(), args))
@@ -924,20 +958,23 @@ namespace
       }
     }
 
-    if (is_rvalue_reference(ctx, mir.locals[dst].type))
+    for(auto &annotation : notations)
+    {
+      apply(ctx, mir, annotation, dst, callee, args, loc);
+    }
+
+    if (is_reference_type(mir.locals[dst].type) && !is_const_reference(mir.locals[dst].type) && dst != 0)
     {
       auto arg = ctx.threads[0].locals.size();
+
       for(auto &thread : ctx.threads)
         thread.locals.push_back(Context::Storage());
 
-      ctx.threads[0].locals[dst].immune = true;
-      ctx.threads[0].locals[arg].live = true;
-      ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(arg));
-    }
+      for(auto &thread : ctx.threads)
+        thread.locals[arg].live = true;
 
-    for(auto &annotation : notations)
-    {
-      apply(ctx, mir, annotation, dst, callee, args);
+      ctx.threads[0].locals[dst].sealed = true;
+      ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(arg));
     }
   }
 
@@ -1052,7 +1089,7 @@ namespace
         break;
 
       case State::consumed:
-        if (!is_rvalue_reference(ctx, mir.locals[arg]))
+        if (!(mir.locals[arg].flags & MIR::Local::RValue))
           ctx.diag.error("potentially consumed loop variable", mir.fx.fn, loc());
         break;
 

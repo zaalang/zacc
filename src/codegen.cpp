@@ -1203,7 +1203,7 @@ namespace
 
       auto global = llvm::cast<llvm::GlobalVariable>(fx.locals[dst].alloca);
 
-      if (fx.locals[dst].info)
+      if (fx.locals[dst].info && fx.locals[dst].info->vardecl->name)
         global->setName(get_mangled_name(fx.fn, fx.locals[dst].info->vardecl->name->sv()));
 
       if (fx.locals[dst].flags & MIR::Local::ThreadLocal)
@@ -1213,7 +1213,7 @@ namespace
       {
         auto i = dst;
 
-        if (fx.locals[i].info)
+        if (fx.locals[i].info && fx.locals[i].info->vardecl->name)
         {
           auto loc = fx.locals[i].info->vardecl->loc();
           auto name = fx.locals[i].info->vardecl->name->sv();

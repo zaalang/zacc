@@ -7,7 +7,7 @@ using std;
 fn test_itoa(var x, var y)
 {
   var buffer = [0; 128];
-  var result = itoa(buffer.begin, buffer.end, x);
+  var result = itoa(buffer.begin, buffer.end, &mut x);
 
   assert(!result.error);
   assert(string_view(result.ptr, result.len) == y);
@@ -16,7 +16,7 @@ fn test_itoa(var x, var y)
 fn test_btoa(var x, var y)
 {
   var buffer = [0; 128];
-  var result = btoa(buffer.begin, buffer.end, x);
+  var result = btoa(buffer.begin, buffer.end, &mut x);
 
   assert(!result.error);
   assert(string_view(result.ptr, result.len) == y);
@@ -25,7 +25,7 @@ fn test_btoa(var x, var y)
 fn test_ftoa(var x, var y)
 {
   var buffer = [0; 128];
-  var result = ftoa(buffer.begin, buffer.end, x);
+  var result = ftoa(buffer.begin, buffer.end, &mut x);
 
   assert(!result.error);
   assert(string_view(result.ptr, result.len) == y);
@@ -34,7 +34,7 @@ fn test_ftoa(var x, var y)
 fn test_atoi(var x, var y)
 {
   var value = y;
-  var result = atoi(x.data, x.data + x.len, value);
+  var result = atoi(x.data, x.data + x.len, &mut value);
 
   assert(!result.error);
   assert(value == y);
@@ -43,7 +43,7 @@ fn test_atoi(var x, var y)
 fn test_atob(var x, var y)
 {
   var value = y;
-  var result = atob(x.data, x.data + x.len, value);
+  var result = atob(x.data, x.data + x.len, &mut value);
 
   assert(!result.error);
   assert(value == y);

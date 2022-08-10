@@ -585,6 +585,9 @@ namespace
         break;
       }
 
+      case Type::Constant:
+        break;
+
       case Type::Function:
         break;
 
@@ -1130,7 +1133,7 @@ namespace
 
     for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
     {
-      find_decls(ctx, sx, declref->name, QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Usings, decls, sema);
+      find_decls(ctx, sx, declref->name, QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Enums | QueryFlags::Usings, decls, sema);
 
       if (decls.empty())
         continue;
@@ -1292,7 +1295,7 @@ namespace
 
     if (auto declref = decl_cast<DeclRefDecl>(scoped->decls.back()))
     {
-      find_decls(ctx, declscope, declref->name, QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Usings | queryflags, decls, sema);
+      find_decls(ctx, declscope, declref->name, QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Enums | QueryFlags::Usings | queryflags, decls, sema);
 
       if (decls.empty())
       {
@@ -1389,6 +1392,11 @@ namespace
   //|///////////////////// resolve_type /////////////////////////////////////
   void resolve_type(TyperContext &ctx, Scope const &scope, Type *&type, Sema &sema)
   {
+    auto rr = recursion_counter<__COUNTER__>();
+
+    if (rr.count > 256)
+      throw runtime_error("recursion limit reached during type resolution");
+
     switch (type->klass())
     {
       case Type::Builtin:
@@ -1471,6 +1479,12 @@ namespace
     {
       resolve_expr(ctx, scope, field, sema);
     }
+  }
+
+  //|///////////////////// exprref_expression ///////////////////////////////
+  void resolve_expr(TyperContext &ctx, Scope const &scope, ExprRefExpr *exprref, Sema &sema)
+  {
+    resolve_expr(ctx, scope, exprref->expr, sema);
   }
 
   //|///////////////////// paren_expression /////////////////////////////////
@@ -1658,6 +1672,10 @@ namespace
         resolve_expr(ctx, scope, expr_cast<CompoundLiteralExpr>(expr), sema);
         break;
 
+      case Expr::ExprRef:
+        resolve_expr(ctx, scope, expr_cast<ExprRefExpr>(expr), sema);
+        break;
+
       case Expr::Paren:
         resolve_expr(ctx, scope, expr_cast<ParenExpr>(expr), sema);
         break;
@@ -1739,9 +1757,6 @@ namespace
     resolve_type(ctx, ctx.stack.back(), var->type, sema);
 
     resolve_expr(ctx, ctx.stack.back(), var->value, sema);
-
-    for(auto &binding : var->bindings)
-      typer_decl(ctx, binding, sema);
   }
 
   //|///////////////////// parmvar //////////////////////////////////////////
@@ -1967,9 +1982,6 @@ namespace
   void typer_decl(TyperContext &ctx, CaseVarDecl *var, Sema &sema)
   {
     resolve_type(ctx, ctx.stack.back(), var->type, sema);
-
-    for(auto &binding : var->bindings)
-      typer_decl(ctx, binding, sema);
   }
 
   //|///////////////////// import ///////////////////////////////////////////

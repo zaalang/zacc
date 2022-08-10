@@ -95,6 +95,18 @@ ModuleDecl *Sema::module_declaration(Ident *name, string_view file)
   return module;
 }
 
+//|///////////////////// ident_pattern //////////////////////////////////////
+IdentPatternDecl *Sema::ident_pattern(Ident *name, SourceLocation loc)
+{
+  return ast->make_decl<IdentPatternDecl>(name, loc);
+}
+
+//|///////////////////// tuple_pattern //////////////////////////////////////
+TuplePatternDecl *Sema::tuple_pattern(vector<Decl*> const &decls, SourceLocation loc)
+{
+  return ast->make_decl<TuplePatternDecl>(decls, loc);
+}
+
 //|///////////////////// function_declaration ///////////////////////////////
 FunctionDecl *Sema::function_declaration(SourceLocation loc)
 {
@@ -450,6 +462,12 @@ Expr *Sema::make_void_literal(SourceLocation loc)
 Expr *Sema::make_pointer_literal(SourceLocation loc)
 {
   return ast->make_expr<PointerLiteralExpr>(loc);
+}
+
+//|///////////////////// make_mutref_expression /////////////////////////////
+Expr *Sema::make_mutref_expression(Expr *expr, SourceLocation loc)
+{
+  return ast->make_expr<ExprRefExpr>(expr, loc);
 }
 
 //|///////////////////// make_paren_expression //////////////////////////////

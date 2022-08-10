@@ -129,10 +129,12 @@ class MIR
           RValue = 0x20,
           XValue = 0x40, // or XLValue if forwarded
 
-          Unaligned = 0x80,
-          ThreadLocal = 0x100,
-          CacheAligned = 0x200,
-          PageAligned = 0x400,
+          ConstRef = 0x80,
+
+          Unaligned = 0x100,
+          ThreadLocal = 0x200,
+          CacheAligned = 0x400,
+          PageAligned = 0x800,
         };
 
         long flags;

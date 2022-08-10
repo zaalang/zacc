@@ -174,6 +174,10 @@ std::ostream &operator <<(std::ostream &os, Expr const &expr)
       os << static_cast<CompoundLiteralExpr const &>(expr).value();
       break;
 
+    case Expr::ExprRef:
+      os << "&mut";
+      break;
+
     case Expr::Paren:
       os << "()";
       break;
@@ -466,6 +470,28 @@ string CompoundLiteralExpr::value() const
 void CompoundLiteralExpr::dump(int indent) const
 {
   cout << spaces(indent) << "CompoundLiteralExpr " << this << " <" << m_loc << "> " << *this << '\n';
+}
+
+
+//|--------------------- ExprRefExpr ----------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// ExprRefExpr::Constructor ///////////////////////////
+ExprRefExpr::ExprRefExpr(Expr *expr, SourceLocation loc)
+  : Expr(ExprRef, loc),
+    expr(expr)
+{
+}
+
+//|///////////////////// ExprRefExpr::dump //////////////////////////////////
+void ExprRefExpr::dump(int indent) const
+{
+  cout << spaces(indent) << "ExprRefExpr " << this << " " << *this << '\n';
+
+  if (expr)
+  {
+    expr->dump(indent + 2);
+  }
 }
 
 

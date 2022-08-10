@@ -111,7 +111,7 @@ namespace
       for(auto dep : threads[0].locals[arg].depends_upon)
       {
         for(auto fld : threads[0].locals[get<1>(*dep)].consumed_fields)
-          if (is_common_field(get<2>(*fld), get<2>(*dep)))
+          if (get<1>(*fld) == get<1>(*dep) && is_common_field(get<2>(*fld), get<2>(*dep)))
             return true;
       }
 
@@ -963,7 +963,7 @@ namespace
       apply(ctx, mir, annotation, dst, callee, args, loc);
     }
 
-    if (is_reference_type(mir.locals[dst].type) && !is_const_reference(mir.locals[dst].type) && dst != 0)
+    if ((callee.fn->name == Ident::op_index || callee.fn->name == Ident::op_deref || is_reference_type(mir.locals[dst].type)) && dst != 0)
     {
       auto arg = ctx.threads[0].locals.size();
 

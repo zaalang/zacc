@@ -411,11 +411,16 @@ namespace
         {
           if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
           {
-            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+            for(auto &dep : ctx.threads[0].locals[args[arg]].depends_upon)
             {
               ctx.threads[0].locals[get<1>(*dep)].consumed = true;
               ctx.threads[0].locals[get<1>(*dep)].consumed_fields.insert(ctx.threads[0].locals[get<1>(*dep)].consumed_fields.end(), ctx.threads[0].locals[args[arg]].depends_upon.begin(), ctx.threads[0].locals[args[arg]].depends_upon.end());
+
+              if (ctx.threads[0].locals[args[arg]].sealed && &dep != &ctx.threads[0].locals[args[arg]].depends_upon.back())
+                ctx.threads[0].locals[get<1>(*dep)].consumed_fields.pop_back();
+
 #if 0
+              cout << *dep << endl;
               for(auto fld : ctx.threads[0].locals[get<1>(*dep)].consumed_fields)
                 cout << "consume: " << *fld << endl;
 #endif
@@ -887,8 +892,9 @@ namespace
       switch (callee.fn->builtin)
       {
         case Builtin::Assign:
-          for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
-            ctx.threads[0].locals[get<1>(*dep)].depends_upon.insert(ctx.threads[0].locals[get<1>(*dep)].depends_upon.end(), ctx.threads[0].locals[args[1]].depends_upon.begin(), ctx.threads[0].locals[args[1]].depends_upon.end());
+          if (is_pointference_type(mir.locals[dst].type))
+            for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
+              ctx.threads[0].locals[get<1>(*dep)].depends_upon.insert(ctx.threads[0].locals[get<1>(*dep)].depends_upon.end(), ctx.threads[0].locals[args[1]].depends_upon.begin(), ctx.threads[0].locals[args[1]].depends_upon.end());
           ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[args[0]].depends_upon;
           break;
 
@@ -1253,14 +1259,20 @@ namespace
             break;
 
           case State::consumed:
-            if (!is_rvalue_reference(ctx, mir.locals[arg]) && !has_consume(ctx, notations, parm))
-              ctx.diag.warn("missing consume annotation", mir.fx.fn, parm->loc());
             break;
 
           case State::poisoned:
-//            if (!is_rvalue_reference(ctx, mir.locals[arg]) && !has_poison(ctx, notations, parm))
-//              ctx.diag.warn("missing poison annotation", mir.fx.fn, parm->loc());
+            ctx.diag.error("potentially poisoned output value", mir.fx.fn, parm->loc());
             break;
+        }
+
+        if (!is_rvalue_reference(ctx, mir.locals[arg]))
+        {
+          if (ctx.threads[0].locals[arg + mir.locals.size()].consumed && !has_consume(ctx, notations, parm))
+            ctx.diag.warn("missing consume annotation", mir.fx.fn, parm->loc());
+
+          //if (ctx.threads[0].locals[arg + mir.locals.size()].toxic && !has_poison(ctx, notations, parm))
+          //  ctx.diag.warn("missing poison annotation", mir.fx.fn, parm->loc());
         }
 
         ctx.threads[0].locals[arg].live = false;

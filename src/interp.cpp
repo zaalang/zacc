@@ -810,6 +810,7 @@ namespace
     {
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal->value());
     }
+
     else
     {
       ctx.diag.error("literal type incompatible with required type", fx.scope, literal->loc());
@@ -836,6 +837,7 @@ namespace
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal->value());
     }
+
     else
     {
       ctx.diag.error("literal type incompatible with required type", fx.scope, literal->loc());
@@ -867,6 +869,7 @@ namespace
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal->value());
     }
+
     else if (is_float_type(type))
     {
       if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), Numeric::float_cast<double>(literal->value())))
@@ -878,6 +881,7 @@ namespace
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Numeric::float_cast<double>(literal->value()));
     }
+
     else
     {
       ctx.diag.error("literal type incompatible with required type", fx.scope, literal->loc());
@@ -916,6 +920,7 @@ namespace
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal->value());
     }
+
     else
     {
       ctx.diag.error("literal type incompatible with required type", fx.scope, literal->loc());
@@ -932,16 +937,21 @@ namespace
     auto type = fx.locals[dst].type;
 
     if (is_null_type(type))
-      return true;
+    {
+      store(ctx, fx.locals[dst].alloc, nullptr);
+    }
 
-    if (!is_pointference_type(type))
+    else if (is_pointference_type(type))
+    {
+      store(ctx, fx.locals[dst].alloc, nullptr);
+    }
+
+    else
     {
       ctx.diag.error("literal type incompatible with required type", fx.scope, literal->loc());
       ctx.diag << "  literal type: 'null' required type: '" << *type << "'\n";
       return false;
     }
-
-    store(ctx, fx.locals[dst].alloc, nullptr);
 
     return true;
   }
@@ -3508,8 +3518,8 @@ namespace
     return true;
   }
 
-  //|///////////////////// eval_runtime_clock_getres ////////////////////////
-  bool eval_runtime_clock_getres(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  //|///////////////////// eval_runtime_clk_getres //////////////////////////
+  bool eval_runtime_clk_getres(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
     auto &[callee, args, loc] = call;
 
@@ -3539,8 +3549,8 @@ namespace
     return true;
   }
 
-  //|///////////////////// eval_runtime_clock_gettime ///////////////////////
-  bool eval_runtime_clock_gettime(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  //|///////////////////// eval_runtime_clk_gettime /////////////////////////
+  bool eval_runtime_clk_gettime(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
     auto &[callee, args, loc] = call;
 
@@ -3898,11 +3908,11 @@ namespace
       if (callee.fn->name == "mem_free"sv)
         return eval_runtime_mem_free(ctx, fx, dst, call);
 
-      if (callee.fn->name == "clock_getres"sv)
-        return eval_runtime_clock_getres(ctx, fx, dst, call);
+      if (callee.fn->name == "clk_getres"sv)
+        return eval_runtime_clk_getres(ctx, fx, dst, call);
 
-      if (callee.fn->name == "clock_gettime"sv)
-        return eval_runtime_clock_gettime(ctx, fx, dst, call);
+      if (callee.fn->name == "clk_gettime"sv)
+        return eval_runtime_clk_gettime(ctx, fx, dst, call);
 
       if (callee.fn->name == "exit"sv)
         return eval_runtime_exit(ctx, fx, dst, call);

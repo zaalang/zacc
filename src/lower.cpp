@@ -657,9 +657,6 @@ namespace
     if (lhs == ctx.ptrliteraltype)
       return false;
 
-    if (rhs == ctx.ptrliteraltype)
-      return true;
-
     if (is_pointer_type(rhs) || is_reference_type(rhs) || is_struct_type(rhs) || is_vtable_type(rhs))
     {
       if (rhs->klass() == Type::Pointer || rhs->klass() == Type::Reference)
@@ -2480,7 +2477,7 @@ namespace
 
           ttx.allow_const_downcast = true;
           ttx.allow_object_downcast = false;
-          ttx.allow_pointer_downcast = false; // could allow this if use opaque pointers in arrays (like tuples)
+          ttx.allow_pointer_downcast = true;
 
           if (type_cast<ArrayType>(lhs)->type == ctx.typetable.var_defn)
             return false;
@@ -2882,9 +2879,6 @@ namespace
 
     if (!deduce_type(ctx, scope, fx, type, rhs.type))
       return false;
-
-    if (is_null_type(rhs.type))
-      return true;
 
     if (is_lambda_type(rhs.type))
       return true;
@@ -4148,13 +4142,13 @@ namespace
 
     if (!is_trivial_destroy_type(type))
     {
-      vector<MIR::Fragment> parms(1);
-      map<Ident*, MIR::Fragment> namedparms;
-
-      parms[0].type = type;
-
       if (is_tag_type(type))
       {
+        vector<MIR::Fragment> parms(1);
+        map<Ident*, MIR::Fragment> namedparms;
+
+        parms[0].type = type;
+
         for(auto &decl : type_cast<TagType>(type)->decls)
         {
           if (decl->kind() == Decl::Function && (decl->flags & FunctionDecl::Destructor))
@@ -5409,22 +5403,6 @@ namespace
       }
 
       break;
-    }
-
-    if (expr.type.type == ctx.ptrliteraltype)
-    {
-      if (expr.value.kind() == MIR::RValue::Call)
-      {
-        auto arg = ctx.add_temporary();
-
-        realise_as_value(ctx, arg, expr);
-
-        commit_type(ctx, arg, expr.type.type, expr.type.flags);
-      }
-
-      lower_expr(ctx, expr, ctx.mir.make_expr<PointerLiteralExpr>(loc));
-
-      expr.type.type = type;
     }
 
     if (expr.type.type != type)
@@ -6950,7 +6928,6 @@ namespace
         lower_fer(ctx, result, result);
 
       result.type = resolve_as_reference(ctx, result.type);
-      result.type.defn = remove_const_type(remove_reference_type(result.type.defn));
 
       return true;
     }
@@ -11389,10 +11366,15 @@ namespace
     if (ctx.mir.locals[id].type == type)
       return true;
 
-    if (id < ctx.mir.args_end)
+    if ((ctx.mir.fx.fn->flags & FunctionDecl::DeclType) != FunctionDecl::MatchDecl)
     {
-      if ((ctx.mir.fx.fn->flags & FunctionDecl::DeclType) != FunctionDecl::MatchDecl)
+      if (id < ctx.mir.args_end)
+      {
+        if (is_null_type(ctx.mir.locals[id].type))
+          return true;
+
         return false;
+      }
     }
 
 #if 0

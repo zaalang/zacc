@@ -318,6 +318,10 @@ namespace
   };
 
   const long IllSpecified = 0x40000000;
+  const long WrongArgCount = 0x01000000;
+  const long WrongParmCount = 0x02000000;
+  const long MatchExprFailed = 0x03000000;
+  const long WhereExprFailed = 0x04000000;
   const long ResolveUsings = 0x10000000;
 
   Type *resolve_defn(LowerContext &ctx, Type *type);
@@ -3051,7 +3055,7 @@ namespace
     }
   }
 
-  void find_overloads(LowerContext &ctx, FindContext &tx, Scope const &scope, vector<MIR::Fragment> const &parms, map<Ident*, MIR::Fragment> const &namedparms, vector<FnSig> &results)
+  void find_overloads(LowerContext &ctx, FindContext &tx, Scope const &scope, vector<MIR::Fragment> const &parms, map<Ident*, MIR::Fragment> const &namedparms, vector<std::tuple<FnSig, size_t>> &candidates, vector<FnSig> &results)
   {
     find_decls(ctx, scope, tx.name, tx.queryflags, tx.decls);
 
@@ -3072,6 +3076,9 @@ namespace
         size_t i = 0, k = 0;
 
         auto fnscope = child_scope(ctx, scope, fn, k, tx.args, tx.namedargs);
+
+        if ((k & ~IllSpecified) != tx.args.size() + tx.namedargs.size())
+          candidates.push_back(std::make_tuple(fn, WrongArgCount));
 
         if ((k & ~IllSpecified) != tx.args.size() + tx.namedargs.size())
           continue;
@@ -3190,14 +3197,22 @@ namespace
             continue;
           }
 
+          candidates.push_back(std::make_tuple(fn, i));
+
           viable = false;
           break;
         }
 
-        k += count_if(namedparms.begin(), namedparms.end(), [&](auto &k) { auto name = k.first->sv(); return name.back() == '?'; });
+        if (viable)
+        {
+          k += count_if(namedparms.begin(), namedparms.end(), [&](auto &k) { auto name = k.first->sv(); return name.back() == '?'; });
 
-        if (k != parms.size() + namedparms.size())
-          continue;
+          if (k != parms.size() + namedparms.size())
+            viable = false;
+
+          if (!viable)
+            candidates.push_back(std::make_tuple(fn, WrongParmCount));
+        }
 
         if (viable)
         {
@@ -3231,6 +3246,9 @@ namespace
 
               k = is_pack_type(parm->type) ? parms.size() : k + 1;
             }
+
+            if (!viable)
+              candidates.push_back(std::make_tuple(fn, MatchExprFailed));
           }
         }
 
@@ -3352,6 +3370,9 @@ namespace
             }
 #endif
             viable &= eval(ctx, fx, fn->where) == 1;
+
+            if (!viable)
+              candidates.push_back(std::make_tuple(fn, WhereExprFailed));
           }
 
           if (viable)
@@ -3382,7 +3403,7 @@ namespace
 
           ttx.args.push_back(enumm);
 
-          find_overloads(ctx, ttx, ctx.translationunit->builtins, parms, namedparms, results);
+          find_overloads(ctx, ttx, ctx.translationunit->builtins, parms, namedparms, candidates, results);
         }
       }
 
@@ -3422,7 +3443,7 @@ namespace
         if ((k & ~IllSpecified) != tx.args.size() + tx.namedargs.size())
           continue;
 
-        find_overloads(ctx, ttx, typescope, parms, namedparms, results);
+        find_overloads(ctx, ttx, typescope, parms, namedparms, candidates, results);
       }
 
       if (decl->kind() == Decl::TypeAlias)
@@ -3442,7 +3463,7 @@ namespace
         {
           FindContext ttx(ctx, aliastype, QueryFlags::All);
 
-          find_overloads(ctx, ttx, scopeof_type(ctx, aliastype), parms, namedparms, results);
+          find_overloads(ctx, ttx, scopeof_type(ctx, aliastype), parms, namedparms, candidates, results);
         }
       }
 
@@ -3464,7 +3485,7 @@ namespace
 
           FindContext ttx(ctx, field, QueryFlags::All);
 
-          find_overloads(ctx, ttx, scopeof_type(ctx, field), parms, namedparms, ctors);
+          find_overloads(ctx, ttx, scopeof_type(ctx, field), parms, namedparms, candidates, ctors);
 
           for(auto &fx : ctors)
           {
@@ -3495,7 +3516,7 @@ namespace
         switch(auto usein = decl_cast<UsingDecl>(decl); usein->decl->kind())
         {
           case Decl::Module:
-            find_overloads(ctx, ttx, usein->decl, parms, namedparms, results);
+            find_overloads(ctx, ttx, usein->decl, parms, namedparms, candidates, results);
             break;
 
           case Decl::Struct:
@@ -3505,33 +3526,33 @@ namespace
           case Decl::Enum:
             if (tx.name != decl_cast<TagDecl>(usein->decl)->name)
               ttx.queryflags &= ~QueryFlags::Types;
-            find_overloads(ctx, ttx, parent_scope(usein->decl), parms, namedparms, results);
+            find_overloads(ctx, ttx, parent_scope(usein->decl), parms, namedparms, candidates, results);
             break;
 
           case Decl::TypeAlias:
             if (tx.name != decl_cast<TypeAliasDecl>(usein->decl)->name)
               ttx.queryflags &= ~QueryFlags::Types;
-            find_overloads(ctx, ttx, parent_scope(usein->decl), parms, namedparms, results);
+            find_overloads(ctx, ttx, parent_scope(usein->decl), parms, namedparms, candidates, results);
             break;
 
           case Decl::DeclRef:
             if (tx.name == decl_cast<DeclRefDecl>(usein->decl)->name)
-              find_overloads(ctx, ttx, parent_scope(usein->decl), parms, namedparms, results);
+              find_overloads(ctx, ttx, parent_scope(usein->decl), parms, namedparms, candidates, results);
             break;
 
           case Decl::DeclScoped:
             if (tx.name == decl_cast<DeclRefDecl>(decl_cast<DeclScopedDecl>(usein->decl)->decls.back())->name)
-              find_overloads(ctx, ttx, parent_scope(usein->decl), parms, namedparms, results);
+              find_overloads(ctx, ttx, parent_scope(usein->decl), parms, namedparms, candidates, results);
             break;
 
           case Decl::TypeArg:
             if (auto j = scope.find_type(usein->decl); j != scope.typeargs.end())
-              find_overloads(ctx, ttx, scopeof_type(ctx, j->second), parms, namedparms, results);
+              find_overloads(ctx, ttx, scopeof_type(ctx, j->second), parms, namedparms, candidates, results);
             break;
 
           case Decl::TypeOf:
             if (auto j = resolve_type(ctx, scope, decl_cast<TypeOfDecl>(usein->decl)))
-              find_overloads(ctx, ttx, scopeof_type(ctx, j), parms, namedparms, results);
+              find_overloads(ctx, ttx, scopeof_type(ctx, j), parms, namedparms, candidates, results);
             break;
 
           default:
@@ -3543,7 +3564,7 @@ namespace
     tx.decls.clear();
   }
 
-  void find_overloads(LowerContext &ctx, FindContext &tx, vector<Scope> const &stack, vector<MIR::Fragment> const &parms, map<Ident*, MIR::Fragment> const &namedparms, vector<FnSig> &results)
+  void find_overloads(LowerContext &ctx, FindContext &tx, vector<Scope> const &stack, vector<MIR::Fragment> const &parms, map<Ident*, MIR::Fragment> const &namedparms, vector<std::tuple<FnSig, size_t>> &candidates, vector<FnSig> &results)
   {
     for(auto sx = stack.rbegin(); sx != stack.rend(); ++sx)
     {
@@ -3563,7 +3584,7 @@ namespace
           {
             tx = FindContext(ctx, j->second, tx.queryflags);
 
-            find_overloads(ctx, tx, scopeof_type(ctx, j->second), parms, namedparms, results);
+            find_overloads(ctx, tx, scopeof_type(ctx, j->second), parms, namedparms, candidates, results);
           }
 
           break;
@@ -3577,11 +3598,11 @@ namespace
 
     for(auto scope = stack.rbegin(); scope != stack.rend(); ++scope)
     {
-      find_overloads(ctx, tx, *scope, parms, namedparms, results);
+      find_overloads(ctx, tx, *scope, parms, namedparms, candidates, results);
 
       for(auto basescope = base_scope(ctx, *scope); basescope; basescope = base_scope(ctx, basescope))
       {
-        find_overloads(ctx, tx, basescope, parms, namedparms, results);
+        find_overloads(ctx, tx, basescope, parms, namedparms, candidates, results);
       }
     }
   }
@@ -3765,6 +3786,7 @@ namespace
   FnSig find_refn(LowerContext &ctx, Scope const &scope, ParmVarDecl *parm, MIR::Local const &rhs)
   {
     vector<FnSig> overloads;
+    vector<std::tuple<FnSig, size_t>> candidates;
 
     auto typearg = type_cast<TypeArgType>(remove_const_type(remove_reference_type(parm->type)));
 
@@ -3791,13 +3813,13 @@ namespace
       auto type = type_cast<TagType>(rhs.type);
       auto typescope = Scope(type->decl, type->args);
 
-      find_overloads(ctx, tx, typescope, parms, namedparms, overloads);
-      find_overloads(ctx, tx, scopeof_type(ctx, type), parms, namedparms, overloads);
+      find_overloads(ctx, tx, typescope, parms, namedparms, candidates, overloads);
+      find_overloads(ctx, tx, scopeof_type(ctx, type), parms, namedparms, candidates, overloads);
     }
 
     auto declscope = Scope(typearg->koncept, outer_scope(scope, typearg->koncept).typeargs);
 
-    find_overloads(ctx, tx, parent_scope(declscope), parms, namedparms, overloads);
+    find_overloads(ctx, tx, parent_scope(declscope), parms, namedparms, candidates, overloads);
 
     for(auto &fx: overloads)
     {
@@ -3869,6 +3891,7 @@ namespace
   {
     FnSig fx;
     vector<FnSig> overloads;
+    vector<std::tuple<FnSig, size_t>> candidates;
 
     Callee(std::nullptr_t = nullptr)
     {
@@ -3886,14 +3909,14 @@ namespace
     {
       FindContext tx(ctx, decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->name);
 
-      find_overloads(ctx, tx, type_scope(ctx, type), parms, namedparms, callee.overloads);
+      find_overloads(ctx, tx, type_scope(ctx, type), parms, namedparms, callee.candidates, callee.overloads);
     }
 
     if (callee.overloads.empty())
     {
       FindContext tx(ctx, type);
 
-      find_overloads(ctx, tx, scopeof_type(ctx, type), parms, namedparms, callee.overloads);
+      find_overloads(ctx, tx, scopeof_type(ctx, type), parms, namedparms, callee.candidates, callee.overloads);
     }
 
     resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
@@ -3911,13 +3934,13 @@ namespace
     {
       for(auto scope = type_scope(ctx, type); scope; scope = base_scope(ctx, scope))
       {
-        find_overloads(ctx, tx, scope, parms, namedparms, callee.overloads);
+        find_overloads(ctx, tx, scope, parms, namedparms, callee.candidates, callee.overloads);
       }
     }
 
     if (callee.overloads.empty())
     {
-      find_overloads(ctx, tx, scopeof_type(ctx, type), parms, namedparms, callee.overloads);
+      find_overloads(ctx, tx, scopeof_type(ctx, type), parms, namedparms, callee.candidates, callee.overloads);
     }
 
     resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
@@ -3935,18 +3958,18 @@ namespace
     {
       for(auto scope = type_scope(ctx, parms[0].type.type); scope; scope = base_scope(ctx, scope))
       {
-        find_overloads(ctx, tx, scope, parms, namedparms, callee.overloads);
+        find_overloads(ctx, tx, scope, parms, namedparms, callee.candidates, callee.overloads);
       }
     }
 
     if (callee.overloads.empty())
     {
-      find_overloads(ctx, tx, scopeof_type(ctx, parms[0].type.type), parms, namedparms, callee.overloads);
+      find_overloads(ctx, tx, scopeof_type(ctx, parms[0].type.type), parms, namedparms, callee.candidates, callee.overloads);
     }
 
     if (callee.overloads.empty())
     {
-      find_overloads(ctx, tx, stack, parms, namedparms, callee.overloads);
+      find_overloads(ctx, tx, stack, parms, namedparms, callee.candidates, callee.overloads);
     }
 
     resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
@@ -3964,7 +3987,7 @@ namespace
     {
       for(auto scope = type_scope(ctx, parms[0].type.type); scope; scope = base_scope(ctx, scope))
       {
-        find_overloads(ctx, tx, scope, parms, namedparms, callee.overloads);
+        find_overloads(ctx, tx, scope, parms, namedparms, callee.candidates, callee.overloads);
       }
     }
 
@@ -3972,21 +3995,21 @@ namespace
     {
       for(auto scope = type_scope(ctx, parms[1].type.type); scope; scope = base_scope(ctx, scope))
       {
-        find_overloads(ctx, tx, scope, parms, namedparms, callee.overloads);
+        find_overloads(ctx, tx, scope, parms, namedparms, callee.candidates, callee.overloads);
       }
     }
 
     if (callee.overloads.empty())
     {
-      find_overloads(ctx, tx, scopeof_type(ctx, parms[0].type.type), parms, namedparms, callee.overloads);
+      find_overloads(ctx, tx, scopeof_type(ctx, parms[0].type.type), parms, namedparms, callee.candidates, callee.overloads);
 
       if (parms[1].type.type != parms[0].type.type)
-        find_overloads(ctx, tx, scopeof_type(ctx, parms[1].type.type), parms, namedparms, callee.overloads);
+        find_overloads(ctx, tx, scopeof_type(ctx, parms[1].type.type), parms, namedparms, callee.candidates, callee.overloads);
     }
 
     if (callee.overloads.empty())
     {
-      find_overloads(ctx, tx, stack, parms, namedparms, callee.overloads);
+      find_overloads(ctx, tx, stack, parms, namedparms, callee.candidates, callee.overloads);
     }
 
     resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
@@ -4010,23 +4033,23 @@ namespace
     {
       for(auto scope = basescope; scope; scope = base_scope(ctx, scope))
       {
-        find_overloads(ctx, tx, scope, parms, namedparms, callee.overloads);
+        find_overloads(ctx, tx, scope, parms, namedparms, callee.candidates, callee.overloads);
       }
 
       if (callee.overloads.empty() && is_tag_scope(basescope))
       {
-        find_overloads(ctx, tx, parent_scope(basescope), parms, namedparms, callee.overloads);
+        find_overloads(ctx, tx, parent_scope(basescope), parms, namedparms, callee.candidates, callee.overloads);
       }
     }
 
     if (callee.overloads.empty())
     {
-      find_overloads(ctx, tx, stack, parms, namedparms, callee.overloads);
+      find_overloads(ctx, tx, stack, parms, namedparms, callee.candidates, callee.overloads);
     }
 
     if (callee.overloads.empty() && ctx.inducedscope)
     {
-      find_overloads(ctx, tx, ctx.inducedscope, parms, namedparms, callee.overloads);
+      find_overloads(ctx, tx, ctx.inducedscope, parms, namedparms, callee.candidates, callee.overloads);
     }
 
     resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
@@ -4091,7 +4114,7 @@ namespace
       tx.args = typeargs(ctx, ctx.stack.back(), declref.decl->args);
       tx.namedargs = typeargs(ctx, ctx.stack.back(), declref.decl->namedargs);
 
-      find_overloads(ctx, tx, declref.scope, parms, namedparms, callee.overloads);
+      find_overloads(ctx, tx, declref.scope, parms, namedparms, callee.candidates, callee.overloads);
 
       resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
     }
@@ -4125,14 +4148,63 @@ namespace
   //|///////////////////// diag_callee //////////////////////////////////////
   void diag_callee(LowerContext &ctx, Callee const &callee, vector<MIR::Fragment> const &parms, map<Ident*, MIR::Fragment> const &namedparms)
   {
-    for(auto &overload : callee.overloads)
-      ctx.diag << "  function: '" << *overload.fn << "'\n";
+    if (callee.overloads.size() > 1)
+    {
+      ctx.diag << "  ambiguous overloads\n";
 
-    for(auto &parm : parms)
-      ctx.diag << "  " << &parm - &parms[0] << ": " << parm.type << '\n';
+      for(auto &overload : callee.overloads)
+        ctx.diag << Diag::white() << "    " << get_module(overload.fn)->file() << ":" << overload.fn->loc() << ":" << Diag::cyan() << *overload.fn << '\n';
 
-    for(auto &[name, parm] : namedparms)
-      ctx.diag << "  " << *name << ": " << parm.type << '\n';
+      ctx.diag << '\n';
+    }
+
+    if (callee.candidates.size() != 0)
+    {
+      ctx.diag << Diag::white() << "  candidate functions\n";
+
+      for(auto &[candidate, state]: callee.candidates)
+      {
+        ctx.diag << Diag::white() << "    " << get_module(candidate.fn)->file() << ":" << candidate.fn->loc() << ":" << Diag::cyan() << *candidate.fn << '\n';
+
+        if (state == WrongArgCount)
+          ctx.diag << Diag::normal() << "      wrong number of type arguments\n";
+
+        if (state == WrongParmCount)
+          ctx.diag << Diag::normal() << "      wrong number of parameters provided\n";
+
+        if (state == MatchExprFailed)
+          ctx.diag << Diag::normal() << "      match expression failed\n";
+
+        if (state == WhereExprFailed)
+          ctx.diag << Diag::normal() << "      where expression failed\n";
+
+        if (state < candidate.fn->parms.size())
+        {
+          auto parm = decl_cast<ParmVarDecl>(candidate.fn->parms[state]);
+
+          ctx.diag << Diag::normal() << "      no conversion for parameter " << state + 1 << ", wanted: '"
+                   << ((is_reference_type(parm->type) && !is_const_reference(parm->type)) ? "&mut " : "")
+                   << *remove_const_type(remove_reference_type(parm->type)) << "'\n";
+        }
+      }
+
+      ctx.diag << '\n';
+    }
+
+    if (parms.size() != 0 || namedparms.size() != 0)
+    {
+      ctx.diag << Diag::white() << "  provided parameters\n";
+
+      for(auto &parm : parms)
+        ctx.diag << Diag::white() << "    " << &parm - &parms[0] + 1 << ": " << Diag::cyan() << parm.type << '\n';
+
+      for(auto &[name, parm] : namedparms)
+        ctx.diag << Diag::white() << "    " << *name << ": " << Diag::cyan() << parm.type << '\n';
+
+      ctx.diag << '\n';
+    }
+
+    ctx.diag << Diag::normal();
   }
 
   //|///////////////////// find_destructor //////////////////////////////////
@@ -8104,7 +8176,7 @@ namespace
 
     FindContext tx(ctx, decl_cast<LambdaDecl>(lambda->decl)->name, QueryFlags::Functions);
 
-    find_overloads(ctx, tx, typescope, parms, namedparms, callee.overloads);
+    find_overloads(ctx, tx, typescope, parms, namedparms, callee.candidates, callee.overloads);
 
     resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
 
@@ -9560,7 +9632,7 @@ namespace
       Callee callee;
       FindContext tx(ctx, type);
       tx.args.insert(tx.args.begin(), scopetype);
-      find_overloads(ctx, tx, scopeof_type(ctx, type), parms, namedparms, callee.overloads);
+      find_overloads(ctx, tx, scopeof_type(ctx, type), parms, namedparms, callee.candidates, callee.overloads);
       resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
 
       if (!callee || !is_vtable_type(thistype->fields[0]))

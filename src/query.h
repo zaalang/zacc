@@ -18,20 +18,21 @@ namespace QueryFlags
 {
   enum QueryFlags
   {
-    Modules = 0x1,    // include module decls
-    Functions = 0x2,  // include function decls
-    Parameters = 0x4, // include parameter decls
-    Variables = 0x8,  // include variable decls
-    Types = 0x10,     // include type decls
-    Enums = 0x20,     // include enum constants
-    Fields = 0x40,    // include field decls
-    Concepts = 0x80,  // include concept decls
-    Imports = 0x100,  // include import decls
-    Usings = 0x200,   // include using decls
+    Modules = 0x1,      // include module decls
+    Methods = 0x2,      // include function non-static decls
+    Functions = 0x6,    // include function and method decls
+    Parameters = 0x8,   // include parameter decls
+    Variables = 0x10,   // include variable decls
+    Types = 0x20,       // include type decls
+    Enums = 0x40,       // include enum constants
+    Fields = 0x80,      // include field decls
+    Concepts = 0x100,   // include concept decls
+    Imports = 0x200,    // include import decls
+    Usings = 0x400,     // include using decls
 
     All = 0x7FFF,
 
-    Public = 0x8000  // exclude non public decls
+    Public = 0x8000,    // exclude non public decls
   };
 }
 

@@ -1024,6 +1024,11 @@ namespace
   void semantic_decl(SemanticContext &ctx, CaseVarDecl *var, Sema &sema)
   {
     semantic_type(ctx, var->type, sema);
+
+    if (var->value)
+    {
+      semantic_expr(ctx, var->value, sema);
+    }
   }
 
   //|///////////////////// import ///////////////////////////////////////////

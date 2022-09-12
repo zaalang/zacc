@@ -1982,6 +1982,11 @@ namespace
   void typer_decl(TyperContext &ctx, CaseVarDecl *var, Sema &sema)
   {
     resolve_type(ctx, ctx.stack.back(), var->type, sema);
+
+    if (var->value)
+    {
+      resolve_expr(ctx, ctx.stack.back(), var->value, sema);
+    }
   }
 
   //|///////////////////// import ///////////////////////////////////////////

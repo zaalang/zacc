@@ -1417,6 +1417,7 @@ namespace
         case Token::tilde:
         case Token::pipepipe:
         case Token::period:
+        case Token::arrow:
         case Token::kw_true:
         case Token::kw_false:
         case Token::kw_cast:
@@ -1940,7 +1941,7 @@ namespace
   //|///////////////////// parse_member /////////////////////////////////////
   Expr *parse_member(ParseContext &ctx, Expr *base, Sema &sema)
   {
-    ctx.consume_token(Token::period);
+    ctx.consume_token();
 
     auto loc = ctx.tok.loc;
     auto name = parse_qualified_name(ctx, sema);
@@ -2209,6 +2210,7 @@ namespace
 
     switch (op.type)
     {
+      case Token::arrow:
       case Token::period:
         return parse_expression_post(ctx, parse_member(ctx, lhs, sema), sema);
 
@@ -3050,6 +3052,9 @@ namespace
     if (ctx.try_consume_token(Token::kw_const))
       fn->flags |= FunctionDecl::Const;
 
+    if (ctx.try_consume_token(Token::kw_static))
+      fn->flags |= FunctionDecl::Static;
+
     fn->attributes = std::move(ctx.attributes);
 
     if (!ctx.try_consume_token(Token::kw_fn))
@@ -3205,6 +3210,7 @@ namespace
     auto fn = sema.function_declaration(ctx.tok.loc);
 
     fn->flags |= FunctionDecl::Constructor;
+    fn->flags |= FunctionDecl::Static;
 
     if (ctx.try_consume_token(Token::kw_pub))
       fn->flags |= FunctionDecl::Public;
@@ -3450,6 +3456,11 @@ namespace
             default:
               goto unhandled;
           }
+        }
+
+        if (tok == Token::kw_static)
+        {
+          tok = ctx.token(nexttok++);
         }
 
         switch (tok.type)
@@ -3734,6 +3745,11 @@ namespace
           }
         }
 
+        if (tok == Token::kw_static)
+        {
+          tok = ctx.token(nexttok++);
+        }
+
         switch (tok.type)
         {
           case Token::semi:
@@ -3946,6 +3962,11 @@ namespace
             default:
               goto unhandled;
           }
+        }
+
+        if (tok == Token::kw_static)
+        {
+          tok = ctx.token(nexttok++);
         }
 
         switch (tok.type)
@@ -4183,6 +4204,11 @@ namespace
           }
         }
 
+        if (tok == Token::kw_static)
+        {
+          tok = ctx.token(nexttok++);
+        }
+
         switch (tok.type)
         {
           case Token::semi:
@@ -4336,7 +4362,7 @@ namespace
       {
         auto var = sema.casevar_declaration(ctx.tok.loc);
 
-        if (ctx.tok == Token::kw_var)
+        if (ctx.tok == Token::kw_let || ctx.tok == Token::kw_var)
         {
           var->type = parse_var_defn(ctx, var->flags, sema.make_typearg(Ident::kw_var, ctx.tok.loc), sema);
 
@@ -4356,6 +4382,11 @@ namespace
               ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
               goto resume;
             }
+          }
+
+          if (ctx.try_consume_token(Token::equal))
+          {
+            var->value = parse_expression(ctx, sema);
           }
         }
         else
@@ -4490,6 +4521,11 @@ namespace
             default:
               goto unhandled;
           }
+        }
+
+        if (tok == Token::kw_static)
+        {
+          tok = ctx.token(nexttok++);
         }
 
         switch (tok.type)
@@ -5521,6 +5557,11 @@ namespace
           default:
             goto unhandled;
         }
+      }
+
+      if (tok == Token::kw_static)
+      {
+        tok = ctx.token(nexttok++);
       }
 
       switch (tok.type)

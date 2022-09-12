@@ -501,8 +501,8 @@ namespace Builtin
     make_function(ArrayBegin, "pub fn begin<T, N>(T[N] mut &) -> T mut *", __LINE__);
     make_function(ArrayEnd, "pub fn end<T, N>(T[N]&) -> T*", __LINE__);
     make_function(ArrayEnd, "pub fn end<T, N>(T[N] mut &) -> T mut *", __LINE__);
-    make_function(ArrayEq, "pub const fn ==<T, N>(T[N]&, T[N]&) -> bool", FunctionDecl::Defaulted, __LINE__);
-    make_function(ArrayCmp, "pub const fn <=><T, N>(T[N]&, T[N]&) -> int", FunctionDecl::Defaulted, __LINE__);
+    make_function(ArrayEq, "pub const fn ==<T>(T&, T&) -> bool", FunctionDecl::Defaulted, __LINE__);
+    make_function(ArrayCmp, "pub const fn <=><T>(T&, T&) -> int", FunctionDecl::Defaulted, __LINE__);
 
     make_function(TupleLen, "pub const fn len<T>(T&) -> usize", __LINE__);
     make_function(TupleEq, "pub const fn ==<T>(T&, T&) -> bool", FunctionDecl::Defaulted, __LINE__);
@@ -804,6 +804,8 @@ namespace Builtin
       case Builtin::Array_Copytructor:
       case Builtin::Array_Assignment:
       case Builtin::Array_Destructor:
+      case Builtin::ArrayEq:
+      case Builtin::ArrayCmp:
         if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_array_type(T->second);
         break;

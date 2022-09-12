@@ -233,7 +233,7 @@ void find_decl(Decl *decl, Ident *name, long flags, vector<Decl*> &results)
       break;
 
     case Decl::Function:
-      if (decl_cast<FunctionDecl>(decl)->name == name && (flags & Functions))
+      if (decl_cast<FunctionDecl>(decl)->name == name && ((flags & Functions) == Functions || ((flags & Methods) && !(decl->flags & FunctionDecl::Static))))
         results.push_back(decl);
       break;
 

@@ -1003,6 +1003,11 @@ void CaseVarDecl::dump(int indent) const
   {
     type->dump(indent + 2);
   }
+
+  if (value)
+  {
+    value->dump(indent + 2);
+  }
 }
 
 //|--------------------- ConceptDecl ----------------------------------------

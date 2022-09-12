@@ -537,6 +537,9 @@ namespace
     if (var->pattern)
       result->pattern = copier_decl(ctx, var->pattern);
 
+    if (var->value)
+      result->value = copier_expr(ctx, var->value);
+
     return result;
   }
 

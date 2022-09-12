@@ -681,7 +681,7 @@ bool find_assignment(MIR &mir, MIR::local_t dst, MIR::Block *&block, MIR::Statem
   }
 }
 
-//|///////////////////// dump_mir ///////////////////////////////////////////
+//|///////////////////// find_assignment ////////////////////////////////////
 MIR::Statement *find_assignment(MIR &mir, MIR::local_t dst, MIR::Block &block, MIR::Statement &statement)
 {
   auto *inblock = &block;

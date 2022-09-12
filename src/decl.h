@@ -166,12 +166,13 @@ class FunctionDecl : public Decl
       Destructor = 0x20,
       Defaulted = 0x40,
       Deleted = 0x80,
+      Static = 0x100,
 
-      NoReturn = 0x100,
-      Inhibited = 0x200,
-      Lifetimed = 0x400,
-      NoInline = 0x800,
-      Weak = 0x1000,
+      NoReturn = 0x1000,
+      Inhibited = 0x2000,
+      Lifetimed = 0x4000,
+      NoInline = 0x8000,
+      Weak = 0x10000,
 
       ExternC = 0x100000,
       ExternWin64 = 0x200000,
@@ -662,6 +663,8 @@ class CaseVarDecl : public VarDecl
 {
   public:
     CaseVarDecl(SourceLocation loc);
+
+    Expr *value = nullptr;
 
     void dump(int indent) const override;
 };

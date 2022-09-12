@@ -422,15 +422,34 @@ std::ostream &operator <<(std::ostream &os, Type const &type)
       break;
 
     case Type::Pointer:
-      os << *static_cast<PointerType const &>(type).type << " *";
+      switch (static_cast<PointerType const &>(type).type->klass())
+      {
+        case Type::Const:
+          os << *static_cast<ConstType>(static_cast<PointerType const &>(type).type).type << " *";
+          break;
+
+        default:
+          os << *static_cast<PointerType const &>(type).type << " mut *";
+          break;
+      }
       break;
 
-    case Type::Reference: {
-      os << *static_cast<ReferenceType const &>(type).type << " &";
-      if (is_qualarg_type(static_cast<ReferenceType const &>(type).type))
-        os << '&';
+    case Type::Reference:
+      switch (static_cast<ReferenceType const &>(type).type->klass())
+      {
+        case Type::Const:
+          os << *static_cast<ConstType>(static_cast<ReferenceType const &>(type).type).type << " &";
+          break;
+
+        case Type::QualArg:
+          os << *static_cast<ReferenceType const &>(type).type << " &&";
+          break;
+
+        default:
+          os << *static_cast<ReferenceType const &>(type).type << " mut &";
+          break;
+      }
       break;
-    }
 
     case Type::Array:
       os << *static_cast<ArrayType const &>(type).type << " [" << *static_cast<ArrayType const &>(type).size << "]";

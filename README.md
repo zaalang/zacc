@@ -13,6 +13,44 @@ A fledgling new programming language in the vein of c++
   }
 ```
 
+### Features
+
+  * templates
+  * operators
+  * overloading
+  * builtin tuples
+  * builtin tagged unions
+  * constructors/desctuctors
+  * type reflection
+  * compile time execution
+  * code fragments
+
+There are unfortunately few samples or tests. A flavour for the language can be gained from looking over the growing standard library at [https://github.com/zaalang/std](https://github.com/zaalang/std)  
+
+### Lifetime Checker
+While not a memory safe language, there is a capable static lifetime checker built in. This uses annotations on function parameters to check for dangling or  poisoned pointers and invalidated iterators.
+
+```
+  import std.vector;
+
+  fn main
+  {
+    var characters = std::vector<char>::from(['a', 'b', 'c', 'd']);
+
+    for(var ch : characters)
+    {
+      if (ch == 'z')
+        characters.push_back('!');
+    }
+  }
+ 
+  test.zaa:in function 'fn main()'
+  test.zaa:11:3: error: potentially poisoned variable access
+      for(var ch : characters)               
+```
+
+There are plans to expand this checker to work with fewer or no annotations.
+
 ## Language Overview
 see [https://zaalang.readthedocs.io](https://zaalang.readthedocs.io/en/latest/overview.html)
 
@@ -26,7 +64,7 @@ $ git clone https://github.com/zaalang/zrt
 $ git clone https://github.com/zaalang/std
 ```
 
-Further, requires LLVM 12.x. This can be installed from the os repositories or compiled from source. See https://llvm.org/docs/GettingStarted.html
+Further, requires LLVM 15.x. This can be installed from the os repositories or compiled from source. See https://llvm.org/docs/GettingStarted.html
 
 #### Building with GCC, MinGW64 or Clang.
 ```

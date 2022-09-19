@@ -425,7 +425,7 @@ std::ostream &operator <<(std::ostream &os, Type const &type)
       switch (static_cast<PointerType const &>(type).type->klass())
       {
         case Type::Const:
-          os << *static_cast<ConstType>(static_cast<PointerType const &>(type).type).type << " *";
+          os << *static_cast<ConstType const *>(static_cast<PointerType const &>(type).type)->type << " *";
           break;
 
         default:
@@ -438,7 +438,7 @@ std::ostream &operator <<(std::ostream &os, Type const &type)
       switch (static_cast<ReferenceType const &>(type).type->klass())
       {
         case Type::Const:
-          os << *static_cast<ConstType>(static_cast<ReferenceType const &>(type).type).type << " &";
+          os << *static_cast<ConstType const *>(static_cast<ReferenceType const &>(type).type)->type << " &";
           break;
 
         case Type::QualArg:

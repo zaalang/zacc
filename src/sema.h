@@ -92,7 +92,7 @@ class Sema
     Expr *make_tuple_literal(std::vector<Expr*> const &fields, SourceLocation loc);
     Expr *make_void_literal(SourceLocation loc);
     Expr *make_pointer_literal(SourceLocation loc);
-    Expr *make_mutref_expression(Expr *expr, SourceLocation loc);
+    Expr *make_ref_expression(Expr *expr, long qualifiers, SourceLocation loc);
     Expr *make_paren_expression(Expr *subexpr, SourceLocation loc);
     Expr *make_unary_expression(UnaryOpExpr::OpCode op, Expr *subexpr, SourceLocation loc);
     Expr *make_binary_expression(BinaryOpExpr::OpCode op, Expr *lhs, Expr *rhs, SourceLocation loc);

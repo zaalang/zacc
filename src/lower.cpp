@@ -21,6 +21,8 @@ using namespace std;
 #define PACK_REFS 1
 #define TRANSATIVE_CONST 1
 #define EARLY_DEDUCE_PARMS 1
+#define STRICT_BINDING 1
+#define REFERENCE_DECAY 1
 #define ASSOCIATED_DEREF 0
 
 namespace
@@ -5824,6 +5826,9 @@ namespace
           value.type.flags = (value.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
       }
 
+      if (!(value.type.flags & MIR::Local::MutRef) && !(expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd))
+        value.type.flags |= MIR::Local::ConstRef;
+
       parms.push_back(std::move(value));
     }
 
@@ -5833,8 +5838,6 @@ namespace
   //|///////////////////// lower_expand /////////////////////////////////////
   bool lower_expand(LowerContext &ctx, vector<MIR::Fragment> &parms, Expr *expr, SourceLocation loc)
   {
-    // The expand feature could probably be removed in favour of macros or string eval
-
     size_t iterations = size_t(-1);
 
     vector<Expr*> stack(1, expr);
@@ -5951,15 +5954,6 @@ namespace
   {
     for(auto expr : exprs)
     {
-      auto mutref = false;
-
-      if (expr->kind() == Expr::ExprRef)
-      {
-        mutref = true;
-
-        expr = expr_cast<ExprRefExpr>(expr)->expr;
-      }
-
       if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Unpack)
       {
         expr = expr_cast<UnaryOpExpr>(expr)->subexpr;
@@ -5983,10 +5977,7 @@ namespace
       if (!lower_expr(ctx, parm, expr))
         return false;
 
-      if (mutref && (parm.type.flags & MIR::Local::Const))
-        ctx.diag.error("invalid mut reference type", ctx.stack.back(), expr->loc());
-
-      if (!mutref && !(expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd))
+      if (!(parm.type.flags & MIR::Local::MutRef) && !(expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd))
         parm.type.flags |= MIR::Local::ConstRef;
 
       parms.push_back(std::move(parm));
@@ -5994,24 +5985,12 @@ namespace
 
     for(auto [name, expr] : namedexprs)
     {
-      auto mutref = false;
-
-      if (expr->kind() == Expr::ExprRef)
-      {
-        mutref = true;
-
-        expr = expr_cast<ExprRefExpr>(expr)->expr;
-      }
-
       MIR::Fragment parm;
 
       if (!lower_expr(ctx, parm, expr))
         return false;
 
-      if (mutref && (parm.type.flags & MIR::Local::Const))
-        ctx.diag.error("invalid mut reference type", ctx.stack.back(), expr->loc());
-
-      if (!mutref && !(expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd))
+      if (!(parm.type.flags & MIR::Local::MutRef) && !(expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd))
         parm.type.flags |= MIR::Local::ConstRef;
 
       namedparms.emplace(name, std::move(parm));
@@ -6278,7 +6257,7 @@ namespace
     {
       result.type = resolve_as_reference(ctx, result.type);
 
-      if (is_qualarg_reference(result.type.defn))
+      if (is_qualarg_reference(result.type.defn) && (type_cast<QualArgType>(type_cast<ReferenceType>(result.type.defn)->type)->qualifiers & QualArgType::RValue))
         result.type.flags = (result.type.flags & ~MIR::Local::LValue) | MIR::Local::RValue;
 
       if ((callee.fn->flags & FunctionDecl::Builtin) && callee.fn->builtin == Builtin::ArrayIndex)
@@ -7005,6 +6984,22 @@ namespace
       ctx.diag.error("cannot call constructor without parenthesis", ctx.stack.back(), declref->loc());
 
     lower_call(ctx, result, callee.fx, parms, namedparms, declref->loc());
+  }
+
+  //|///////////////////// lower_exprref ////////////////////////////////////
+  void lower_expr(LowerContext &ctx, MIR::Fragment &result, ExprRefExpr *exprref)
+  {
+    if (!lower_expr(ctx, result, exprref->expr))
+      return;
+
+    if (result.type.flags & MIR::Local::Const)
+      ctx.diag.error("invalid mut reference type", ctx.stack.back(), exprref->expr->loc());
+
+    if (exprref->qualifiers & ExprRefExpr::Mut)
+      result.type.flags |= MIR::Local::MutRef;
+
+    if (exprref->qualifiers & ExprRefExpr::Move)
+      result.type.flags = (result.type.flags & ~MIR::Local::LValue) | MIR::Local::RValue | MIR::Local::MoveRef;
   }
 
   //|///////////////////// lower_unaryop ////////////////////////////////////
@@ -8330,6 +8325,10 @@ namespace
         lower_expr(ctx, result, expr_cast<DeclRefExpr>(expr));
         break;
 
+      case Expr::ExprRef:
+        lower_expr(ctx, result, expr_cast<ExprRefExpr>(expr));
+        break;
+
       case Expr::UnaryOp:
         lower_expr(ctx, result, expr_cast<UnaryOpExpr>(expr));
         break;
@@ -8572,7 +8571,7 @@ namespace
 
     if (is_reference_type(stmtvar->type) && !is_qualarg_reference(stmtvar->type))
     {
-#if 1
+#if STRICT_BINDING
       if (!(value.type.flags & MIR::Local::Reference))
         ctx.diag.error("non reference type", ctx.stack.back(), stmtvar->loc());
 
@@ -8584,11 +8583,13 @@ namespace
 #endif
     }
 
+#if REFERENCE_DECAY
     if (!is_reference_type(stmtvar->type))
     {
       if (is_return_reference(ctx, stmtvar->value) && !(value.type.flags & MIR::Local::Const))
         value.type.type = ctx.typetable.find_or_create<PointerType>(remove_reference_type(value.type.type));
     }
+#endif
 
     lower_decl(ctx, stmtvar, value);
   }
@@ -10163,6 +10164,7 @@ namespace
 
           realise(ctx, arg, range);
 
+          range.type.flags &= ~MIR::Local::MutRef;
           commit_type(ctx, arg, range.type.type, range.type.flags);
 
           if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
@@ -10405,6 +10407,7 @@ namespace
 
           realise(ctx, arg, range);
 
+          range.type.flags &= ~MIR::Local::MutRef;
           commit_type(ctx, arg, range.type.type, range.type.flags);
 
           if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))

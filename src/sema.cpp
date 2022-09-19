@@ -465,9 +465,9 @@ Expr *Sema::make_pointer_literal(SourceLocation loc)
 }
 
 //|///////////////////// make_mutref_expression /////////////////////////////
-Expr *Sema::make_mutref_expression(Expr *expr, SourceLocation loc)
+Expr *Sema::make_ref_expression(Expr *expr, long qualifiers, SourceLocation loc)
 {
-  return ast->make_expr<ExprRefExpr>(expr, loc);
+  return ast->make_expr<ExprRefExpr>(expr, qualifiers, loc);
 }
 
 //|///////////////////// make_paren_expression //////////////////////////////

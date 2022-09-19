@@ -679,6 +679,8 @@ namespace
       case 'm':
         if (identifier == "mut")
           type = Token::kw_mut;
+        else if (identifier == "move")
+          type = Token::kw_move;
         break;
 
       case 'n':

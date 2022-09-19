@@ -410,6 +410,7 @@ namespace
       case Token::kw_await:
       case Token::kw_void:
       case Token::kw_null:
+      case Token::kw_move:
       case Token::kw_new:
       case Token::kw_nil:
       case Token::kw_var:
@@ -723,20 +724,24 @@ namespace
       if (ctx.tok == Token::identifier && (ctx.token(1) == Token::colon || (ctx.token(1) == Token::question && ctx.token(2) == Token::colon)))
         break;
 
-      auto mutref = (ctx.tok == Token::amp) && (ctx.token(1) == Token::kw_mut);
-
-      if (mutref)
-      {
-        ctx.consume_token(Token::amp);
-        ctx.consume_token(Token::kw_mut);
-      }
-
       auto expr = parse_expression(ctx, sema);
 
       if (!expr)
       {
         ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
         break;
+      }
+
+      if (expr->kind() == Expr::ExprRef)
+      {
+        auto ref = expr_cast<ExprRefExpr>(expr);
+
+        if (ref->expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(ref->expr)->op() == UnaryOpExpr::Unpack)
+        {
+          expr = ref->expr;
+          ref->expr = expr_cast<UnaryOpExpr>(ref->expr)->subexpr;
+          expr_cast<UnaryOpExpr>(expr)->subexpr = ref;
+        }
       }
 
       if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd)
@@ -749,11 +754,6 @@ namespace
           fwd->subexpr = expr_cast<UnaryOpExpr>(fwd->subexpr)->subexpr;
           expr_cast<UnaryOpExpr>(expr)->subexpr = fwd;
         }
-      }
-
-      if (mutref)
-      {
-        expr = sema.make_mutref_expression(expr, expr->loc());
       }
 
       exprs.push_back(expr);
@@ -782,25 +782,12 @@ namespace
 
       ctx.consume_token(Token::colon);
 
-      auto mutref = (ctx.tok == Token::amp) && (ctx.token(1) == Token::kw_mut);
-
-      if (mutref)
-      {
-        ctx.consume_token(Token::amp);
-        ctx.consume_token(Token::kw_mut);
-      }
-
       auto expr = parse_expression(ctx, sema);
 
       if (!expr)
       {
         ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
         break;
-      }
-
-      if (mutref)
-      {
-        expr = sema.make_mutref_expression(expr, expr->loc());
       }
 
       exprs.emplace(name, expr);
@@ -2251,6 +2238,25 @@ namespace
       return parse_expression_post(ctx, parse_callee(ctx, sema), sema);
     }
 
+    if (op.type == Token::amp)
+    {
+      switch (auto nexttok = ctx.token(1); nexttok.type)
+      {
+        case Token::kw_mut:
+          ctx.consume_token(Token::amp);
+          ctx.consume_token(Token::kw_mut);
+          return sema.make_ref_expression(parse_expression_left(ctx, sema), ExprRefExpr::Mut, op.loc);
+
+        case Token::kw_move:
+          ctx.consume_token(Token::amp);
+          ctx.consume_token(Token::kw_move);
+          return sema.make_ref_expression(parse_expression_left(ctx, sema), ExprRefExpr::Mut | ExprRefExpr::Move, op.loc);
+
+        default:
+          break;
+      }
+    }
+
     switch (op.type)
     {
       case Token::l_paren:
@@ -2280,6 +2286,7 @@ namespace
 
       case Token::kw_void:
       case Token::kw_null:
+      case Token::kw_move:
         return parse_expression_post(ctx, parse_callee(ctx, sema), sema);
 
       case Token::kw_sizeof:

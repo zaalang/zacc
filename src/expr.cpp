@@ -477,8 +477,9 @@ void CompoundLiteralExpr::dump(int indent) const
 //|--------------------------------------------------------------------------
 
 //|///////////////////// ExprRefExpr::Constructor ///////////////////////////
-ExprRefExpr::ExprRefExpr(Expr *expr, SourceLocation loc)
+ExprRefExpr::ExprRefExpr(Expr *expr, long qualifiers, SourceLocation loc)
   : Expr(ExprRef, loc),
+    qualifiers(qualifiers),
     expr(expr)
 {
 }

@@ -169,6 +169,7 @@ struct Token
     kw_concept,
     kw_import,
     kw_enum,
+    kw_move,
     kw_goto,
     kw_yield,
     kw_await,

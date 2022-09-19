@@ -113,6 +113,9 @@ namespace
         for(auto fld : threads[0].locals[get<1>(*dep)].consumed_fields)
           if (get<1>(*fld) == get<1>(*dep) && is_common_field(get<2>(*fld), get<2>(*dep)))
             return true;
+
+        if (depth != 0 && get<2>(*dep).empty() && is_consumed(get<1>(*dep), depth - 1))
+          return true;
       }
 
       return !threads[0].locals[arg].consumed_fields.empty();
@@ -399,6 +402,112 @@ namespace
     return false;
   }
 
+  //|///////////////////// consume //////////////////////////////////////////
+  void consume(Context &ctx, MIR const &mir, MIR::local_t arg)
+  {
+    for(auto &dep : ctx.threads[0].locals[arg].depends_upon)
+    {
+      ctx.threads[0].locals[get<1>(*dep)].consumed = true;
+      ctx.threads[0].locals[get<1>(*dep)].consumed_fields.insert(ctx.threads[0].locals[get<1>(*dep)].consumed_fields.end(), ctx.threads[0].locals[arg].depends_upon.begin(), ctx.threads[0].locals[arg].depends_upon.end());
+
+      if (ctx.threads[0].locals[arg].sealed && &dep != &ctx.threads[0].locals[arg].depends_upon.back())
+        ctx.threads[0].locals[get<1>(*dep)].consumed_fields.pop_back();
+
+#if 0
+      cout << *dep << endl;
+      for(auto fld : ctx.threads[0].locals[get<1>(*dep)].consumed_fields)
+        cout << "consume: " << *fld << endl;
+#endif
+    }
+  }
+
+  //|///////////////////// poison ///////////////////////////////////////////
+  void poison(Context &ctx, MIR const &mir, MIR::local_t arg)
+  {
+#if 0
+    cout << "poison: " << dst << " = " << callee << endl;
+    for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+      cout << "      : " << *dep << endl;
+#endif
+
+    for(auto &dep : ctx.threads[0].locals[arg].depends_upon)
+    {
+      ctx.threads[0].locals[get<1>(*dep)].toxic = true;
+
+      if (ctx.threads[0].locals[arg].sealed && &dep != &ctx.threads[0].locals[arg].depends_upon.back())
+        continue;
+
+      for(auto &local : ctx.threads[0].locals)
+      {
+        if (!local.live)
+          continue;
+
+        if (local.immune)
+          continue;
+
+        if (local.sealed && local.depends_upon.back() == dep)
+          continue;
+
+        for(auto fld : local.depends_upon)
+        {
+          if (get<1>(*fld) != get<1>(*dep))
+            continue;
+
+          if (!ctx.is_super_field(get<2>(*dep), get<2>(*fld)))
+            continue;
+
+#if 0
+          cout << "      : " << &local - &ctx.threads[0].locals.front() << " has " << *fld << endl;
+#endif
+
+          local.poisoned = true;
+        }
+      }
+    }
+  }
+
+  //|///////////////////// launder //////////////////////////////////////////
+  void launder(Context &ctx, MIR const &mir, MIR::local_t arg)
+  {
+#if 0
+    for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
+      cout << "launder: " << *dep << endl;
+#endif
+
+    for(auto dep : ctx.threads[0].locals[arg].depends_upon)
+    {
+      auto &consumed_fields = ctx.threads[0].locals[get<1>(*dep)].consumed_fields;
+
+      for(auto i = consumed_fields.begin(); i != consumed_fields.end(); )
+      {
+        if (ctx.is_super_field(get<2>(*dep), get<2>(**i)))
+          i = consumed_fields.erase(i);
+        else
+          ++i;
+      }
+
+      if (consumed_fields.empty())
+      {
+        ctx.threads[0].locals[get<1>(*dep)].consumed = false;
+      }
+
+      if (get<2>(*dep).empty())
+      {
+        ctx.threads[0].locals[get<1>(*dep)].immune = false;
+        ctx.threads[0].locals[get<1>(*dep)].consumed = false;
+        ctx.threads[0].locals[get<1>(*dep)].poisoned = false;
+        ctx.threads[0].locals[get<1>(*dep)].toxic = false;
+        ctx.threads[0].locals[get<1>(*dep)].depends_upon.clear();
+        ctx.threads[0].locals[get<1>(*dep)].consumed_fields.clear();
+      }
+    }
+
+    if (ctx.threads[0].locals[arg].immune)
+      ctx.threads[0].locals[arg].poisoned = false;
+
+    ctx.threads[0].locals[arg].consumed = false;
+  }
+
   //|///////////////////// apply ////////////////////////////////////////////
   void apply(Context &ctx, MIR const &mir, Annotation const &annotation, MIR::local_t dst, FnSig const &callee, vector<MIR::local_t> const &args, SourceLocation loc)
   {
@@ -411,20 +520,7 @@ namespace
         {
           if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
           {
-            for(auto &dep : ctx.threads[0].locals[args[arg]].depends_upon)
-            {
-              ctx.threads[0].locals[get<1>(*dep)].consumed = true;
-              ctx.threads[0].locals[get<1>(*dep)].consumed_fields.insert(ctx.threads[0].locals[get<1>(*dep)].consumed_fields.end(), ctx.threads[0].locals[args[arg]].depends_upon.begin(), ctx.threads[0].locals[args[arg]].depends_upon.end());
-
-              if (ctx.threads[0].locals[args[arg]].sealed && &dep != &ctx.threads[0].locals[args[arg]].depends_upon.back())
-                ctx.threads[0].locals[get<1>(*dep)].consumed_fields.pop_back();
-
-#if 0
-              cout << *dep << endl;
-              for(auto fld : ctx.threads[0].locals[get<1>(*dep)].consumed_fields)
-                cout << "consume: " << *fld << endl;
-#endif
-            }
+            consume(ctx, mir, args[arg]);
 
             break;
           }
@@ -528,46 +624,7 @@ namespace
         {
           if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
           {
-#if 0
-            cout << "poison: " << dst << " = " << callee << endl;
-            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-              cout << "      : " << *dep << endl;
-#endif
-
-            for(auto &dep : ctx.threads[0].locals[args[arg]].depends_upon)
-            {
-              ctx.threads[0].locals[get<1>(*dep)].toxic = true;
-
-              if (ctx.threads[0].locals[args[arg]].sealed && &dep != &ctx.threads[0].locals[args[arg]].depends_upon.back())
-                continue;
-
-              for(auto &local : ctx.threads[0].locals)
-              {
-                if (!local.live)
-                  continue;
-
-                if (local.immune)
-                  continue;
-
-                if (local.sealed && local.depends_upon.back() == dep)
-                  continue;
-
-                for(auto fld : local.depends_upon)
-                {
-                  if (get<1>(*fld) != get<1>(*dep))
-                    continue;
-
-                  if (!ctx.is_super_field(get<2>(*dep), get<2>(*fld)))
-                    continue;
-
-#if 0
-                  cout << "      : " << &local - &ctx.threads[0].locals.front() << " has " << *fld << endl;
-#endif
-
-                  local.poisoned = true;
-                }
-              }
-            }
+            poison(ctx, mir, args[arg]);
 
             break;
           }
@@ -762,6 +819,15 @@ namespace
 
       ctx.threads[0].locals[dst].poisoned = ctx.threads[0].locals[arg].poisoned;
       ctx.threads[0].locals[dst].consumed = ctx.threads[0].locals[arg].consumed;
+
+      if (mir.locals[dst].flags & MIR::Local::MoveRef)
+      {
+        if (ctx.state(arg) != State::ok)
+          ctx.diag.error("potentially invalid variable access", mir.fx.fn, loc);
+
+        consume(ctx, mir, dst);
+        ctx.threads[0].locals[dst].depends_upon.clear();
+      }
     }
 
     if (fields.size() != 0 && fields[0].op == MIR::RValue::Val && all_of(fields.begin() + 1, fields.end(), [](auto k){ return k.op != MIR::RValue::Val; }))
@@ -799,43 +865,7 @@ namespace
 
     if (callee.fn->name == Ident::op_assign || has_launder(ctx, notations))
     {
-#if 0
-      for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
-        cout << "launder: " << *dep << endl;
-#endif
-
-      for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
-      {
-        auto &consumed_fields = ctx.threads[0].locals[get<1>(*dep)].consumed_fields;
-
-        for(auto i = consumed_fields.begin(); i != consumed_fields.end(); )
-        {
-          if (ctx.is_super_field(get<2>(*dep), get<2>(**i)))
-            i = consumed_fields.erase(i);
-          else
-            ++i;
-        }
-
-        if (consumed_fields.empty())
-        {
-          ctx.threads[0].locals[get<1>(*dep)].consumed = false;
-        }
-
-        if (get<2>(*dep).empty())
-        {
-          ctx.threads[0].locals[get<1>(*dep)].immune = false;
-          ctx.threads[0].locals[get<1>(*dep)].consumed = false;
-          ctx.threads[0].locals[get<1>(*dep)].poisoned = false;
-          ctx.threads[0].locals[get<1>(*dep)].toxic = false;
-          ctx.threads[0].locals[get<1>(*dep)].depends_upon.clear();
-          ctx.threads[0].locals[get<1>(*dep)].consumed_fields.clear();
-        }
-      }
-
-      if (ctx.threads[0].locals[args[0]].immune)
-        ctx.threads[0].locals[args[0]].poisoned = false;
-
-      ctx.threads[0].locals[args[0]].consumed = false;
+      launder(ctx, mir, args[0]);
     }
 
     for(auto const &[parm, arg] : zip(callee.parameters(), args))

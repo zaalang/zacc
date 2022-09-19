@@ -251,7 +251,17 @@ class CompoundLiteralExpr : public Expr
 class ExprRefExpr : public Expr
 {
   public:
-    ExprRefExpr(Expr *expr, SourceLocation loc);
+
+    enum Qualifiers
+    {
+      Mut = 0x1,
+      Move = 0x2,
+    };
+
+    long qualifiers = 0;
+
+  public:
+    ExprRefExpr(Expr *expr, long qualifiers, SourceLocation loc);
 
     Expr *expr;
 

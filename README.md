@@ -121,7 +121,7 @@ $ zacc/bin/zacc -I ./std -L ./zrt/lib test.zaa -lzrt
   struct as_tuple_t<T>
   {
     #{                                    // compile time block in declaritive context
-      var tuple = $typename ();           // type reflection of empty tuple
+      var tuple = $typeof(());            // type reflection of empty tuple
   
       #for(const k : std::meta::fields_of($T))
         tuple = std::meta::tuple_append(tuple, $T::#k);  // append reflection of field

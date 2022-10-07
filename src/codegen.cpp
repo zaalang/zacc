@@ -373,7 +373,7 @@ namespace
     vector<llvm::Type*> elements;
 
     elements.push_back(ctx.builder.getInt64Ty());
-    elements.push_back(ctx.builder.getInt8PtrTy());
+    elements.push_back(ctx.builder.getPtrTy());
 
     strct->setBody(elements);
 
@@ -520,7 +520,7 @@ namespace
             return addressable ? llvm_void(ctx, type) : ctx.builder.getVoidTy();
 
           case BuiltinType::PtrLiteral:
-            return ctx.builder.getInt8PtrTy();
+            return ctx.builder.getPtrTy();
 
           case BuiltinType::StringLiteral:
             return llvm_slice(ctx, Builtin::type(Builtin::Type_U8));
@@ -540,10 +540,10 @@ namespace
         return llvm_type(ctx, type_cast<QualArgType>(type)->type, addressable);
 
       case Type::Pointer:
-        return ctx.builder.getInt8PtrTy();
+        return ctx.builder.getPtrTy();
 
       case Type::Reference:
-        return ctx.builder.getInt8PtrTy();
+        return ctx.builder.getPtrTy();
 
       case Type::Array:
         return llvm_array(ctx, type_cast<ArrayType>(type));
@@ -583,7 +583,7 @@ namespace
   llvm::Type *llvm_type(GenContext &ctx, Type *type, long flags, bool addressable = false)
   {
     if (flags & MIR::Local::Reference)
-      return ctx.builder.getInt8PtrTy();
+      return ctx.builder.getPtrTy();
 
     return llvm_type(ctx, type, addressable);
   }
@@ -2763,7 +2763,7 @@ namespace
 
       if (!(stringcmp = ctx.module.getFunction("stringcmp")))
       {
-        auto fntype = llvm::FunctionType::get(ctx.builder.getInt32Ty(), { ctx.builder.getInt8PtrTy(), ctx.builder.getInt64Ty(), ctx.builder.getInt8PtrTy(), ctx.builder.getInt64Ty() }, false);
+        auto fntype = llvm::FunctionType::get(ctx.builder.getInt32Ty(), { ctx.builder.getPtrTy(), ctx.builder.getInt64Ty(), ctx.builder.getPtrTy(), ctx.builder.getInt64Ty() }, false);
         auto fnprot = llvm::Function::Create(fntype, llvm::Function::ExternalLinkage, "stringcmp", ctx.module);
 
         stringcmp = fnprot;
@@ -2896,7 +2896,7 @@ namespace
 
       if (!(stringcmp = ctx.module.getFunction("stringcmp")))
       {
-        auto fntype = llvm::FunctionType::get(ctx.builder.getInt32Ty(), { ctx.builder.getInt8PtrTy(), ctx.builder.getInt64Ty(), ctx.builder.getInt8PtrTy(), ctx.builder.getInt64Ty() }, false);
+        auto fntype = llvm::FunctionType::get(ctx.builder.getInt32Ty(), { ctx.builder.getPtrTy(), ctx.builder.getInt64Ty(), ctx.builder.getPtrTy(), ctx.builder.getInt64Ty() }, false);
         auto fnprot = llvm::Function::Create(fntype, llvm::Function::ExternalLinkage, "stringcmp", ctx.module);
 
         stringcmp = fnprot;
@@ -3087,14 +3087,14 @@ namespace
       fx.locals[dst].firstarg_return = true;
 
       parms.push_back(fx.locals[dst].alloca);
-      parmtypes.push_back(ctx.builder.getInt8PtrTy());
+      parmtypes.push_back(ctx.builder.getPtrTy());
 
       returntype = ctx.builder.getVoidTy();
 
       if (callee.throwtype)
       {
         parms.push_back(fx.locals[fx.mir.blocks[fx.currentblockid].terminator.value].alloca);
-        parmtypes.push_back(ctx.builder.getInt8PtrTy());
+        parmtypes.push_back(ctx.builder.getPtrTy());
 
         returntype = ctx.builder.getInt1Ty();
       }
@@ -3113,7 +3113,7 @@ namespace
       if (is_passarg_pointer(ctx, callee, argtype))
       {
         parms.push_back(load(ctx, fx, ptr, rhs.type, rhs.flags));
-        parmtypes.push_back(ctx.builder.getInt8PtrTy());
+        parmtypes.push_back(ctx.builder.getPtrTy());
       }
       else
       {
@@ -3296,7 +3296,7 @@ namespace
       {
         if (!(frexp = ctx.module.getFunction("frexpf")))
         {
-          auto fntype = llvm::FunctionType::get(ctx.builder.getFloatTy(), { ctx.builder.getFloatTy(), ctx.builder.getInt8PtrTy() }, false);
+          auto fntype = llvm::FunctionType::get(ctx.builder.getFloatTy(), { ctx.builder.getFloatTy(), ctx.builder.getPtrTy() }, false);
           auto fnprot = llvm::Function::Create(fntype, llvm::Function::ExternalLinkage, "frexpf", ctx.module);
 
           frexp = fnprot;
@@ -3307,7 +3307,7 @@ namespace
       {
         if (!(frexp = ctx.module.getFunction("frexp")))
         {
-          auto fntype = llvm::FunctionType::get(ctx.builder.getDoubleTy(), { ctx.builder.getDoubleTy(), ctx.builder.getInt8PtrTy() }, false);
+          auto fntype = llvm::FunctionType::get(ctx.builder.getDoubleTy(), { ctx.builder.getDoubleTy(), ctx.builder.getPtrTy() }, false);
           auto fnprot = llvm::Function::Create(fntype, llvm::Function::ExternalLinkage, "frexp", ctx.module);
 
           frexp = fnprot;
@@ -3435,7 +3435,7 @@ namespace
 
     if (!(memfind = ctx.module.getFunction("memfind")))
     {
-      auto fntype = llvm::FunctionType::get(ctx.builder.getInt64Ty(), { ctx.builder.getInt8PtrTy(), ctx.builder.getInt32Ty(), ctx.builder.getInt64Ty() }, false);
+      auto fntype = llvm::FunctionType::get(ctx.builder.getInt64Ty(), { ctx.builder.getPtrTy(), ctx.builder.getInt32Ty(), ctx.builder.getInt64Ty() }, false);
       auto fnprot = llvm::Function::Create(fntype, llvm::Function::ExternalLinkage, "memfind", ctx.module);
 
       memfind = fnprot;
@@ -3736,13 +3736,13 @@ namespace
   //|///////////////////// __argv__ /////////////////////////////////////////
   void codegen_builtin_argv(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
-    store(ctx, fx, dst, ctx.builder.CreateLoad(ctx.builder.getInt8PtrTy(), ctx.argv));
+    store(ctx, fx, dst, ctx.builder.CreateLoad(ctx.builder.getPtrTy(), ctx.argv));
   }
 
   //|///////////////////// __envp__ /////////////////////////////////////////
   void codegen_builtin_envp(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
-    store(ctx, fx, dst, ctx.builder.CreateLoad(ctx.builder.getInt8PtrTy(), ctx.envp));
+    store(ctx, fx, dst, ctx.builder.CreateLoad(ctx.builder.getPtrTy(), ctx.envp));
   }
 
   //|///////////////////// codegen_call /////////////////////////////////////
@@ -4536,7 +4536,7 @@ namespace
       attrbuilder.addAlignmentAttr(llvm_align(ctx, fx.mir.locals[0].type, fx.mir.locals[0].flags));
       attributes = attributes.addParamAttributes(ctx.context, parmtypes.size(), attrbuilder);
 
-      parmtypes.push_back(ctx.builder.getInt8PtrTy());
+      parmtypes.push_back(ctx.builder.getPtrTy());
 
       returntype = ctx.builder.getVoidTy();
 
@@ -4556,7 +4556,7 @@ namespace
         attrbuilder.addAlignmentAttr(llvm_align(ctx, fx.mir.locals[1].type, fx.mir.locals[0].flags));
         attributes = attributes.addParamAttributes(ctx.context, parmtypes.size(), attrbuilder);
 
-        parmtypes.push_back(ctx.builder.getInt8PtrTy());
+        parmtypes.push_back(ctx.builder.getPtrTy());
 
         returntype = ctx.builder.getInt1Ty();
       }
@@ -4583,7 +4583,7 @@ namespace
         attrbuilder.addDereferenceableAttr(sizeof_type(fx.mir.locals[i].type));
         attrbuilder.addAlignmentAttr(llvm_align(ctx, fx.mir.locals[i].type, fx.mir.locals[0].flags));
 
-        argtype = ctx.builder.getInt8PtrTy();
+        argtype = ctx.builder.getPtrTy();
 
         fx.locals[i].passarg_pointer = true;
       }
@@ -5001,7 +5001,7 @@ namespace
   void codegen_entry_point(GenContext &ctx, FnSig const &main)
   {
     auto resulttype = ctx.builder.getInt32Ty();
-    auto paramtypes = vector<llvm::Type*>{ ctx.builder.getInt32Ty(), ctx.builder.getInt8PtrTy(), ctx.builder.getInt8PtrTy() };
+    auto paramtypes = vector<llvm::Type*>{ ctx.builder.getInt32Ty(), ctx.builder.getPtrTy(), ctx.builder.getPtrTy() };
 
     auto fntype = llvm::FunctionType::get(resulttype, paramtypes, false);
     auto fnprot = llvm::Function::Create(fntype, llvm::Function::ExternalLinkage, "main", ctx.module);
@@ -5023,8 +5023,8 @@ namespace
     ctx.builder.SetInsertPoint(llvm::BasicBlock::Create(ctx.context, "entry", fnprot));
 
     ctx.argc->setInitializer(llvm_zero(ctx.builder.getInt32Ty()));
-    ctx.argv->setInitializer(llvm_zero(ctx.builder.getInt8PtrTy()));
-    ctx.envp->setInitializer(llvm_zero(ctx.builder.getInt8PtrTy()));
+    ctx.argv->setInitializer(llvm_zero(ctx.builder.getPtrTy()));
+    ctx.envp->setInitializer(llvm_zero(ctx.builder.getPtrTy()));
 
     ctx.builder.CreateStore(fnprot->getArg(0), ctx.argc);
     ctx.builder.CreateStore(fnprot->getArg(1), ctx.argv);
@@ -5175,8 +5175,8 @@ namespace
     }
 
     ctx.argc = new llvm::GlobalVariable(ctx.module, ctx.builder.getInt32Ty(), false, llvm::GlobalVariable::ExternalLinkage, nullptr, "ARGC");
-    ctx.argv = new llvm::GlobalVariable(ctx.module, ctx.builder.getInt8PtrTy(), false, llvm::GlobalVariable::ExternalLinkage, nullptr, "ARGV");
-    ctx.envp = new llvm::GlobalVariable(ctx.module, ctx.builder.getInt8PtrTy(), false, llvm::GlobalVariable::ExternalLinkage, nullptr, "ENVP");
+    ctx.argv = new llvm::GlobalVariable(ctx.module, ctx.builder.getPtrTy(), false, llvm::GlobalVariable::ExternalLinkage, nullptr, "ARGV");
+    ctx.envp = new llvm::GlobalVariable(ctx.module, ctx.builder.getPtrTy(), false, llvm::GlobalVariable::ExternalLinkage, nullptr, "ENVP");
   }
 
   //|///////////////////// codegen_finalise /////////////////////////////////

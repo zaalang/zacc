@@ -454,14 +454,14 @@ string CompoundLiteralExpr::value() const
 {
   stringstream ss;
 
-  ss << '{';
+  ss << "{ ";
 
   for(size_t i = 0; i < fields.size(); ++i)
   {
     ss << ((i != 0) ? ", " : "") << *fields[i];
   }
 
-  ss << '}';
+  ss << " }";
 
   return ss.str();
 }

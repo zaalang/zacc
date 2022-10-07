@@ -403,103 +403,88 @@ namespace
   }
 
   //|///////////////////// consume //////////////////////////////////////////
-  void consume(Context &ctx, MIR const &mir, MIR::local_t arg)
+  void consume(Context &ctx, MIR const &mir, MIR::local_t arg, MIR::RValue::VariableData const *dep)
   {
-    for(auto &dep : ctx.threads[0].locals[arg].depends_upon)
-    {
-      ctx.threads[0].locals[get<1>(*dep)].consumed = true;
-      ctx.threads[0].locals[get<1>(*dep)].consumed_fields.insert(ctx.threads[0].locals[get<1>(*dep)].consumed_fields.end(), ctx.threads[0].locals[arg].depends_upon.begin(), ctx.threads[0].locals[arg].depends_upon.end());
-
-      if (ctx.threads[0].locals[arg].sealed && &dep != &ctx.threads[0].locals[arg].depends_upon.back())
-        ctx.threads[0].locals[get<1>(*dep)].consumed_fields.pop_back();
+    ctx.threads[0].locals[get<1>(*dep)].consumed = true;
+    ctx.threads[0].locals[get<1>(*dep)].consumed_fields.push_back(dep);
 
 #if 0
-      cout << *dep << endl;
-      for(auto fld : ctx.threads[0].locals[get<1>(*dep)].consumed_fields)
-        cout << "consume: " << *fld << endl;
+    cout << "consume: " << *dep << endl;
+    for(auto fld : ctx.threads[0].locals[get<1>(*dep)].consumed_fields)
+      cout << "       : " << *fld << endl;
 #endif
-    }
   }
 
   //|///////////////////// poison ///////////////////////////////////////////
-  void poison(Context &ctx, MIR const &mir, MIR::local_t arg)
+  void poison(Context &ctx, MIR const &mir, MIR::local_t arg, MIR::RValue::VariableData const *dep)
   {
 #if 0
-    cout << "poison: " << dst << " = " << callee << endl;
-    for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-      cout << "      : " << *dep << endl;
+    cout << "poison: " << *dep << endl;
 #endif
 
-    for(auto &dep : ctx.threads[0].locals[arg].depends_upon)
-    {
-      ctx.threads[0].locals[get<1>(*dep)].toxic = true;
+    ctx.threads[0].locals[get<1>(*dep)].toxic = true;
 
-      if (ctx.threads[0].locals[arg].sealed && &dep != &ctx.threads[0].locals[arg].depends_upon.back())
+    if (ctx.threads[0].locals[arg].sealed && dep != ctx.threads[0].locals[arg].depends_upon.back())
+      return;
+
+    for(auto &local : ctx.threads[0].locals)
+    {
+      if (!local.live)
         continue;
 
-      for(auto &local : ctx.threads[0].locals)
+      if (local.immune)
+        continue;
+
+      if (local.sealed && local.depends_upon.back() == dep)
+        continue;
+
+      for(auto fld : local.depends_upon)
       {
-        if (!local.live)
+        if (get<1>(*fld) != get<1>(*dep))
           continue;
 
-        if (local.immune)
+        if (!ctx.is_super_field(get<2>(*dep), get<2>(*fld)))
           continue;
-
-        if (local.sealed && local.depends_upon.back() == dep)
-          continue;
-
-        for(auto fld : local.depends_upon)
-        {
-          if (get<1>(*fld) != get<1>(*dep))
-            continue;
-
-          if (!ctx.is_super_field(get<2>(*dep), get<2>(*fld)))
-            continue;
 
 #if 0
-          cout << "      : " << &local - &ctx.threads[0].locals.front() << " has " << *fld << endl;
+        cout << "      : " << &local - &ctx.threads[0].locals.front() << " has " << *fld << endl;
 #endif
 
-          local.poisoned = true;
-        }
+        local.poisoned = true;
       }
     }
   }
 
   //|///////////////////// launder //////////////////////////////////////////
-  void launder(Context &ctx, MIR const &mir, MIR::local_t arg)
+  void launder(Context &ctx, MIR const &mir, MIR::local_t arg, MIR::RValue::VariableData const *dep)
   {
 #if 0
-    for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
-      cout << "launder: " << *dep << endl;
+    cout << "launder: " << *dep << endl;
 #endif
 
-    for(auto dep : ctx.threads[0].locals[arg].depends_upon)
+    auto &consumed_fields = ctx.threads[0].locals[get<1>(*dep)].consumed_fields;
+
+    for(auto i = consumed_fields.begin(); i != consumed_fields.end(); )
     {
-      auto &consumed_fields = ctx.threads[0].locals[get<1>(*dep)].consumed_fields;
+      if (ctx.is_super_field(get<2>(*dep), get<2>(**i)))
+        i = consumed_fields.erase(i);
+      else
+        ++i;
+    }
 
-      for(auto i = consumed_fields.begin(); i != consumed_fields.end(); )
-      {
-        if (ctx.is_super_field(get<2>(*dep), get<2>(**i)))
-          i = consumed_fields.erase(i);
-        else
-          ++i;
-      }
+    if (consumed_fields.empty())
+    {
+      ctx.threads[0].locals[get<1>(*dep)].consumed = false;
+    }
 
-      if (consumed_fields.empty())
-      {
-        ctx.threads[0].locals[get<1>(*dep)].consumed = false;
-      }
-
-      if (get<2>(*dep).empty())
-      {
-        ctx.threads[0].locals[get<1>(*dep)].immune = false;
-        ctx.threads[0].locals[get<1>(*dep)].consumed = false;
-        ctx.threads[0].locals[get<1>(*dep)].poisoned = false;
-        ctx.threads[0].locals[get<1>(*dep)].toxic = false;
-        ctx.threads[0].locals[get<1>(*dep)].depends_upon.clear();
-        ctx.threads[0].locals[get<1>(*dep)].consumed_fields.clear();
-      }
+    if (get<2>(*dep).empty())
+    {
+      ctx.threads[0].locals[get<1>(*dep)].immune = false;
+      ctx.threads[0].locals[get<1>(*dep)].consumed = false;
+      ctx.threads[0].locals[get<1>(*dep)].poisoned = false;
+      ctx.threads[0].locals[get<1>(*dep)].toxic = false;
+      ctx.threads[0].locals[get<1>(*dep)].depends_upon.clear();
+      ctx.threads[0].locals[get<1>(*dep)].consumed_fields.clear();
     }
 
     if (ctx.threads[0].locals[arg].immune)
@@ -515,12 +500,55 @@ namespace
     {
       case Annotation::consume: {
 
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of('.')));
+
         size_t arg = 0;
         for(auto &parm : callee.parameters())
         {
-          if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
+          if (decl_cast<ParmVarDecl>(parm)->name == lhs)
           {
-            consume(ctx, mir, args[arg]);
+            if (lhs == annotation.text)
+            {
+              for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+                consume(ctx, mir, args[arg], dep);
+            }
+            else
+            {
+              auto rhs = trim(annotation.text.substr(annotation.text.find_first_of('.') + 1));
+
+              Decl *target = nullptr;
+              vector<MIR::RValue::Field> subfields;
+              for(auto type = mir.locals[args[arg]].type; is_tag_type(type); )
+              {
+                auto tagtype = type_cast<TagType>(type);
+
+                for(auto &decl : tagtype->fieldvars)
+                {
+                  if (decl_cast<VarDecl>(decl)->name == rhs)
+                  {
+                    target = decl;
+                    subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, size_t(&decl - &tagtype->fieldvars.front()) });
+
+                    for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+                      consume(ctx, mir, args[arg], ctx.make_field(dep, subfields));
+
+                    break;
+                  }
+                }
+
+                if (target)
+                  break;
+
+                if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype)
+                  break;
+
+                type = tagtype->fields[0];
+                subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, 0 });
+              }
+
+              if (!target)
+                ctx.diag.error("unknown consume subfield", callee.fn, annotation.loc);;
+            }
 
             break;
           }
@@ -595,13 +623,55 @@ namespace
 
       case Annotation::depend: {
 
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of('.')));
+
         size_t arg = 0;
         for(auto &parm : callee.parameters())
         {
-          if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
+          if (decl_cast<ParmVarDecl>(parm)->name == lhs)
           {
-            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-              ctx.threads[0].locals[dst].depends_upon.push_back(dep);
+            if (lhs == annotation.text)
+            {
+              for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+                ctx.threads[0].locals[dst].depends_upon.push_back(dep);
+            }
+            else
+            {
+              auto rhs = trim(annotation.text.substr(annotation.text.find_first_of('.') + 1));
+
+              Decl *target = nullptr;
+              vector<MIR::RValue::Field> subfields;
+              for(auto type = mir.locals[args[arg]].type; is_tag_type(type); )
+              {
+                auto tagtype = type_cast<TagType>(type);
+
+                for(auto &decl : tagtype->fieldvars)
+                {
+                  if (decl_cast<VarDecl>(decl)->name == rhs)
+                  {
+                    target = decl;
+                    subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, size_t(&decl - &tagtype->fieldvars.front()) });
+
+                    for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+                      ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(dep, subfields));
+
+                    break;
+                  }
+                }
+
+                if (target)
+                  break;
+
+                if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype)
+                  break;
+
+                type = tagtype->fields[0];
+                subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, 0 });
+              }
+
+              if (!target)
+                ctx.diag.error("unknown depend subfield", callee.fn, annotation.loc);;
+            }
 
             break;
           }
@@ -619,12 +689,55 @@ namespace
 
       case Annotation::poison: {
 
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of('.')));
+
         size_t arg = 0;
         for(auto &parm : callee.parameters())
         {
-          if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
+          if (decl_cast<ParmVarDecl>(parm)->name == lhs)
           {
-            poison(ctx, mir, args[arg]);
+            if (lhs == annotation.text)
+            {
+              for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+                poison(ctx, mir, args[arg], dep);
+            }
+            else
+            {
+              auto rhs = trim(annotation.text.substr(annotation.text.find_first_of('.') + 1));
+
+              Decl *target = nullptr;
+              vector<MIR::RValue::Field> subfields;
+              for(auto type = mir.locals[args[arg]].type; is_tag_type(type); )
+              {
+                auto tagtype = type_cast<TagType>(type);
+
+                for(auto &decl : tagtype->fieldvars)
+                {
+                  if (decl_cast<VarDecl>(decl)->name == rhs)
+                  {
+                    target = decl;
+                    subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, size_t(&decl - &tagtype->fieldvars.front()) });
+
+                    for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+                      poison(ctx, mir, args[arg], ctx.make_field(dep, subfields));
+
+                    break;
+                  }
+                }
+
+                if (target)
+                  break;
+
+                if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype)
+                  break;
+
+                type = tagtype->fields[0];
+                subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, 0 });
+              }
+
+              if (!target)
+                ctx.diag.error("unknown poison subfield", callee.fn, annotation.loc);;
+            }
 
             break;
           }
@@ -819,15 +932,6 @@ namespace
 
       ctx.threads[0].locals[dst].poisoned = ctx.threads[0].locals[arg].poisoned;
       ctx.threads[0].locals[dst].consumed = ctx.threads[0].locals[arg].consumed;
-
-      if (mir.locals[dst].flags & MIR::Local::MoveRef)
-      {
-        if (ctx.state(arg) != State::ok)
-          ctx.diag.error("potentially invalid variable access", mir.fx.fn, loc);
-
-        consume(ctx, mir, dst);
-        ctx.threads[0].locals[dst].depends_upon.clear();
-      }
     }
 
     if (fields.size() != 0 && fields[0].op == MIR::RValue::Val && all_of(fields.begin() + 1, fields.end(), [](auto k){ return k.op != MIR::RValue::Val; }))
@@ -851,6 +955,17 @@ namespace
           break;
       }
     }
+
+    if (mir.locals[dst].flags & MIR::Local::MoveRef)
+    {
+      if (ctx.state(dst) != State::ok)
+        ctx.diag.error("potentially invalid variable access", mir.fx.fn, loc);
+
+      for(auto dep : ctx.threads[0].locals[dst].depends_upon)
+        consume(ctx, mir, dst, dep);
+
+      ctx.threads[0].locals[dst].depends_upon.clear();
+    }
   }
 
   //|///////////////////// analyse_call /////////////////////////////////////
@@ -865,7 +980,8 @@ namespace
 
     if (callee.fn->name == Ident::op_assign || has_launder(ctx, notations))
     {
-      launder(ctx, mir, args[0]);
+      for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
+        launder(ctx, mir, args[0], dep);
     }
 
     for(auto const &[parm, arg] : zip(callee.parameters(), args))

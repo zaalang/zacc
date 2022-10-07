@@ -4231,6 +4231,10 @@ namespace
             decl = parse_function_declaration(ctx, sema);
             break;
 
+          case Token::kw_enum:
+            decl = parse_enum_declaration(ctx, sema);
+            break;
+
           case Token::identifier:
           case Token::dollar:
             decl = parse_constant_declaration(ctx, sema);

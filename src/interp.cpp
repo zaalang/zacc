@@ -513,7 +513,7 @@ namespace
     memcpy(alloc, &value, sizeof(value));
   }
 
-  void store(EvalContext &ctx, void *alloc, Type *type, Expr *value);
+  bool store(EvalContext &ctx, void *alloc, Type *type, Expr *value);
 
   //|///////////////////// store ////////////////////////////////////////////
   void store(EvalContext &ctx, void *alloc, Type *type, StringLiteralExpr const *value)
@@ -522,7 +522,7 @@ namespace
   }
 
   //|///////////////////// store ////////////////////////////////////////////
-  void store(EvalContext &ctx, void *alloc, Type *type, ArrayLiteralExpr const *value)
+  bool store(EvalContext &ctx, void *alloc, Type *type, ArrayLiteralExpr const *value)
   {
     assert(is_array_type(type));
 
@@ -533,7 +533,8 @@ namespace
 
     for(auto &element : value->elements)
     {
-      store(ctx, address, elemtype, element);
+      if (!store(ctx, address, elemtype, element))
+        return false;
 
       address = (void*)((size_t)address + elemsize);
     }
@@ -544,10 +545,12 @@ namespace
 
       address = (void*)((size_t)address + elemsize);
     }
+
+    return true;
   }
 
   //|///////////////////// store ////////////////////////////////////////////
-  void store(EvalContext &ctx, void *alloc, Type *type, CompoundLiteralExpr const *value)
+  bool store(EvalContext &ctx, void *alloc, Type *type, CompoundLiteralExpr const *value)
   {
     assert(is_compound_type(type));
 
@@ -561,10 +564,11 @@ namespace
       store(ctx, address, dsttype->fields[0], value->fields[0]);
       store(ctx, (void*)((size_t)address + offsetof_field(dsttype, active)), dsttype->fields[active], value->fields[1]);
 
-      return;
+      return true;
     }
 
-    assert(dsttype->fields.size() == value->fields.size());
+    if (dsttype->fields.size() != value->fields.size())
+      return false;
 
     for(size_t i = 0; i < value->fields.size(); ++i)
     {
@@ -572,59 +576,86 @@ namespace
 
       address = (void*)(((size_t)address + alignment - 1) & -alignment);
 
-      store(ctx, address, dsttype->fields[i], value->fields[i]);
+      if (!store(ctx, address, dsttype->fields[i], value->fields[i]))
+        return false;
 
       address = (void*)((size_t)address + sizeof_type(dsttype->fields[i]));
     }
+
+    return true;
   }
 
   //|///////////////////// store ////////////////////////////////////////////
-  void store(EvalContext &ctx, void *alloc, Type *type, Expr *value)
+  bool store(EvalContext &ctx, void *alloc, Type *type, Expr *value)
   {
     switch (value->kind())
     {
       case Expr::VoidLiteral:
+        if (!is_void_type(type))
+          return false;
         break;
 
       case Expr::BoolLiteral:
+        if (!is_bool_type(type))
+          return false;
         store(ctx, alloc, type, expr_cast<BoolLiteralExpr>(value)->value());
         break;
 
       case Expr::CharLiteral:
+        if (!is_char_type(type))
+          return false;
         store(ctx, alloc, type, expr_cast<CharLiteralExpr>(value)->value());
         break;
 
       case Expr::IntLiteral:
+        if (!is_int_type(type) && !is_declid_type(type) && !is_typeid_type(type) && !is_enum_type(type))
+          return false;
         store(ctx, alloc, type, expr_cast<IntLiteralExpr>(value)->value());
         break;
 
       case Expr::FloatLiteral:
+        if (!is_float_type(type))
+          return false;
         store(ctx, alloc, type, expr_cast<FloatLiteralExpr>(value)->value());
         break;
 
       case Expr::PointerLiteral:
+        if (!is_pointer_type(type))
+          return false;
         store(ctx, alloc, nullptr);
         break;
 
       case Expr::FunctionPointer:
+        if (!is_pointference_type(type))
+          return false;
         store(ctx, alloc, value);
         break;
 
       case Expr::StringLiteral:
+        if (!is_string_type(type))
+          return false;
         store(ctx, alloc, type, expr_cast<StringLiteralExpr>(value));
         break;
 
       case Expr::ArrayLiteral:
-        store(ctx, alloc, type, expr_cast<ArrayLiteralExpr>(value));
+        if (!is_array_type(type))
+          return false;
+        if (!store(ctx, alloc, type, expr_cast<ArrayLiteralExpr>(value)))
+          return false;
         break;
 
       case Expr::CompoundLiteral:
-        store(ctx, alloc, type, expr_cast<CompoundLiteralExpr>(value));
+        if (!is_compound_type(type))
+          return false;
+        if (!store(ctx, alloc, type, expr_cast<CompoundLiteralExpr>(value)))
+          return false;
         break;
 
       default:
         assert(false);
     }
+
+    return true;
   }
 
   //|///////////////////// store ////////////////////////////////////////////
@@ -1002,13 +1033,17 @@ namespace
       return false;
     }
 
-    auto j = ctx.arrayliterals.find(make_tuple(fx.locals[dst].type, literal));
+    auto j = ctx.arrayliterals.find(make_tuple(type, literal));
 
     if (j == ctx.arrayliterals.end())
     {
-      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal);
+      if (!store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal))
+      {
+        ctx.diag.error("literal type incompatible with required type", fx.scope, literal->loc());
+        return false;
+      }
 
-      j = ctx.arrayliterals.emplace(make_tuple(fx.locals[dst].type, literal), fx.locals[dst].alloc).first;
+      j = ctx.arrayliterals.emplace(make_tuple(type, literal), fx.locals[dst].alloc).first;
     }
 
     fx.locals[dst].alloc = j->second;
@@ -1032,7 +1067,11 @@ namespace
 
     if (j == ctx.compoundliterals.end())
     {
-      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal);
+      if (!store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal))
+      {
+        ctx.diag.error("literal type incompatible with required type", fx.scope, literal->loc());
+        return false;
+      }
 
       j = ctx.compoundliterals.emplace(make_tuple(fx.locals[dst].type, literal), fx.locals[dst].alloc).first;
     }
@@ -3189,9 +3228,9 @@ namespace
         break;
 
       case 0xe4: // tuple_append
-        if (auto tuple = reinterpret_cast<Type*>(load_int(ctx, params, type(Builtin::Type_TypeidLiteral)).value))
+        if (auto tuple = reinterpret_cast<Type*>(load_int(ctx, params, type(Builtin::Type_TypeidLiteral)).value); tuple && is_tuple_type(remove_const_type(tuple)))
         {
-          auto fields = type_cast<TupleType>(tuple)->fields;
+          auto fields = type_cast<TupleType>(remove_const_type(tuple))->fields;
 
           if (auto typid = reinterpret_cast<Type*>(load_int(ctx, params + sizeof(Numeric::Int), type(Builtin::Type_TypeidLiteral)).value))
           {
@@ -4381,6 +4420,16 @@ EvalResult evaluate(Scope const &scope, FnSig const &callee, Type *returntype, v
   {
     ctx.diag.error("unresolved return type", scope, loc);
     return result;
+  }
+
+  if ((callee.fn->flags & FunctionDecl::DeclType) == FunctionDecl::ConstDecl)
+  {
+    if (auto expr = stmt_cast<ReturnStmt>(callee.fn->body)->expr; is_literal_expr(expr))
+    {
+      result.type = returntype;
+      result.value = expr;
+      return result;
+    }
   }
 
   auto returnvalue = alloc(ctx, returntype);

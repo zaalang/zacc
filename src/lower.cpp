@@ -3679,6 +3679,8 @@ namespace
                 break;
 
               case Type::Tag:
+                if (type_cast<TagType>(type)->args.empty())
+                  rank += s - 1;
                 for(auto &[decl, arg] : type_cast<TagType>(type)->args)
                   self(self, arg, (s - 1) / type_cast<TagType>(type)->args.size());
                 break;
@@ -4612,6 +4614,9 @@ namespace
       expr.type.flags &= ~MIR::Local::Const;
     }
 
+    expr.type.flags &= ~MIR::Local::MutRef;
+    expr.type.flags &= ~MIR::Local::MoveRef;
+    expr.type.flags &= ~MIR::Local::ConstRef;
     expr.type.flags &= ~MIR::Local::Literal;
 
     realise(ctx, dst, expr, flags);
@@ -6567,6 +6572,22 @@ namespace
 
     if (all_of(arrayliteral->elements.begin(), arrayliteral->elements.end(), [](auto &k) { return is_literal_expr(k); }))
     {
+      for(auto &element : arrayliteral->elements)
+      {
+        if ((is_bool_type(elemtype) && element->kind() != Expr::BoolLiteral) ||
+            (is_char_type(elemtype) && element->kind() != Expr::CharLiteral) ||
+            (is_int_type(elemtype) && element->kind() != Expr::IntLiteral) ||
+            (is_float_type(elemtype) && element->kind() != Expr::FloatLiteral) ||
+            (is_string_type(elemtype) && element->kind() != Expr::StringLiteral) ||
+            (is_array_type(elemtype) && element->kind() != Expr::ArrayLiteral) ||
+            (is_compound_type(elemtype) && element->kind() != Expr::CompoundLiteral))
+        {
+          ctx.diag.error("literal type incompatible with required type", ctx.stack.back(), element->loc());
+          ctx.diag << "  required type: '" << *elemtype << "'\n";
+          return;
+        }
+      }
+
       result.type = MIR::Local(type, MIR::Local::Const | MIR::Local::Literal);
       result.value = arrayliteral;
       return;
@@ -6809,10 +6830,11 @@ namespace
     }
 
     auto arg = j->second;
-
-    result.type = MIR::Local(ctx.mir.locals[arg].type, vardecl->type, ctx.mir.locals[arg].flags);
-    result.type.flags |= MIR::Local::Reference;
+    result.type = MIR::Local(ctx.mir.locals[arg].type, vardecl->type, MIR::Local::LValue | MIR::Local::Reference);
     result.value = MIR::RValue::local(MIR::RValue::Ref, arg, loc);
+
+    if (ctx.mir.locals[arg].flags & MIR::Local::Const)
+      result.type.flags |= MIR::Local::Const;
 
     if (is_pack_type(vardecl->type))
     {
@@ -8440,6 +8462,7 @@ namespace
       value.type.flags |= MIR::Local::LValue;
       value.type.flags &= ~MIR::Local::XValue;
       value.type.flags &= ~MIR::Local::RValue;
+      value.type.flags &= ~MIR::Local::MoveRef;
       value.type.flags &= ~MIR::Local::Literal;
 
       commit_type(ctx, arg, value.type.type, value.type.flags);
@@ -9783,6 +9806,7 @@ namespace
       {
         ctx.diag.error("cannot resolve vtable function", thistype->fieldvars[index], var->loc());
         diag_callee(ctx, callee, parms, namedparms);
+        ctx.diag << Diag::white() << "  in scope\n" << Diag::cyan() << "    <" << *get_module(type_scope(ctx, scopetype))->name << "::" << *scopetype << ">\n" << Diag::normal();
         continue;
       }
 
@@ -9796,6 +9820,7 @@ namespace
       {
         ctx.diag.error("return type mismatch on vtable function", thistype->fieldvars[index], var->loc());
         diag_callee(ctx, callee, parms, namedparms);
+        ctx.diag << Diag::white() << "  in scope\n" << Diag::cyan() << "    <" << *get_module(type_scope(ctx, scopetype))->name << "::" << *scopetype << ">\n" << Diag::normal();
         continue;
       }
 
@@ -10941,6 +10966,8 @@ namespace
 
     commit_type(ctx, cond, condition.type.type, condition.type.flags);
 
+    Unreachable unreachable = Unreachable::Yes;
+
     auto block_cond = ctx.add_block(MIR::Terminator::switcher(cond, ctx.currentblockid));
 
     vector<Decl*> decls;
@@ -11025,10 +11052,15 @@ namespace
         ctx.stack.pop_back();
 
         block_bodys.push_back(ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1)));
+
+        unreachable = std::min(unreachable, ctx.unreachable);
       }
 
       ctx.unreachable = Unreachable::No;
     }
+
+    if (ctx.mir.blocks[block_cond].terminator.blockid == block_cond)
+      unreachable = Unreachable::No;
 
     if (ctx.mir.blocks[block_cond].terminator.blockid == block_cond)
       ctx.mir.blocks[block_cond].terminator.blockid = ctx.currentblockid;
@@ -11058,6 +11090,11 @@ namespace
     }
 
     ctx.gotos.resize(ctx.barriers.back().firstgoto);
+
+    if (unreachable)
+    {
+      ctx.unreachable = unreachable;
+    }
 
     ctx.stack.pop_back();
     ctx.retire_barrier(sm);

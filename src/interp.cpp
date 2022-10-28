@@ -533,7 +533,7 @@ namespace
 
     for(auto &element : value->elements)
     {
-      if (!store(ctx, address, elemtype, element))
+      if (!store(ctx, address, remove_const_type(elemtype), element))
         return false;
 
       address = (void*)((size_t)address + elemsize);
@@ -562,7 +562,7 @@ namespace
       auto active = expr_cast<IntLiteralExpr>(value->fields[0])->value().value;
 
       store(ctx, address, dsttype->fields[0], value->fields[0]);
-      store(ctx, (void*)((size_t)address + offsetof_field(dsttype, active)), dsttype->fields[active], value->fields[1]);
+      store(ctx, (void*)((size_t)address + offsetof_field(dsttype, active)), remove_const_type(dsttype->fields[active]), value->fields[1]);
 
       return true;
     }
@@ -576,7 +576,7 @@ namespace
 
       address = (void*)(((size_t)address + alignment - 1) & -alignment);
 
-      if (!store(ctx, address, dsttype->fields[i], value->fields[i]))
+      if (!store(ctx, address, remove_const_type(dsttype->fields[i]), value->fields[i]))
         return false;
 
       address = (void*)((size_t)address + sizeof_type(dsttype->fields[i]));

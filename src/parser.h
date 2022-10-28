@@ -15,5 +15,5 @@
 //-------------------------- Parser -----------------------------------------
 //---------------------------------------------------------------------------
 
-void load(ModuleDecl *module, class Sema &sema, class Diag &diag);
-void parse(std::string const &path, class Sema &sema, class Diag &diag);
+bool load(ModuleDecl *module, class Sema &sema, class Diag &diag);
+bool parse(std::string const &path, class Sema &sema, class Diag &diag);

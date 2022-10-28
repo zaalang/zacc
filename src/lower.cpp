@@ -74,6 +74,7 @@ namespace
 
     unordered_map<Decl*, MIR::local_t> locals;
     unordered_map<Decl*, MIR::Fragment> symbols;
+    unordered_map<Decl*, MIR::Fragment> suppressed;
 
     MIR::local_t add_local()
     {
@@ -1500,6 +1501,15 @@ namespace
     if (auto type = ctx.typetable.find<TagType>(tagdecl, scope.typeargs))
       return type;
 
+    auto rr = recursion_counter<__COUNTER__>();
+
+    if (rr.count > 256)
+    {
+      ctx.diag.error("unable to resolve type", tagdecl, tagdecl->loc());
+
+      throw runtime_error("recursion limit reached");
+    }
+
     vector<Decl*> decls;
 
     find_decls(ctx, scope, tagdecl->decls, decls);
@@ -2332,24 +2342,21 @@ namespace
   {
     tx.depth += 1;
 
-    if (rhs->klass() == Type::QualArg && !(type_cast<QualArgType>(rhs)->qualifiers & QualArgType::Const))
-      rhs = remove_const_type(rhs);
-
-    if (rhs->klass() == Type::TypeArg)
-      return true;
-
-    if (rhs->klass() == Type::Tag && ((tx.pointerdepth == 0 && tx.allow_object_downcast) || (tx.pointerdepth == 1 && tx.allow_pointer_downcast)))
+    switch (lhs->klass())
     {
-      switch (lhs->klass())
-      {
-        case Type::Const:
-        case Type::QualArg:
-        case Type::TypeArg:
-        case Type::TypeRef:
-          break;
+      case Type::Const:
+      case Type::QualArg:
+      case Type::TypeArg:
+      case Type::TypeRef:
+        break;
 
-        default:
+      default:
 
+        if (rhs->klass() == Type::QualArg && !(type_cast<QualArgType>(rhs)->qualifiers & QualArgType::Const))
+          rhs = remove_const_type(rhs);
+
+        if (rhs->klass() == Type::Tag && ((tx.pointerdepth == 0 && tx.allow_object_downcast) || (tx.pointerdepth == 1 && tx.allow_pointer_downcast)))
+        {
           while (is_tag_type(rhs))
           {
             if (lhs->klass() == Type::Tag && type_cast<TagType>(lhs)->decl == type_cast<TagType>(rhs)->decl)
@@ -2360,8 +2367,11 @@ namespace
 
             rhs = type_cast<TagType>(rhs)->fields[0];
           }
-      }
+        }
     }
+
+    if (rhs->klass() == Type::TypeArg)
+      return true;
 
     if (lhs == rhs)
       return true;
@@ -2440,9 +2450,9 @@ namespace
 
           if (j->second->klass() != Type::TypeArg)
           {
-            promote_type(ctx, rhs, j->second);
+            promote_type(ctx, rhs, remove_const_type(j->second));
 
-            if (j->second == rhs)
+            if (remove_const_type(j->second) == rhs)
               return true;
 
             if (auto k = scope.find_type(type_cast<TypeArgType>(lhs)->decl); k != scope.typeargs.end())
@@ -4071,13 +4081,6 @@ namespace
     {
       find_overloads(ctx, tx, ctx.inducedscope, parms, namedparms, callee.candidates, callee.overloads);
     }
-
-//    if (basescope)
-//    {
-//      callee.overloads.erase(remove_if(callee.overloads.begin(), callee.overloads.end(), [&](auto &fx) {
-//        return (fx.fn->flags & FunctionDecl::Static);
-//      }), callee.overloads.end());
-//    }
 
     resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
 
@@ -6824,7 +6827,8 @@ namespace
         return true;
       }
 
-      ctx.diag.error("variable not defined in this context", ctx.stack.back(), loc);
+      if (ctx.suppressed.find(vardecl) == ctx.suppressed.end())
+        ctx.diag.error("variable not defined in this context", ctx.stack.back(), loc);
 
       return false;
     }
@@ -7021,7 +7025,30 @@ namespace
       result.type.flags |= MIR::Local::MutRef;
 
     if (exprref->qualifiers & ExprRefExpr::Move)
+    {
       result.type.flags = (result.type.flags & ~MIR::Local::LValue) | MIR::Local::RValue | MIR::Local::MoveRef;
+
+      if (is_tuple_type(result.type.type))
+      {
+        auto defns = type_cast<TupleType>(result.type.type)->defns;
+        auto fields = type_cast<TupleType>(result.type.type)->fields;
+
+        for(size_t i = 0; i < fields.size(); ++i)
+        {
+          if (is_reference_type(defns[i]))
+          {
+            fields[i] = remove_reference_type(fields[i]);
+
+            if (!(is_const_type(fields[i]) || (is_qualarg_type(fields[i]) && (type_cast<QualArgType>(fields[i])->qualifiers & QualArgType::Const))))
+              fields[i] = ctx.typetable.find_or_create<QualArgType>(QualArgType::RValue, remove_const_type(fields[i]));
+
+            fields[i] = ctx.typetable.find_or_create<ReferenceType>(fields[i]);
+          }
+        }
+
+        result.type.type = ctx.typetable.find_or_create<TupleType>(std::move(defns), std::move(fields));
+      }
+    }
   }
 
   //|///////////////////// lower_unaryop ////////////////////////////////////
@@ -8558,7 +8585,10 @@ namespace
     MIR::Fragment value;
 
     if (!lower_expr(ctx, value, stmtvar->value))
+    {
+      ctx.suppressed[stmtvar] = value;
       return;
+    }
 
     if (stmtvar->flags & VarDecl::Literal)
     {
@@ -8581,6 +8611,7 @@ namespace
     {
       ctx.diag.error("unresolved type for variable", ctx.stack.back(), stmtvar->loc());
       ctx.diag << "  variable type : '" << *value.type.type << "'\n";
+      ctx.suppressed[stmtvar] = value;
       return;
     }
 
@@ -8589,6 +8620,7 @@ namespace
       // infer_pointer_type(ctx, value.type, stmtvar);
 
       ctx.diag.error("unable to infer pointer type", ctx.stack.back(), stmtvar->loc());
+      ctx.suppressed[stmtvar] = value;
       return;
     }
 
@@ -9802,7 +9834,16 @@ namespace
 
       auto callee = find_callee(ctx, scopetype, var->name, parms, namedparms);
 
-      if (!callee || parms.size() != callee.fx.fn->parms.size())
+      if (callee && callee.fx.fn->parms.size() != parms.size())
+        callee.fx = nullptr;
+
+      if (callee && is_throws(ctx, callee.fx.fn, callee.fx.fn) != (fntype->throwtype != ctx.voidtype))
+        callee.fx = nullptr;
+
+      if (callee && find_returntype(ctx, callee.fx).type != fntype->returntype)
+        callee.fx = nullptr;
+
+      if (!callee)
       {
         ctx.diag.error("cannot resolve vtable function", thistype->fieldvars[index], var->loc());
         diag_callee(ctx, callee, parms, namedparms);
@@ -9810,19 +9851,8 @@ namespace
         continue;
       }
 
-      if (callee.fx.fn->throws)
-      {
-        ctx.diag.error("invalid throws vtable function", thistype->fieldvars[index], var->loc());
-        continue;
-      }
-
-      if (find_returntype(ctx, callee.fx).type != fntype->returntype)
-      {
-        ctx.diag.error("return type mismatch on vtable function", thistype->fieldvars[index], var->loc());
-        diag_callee(ctx, callee, parms, namedparms);
-        ctx.diag << Diag::white() << "  in scope\n" << Diag::cyan() << "    <" << *get_module(type_scope(ctx, scopetype))->name << "::" << *scopetype << ">\n" << Diag::normal();
-        continue;
-      }
+      if (fntype->throwtype != ctx.voidtype)
+        callee.fx.throwtype = fntype->throwtype;
 
       result.type = type;
       result.value = MIR::RValue::literal(ctx.mir.make_expr<FunctionPointerExpr>(callee.fx, var->loc()));
@@ -11834,11 +11864,11 @@ namespace
       if (dst.type == ctx.floatliteraltype)
         changed |= promote(ctx, arg, type(Builtin::Type_F64));
 
-      if (dst.type->klass() == Type::Array && type_cast<ArrayType>(dst.type)->type == ctx.intliteraltype)
-        changed |= promote(ctx, arg, ctx.typetable.find_or_create<ArrayType>(type(Builtin::Type_I32), type_cast<ArrayType>(dst.type)->size));
-
-      if (dst.type->klass() == Type::Array && type_cast<ArrayType>(dst.type)->type == ctx.floatliteraltype)
-        changed |= promote(ctx, arg, ctx.typetable.find_or_create<ArrayType>(type(Builtin::Type_F64), type_cast<ArrayType>(dst.type)->size));
+      //if (dst.type->klass() == Type::Array && type_cast<ArrayType>(dst.type)->type == ctx.intliteraltype)
+      //  changed |= promote(ctx, arg, ctx.typetable.find_or_create<ArrayType>(type(Builtin::Type_I32), type_cast<ArrayType>(dst.type)->size));
+      //
+      //if (dst.type->klass() == Type::Array && type_cast<ArrayType>(dst.type)->type == ctx.floatliteraltype)
+      //  changed |= promote(ctx, arg, ctx.typetable.find_or_create<ArrayType>(type(Builtin::Type_F64), type_cast<ArrayType>(dst.type)->size));
     }
 
     if (ctx.diag.has_errored())

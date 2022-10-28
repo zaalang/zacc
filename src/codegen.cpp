@@ -1050,7 +1050,7 @@ namespace
       {
         for(auto &element : literal->elements)
         {
-          elements.push_back(llvm_constant(ctx, fx, elemtype, element));
+          elements.push_back(llvm_constant(ctx, fx, remove_const_type(elemtype), element));
         }
 
         if (any_of(elements.begin(), elements.end(), [](auto &k) { return !k; }))
@@ -1080,7 +1080,7 @@ namespace
       auto active = expr_cast<IntLiteralExpr>(literal->fields[0])->value().value;
 
       elements.push_back(llvm_constant(ctx, fx, type_cast<CompoundType>(type)->fields[0], literal->fields[0]));
-      elements.push_back(llvm_constant(ctx, fx, type_cast<CompoundType>(type)->fields[active], literal->fields[1]));
+      elements.push_back(llvm_constant(ctx, fx, remove_const_type(type_cast<CompoundType>(type)->fields[active]), literal->fields[1]));
 
       if (any_of(elements.begin(), elements.end(), [](auto &k) { return !k; }))
         return nullptr;
@@ -1098,7 +1098,7 @@ namespace
 
       for(size_t i = 0; i < fields.size(); ++i)
       {
-        elements.push_back(llvm_constant(ctx, fx, fields[i], literal->fields[i]));
+        elements.push_back(llvm_constant(ctx, fx, remove_const_type(fields[i]), literal->fields[i]));
       }
 
       if (any_of(elements.begin(), elements.end(), [](auto &k) { return !k; }))
@@ -4608,6 +4608,21 @@ namespace
     auto fntype = llvm::FunctionType::get(returntype, parmtypes, false);
     auto fnprot = llvm::Function::Create(fntype, linkage, name, ctx.module);
 
+    if (fx.fn->flags & FunctionDecl::ExternMask)
+    {
+      if (auto func = ctx.module.getFunction(name); func && func != fnprot)
+      {
+        if (fnprot->getType() != func->getType())
+          ctx.diag.error("incompatible extern declaration", fx.fn, fx.fn->loc());
+
+        if (fx.fn->body && func->size() != 0)
+          ctx.diag.error("function already defined", fx.fn, fx.fn->loc());
+
+        fnprot->removeFromParent();
+        fnprot = func;
+      }
+    }
+
     attrbuilder.clear();
 
     attrbuilder.addAttribute(llvm::Attribute::NoUnwind);
@@ -4668,21 +4683,6 @@ namespace
     os.flush();
     cout << buf.c_str() << endl;
 #endif
-
-    if (fx.fn->flags & FunctionDecl::ExternMask)
-    {
-      if (auto func = ctx.module.getFunction(name); func && func != fnprot)
-      {
-        if (fnprot->getType() != func->getType())
-          ctx.diag.error("incompatible extern declaration", fx.fn, fx.fn->loc());
-
-        if (fx.fn->body && func->size() != 0)
-          ctx.diag.error("function already defined", fx.fn, fx.fn->loc());
-
-        fnprot->removeFromParent();
-        fnprot = func;
-      }
-    }
 
     ctx.functions.emplace(sig, fnprot);
 

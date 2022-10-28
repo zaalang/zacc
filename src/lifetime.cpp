@@ -408,6 +408,10 @@ namespace
     ctx.threads[0].locals[get<1>(*dep)].consumed = true;
     ctx.threads[0].locals[get<1>(*dep)].consumed_fields.push_back(dep);
 
+    for(auto dep2 : ctx.threads[0].locals[get<1>(*dep)].depends_upon)
+      if (get<1>(*dep2) < arg)
+        consume(ctx, mir, get<1>(*dep), dep2);
+
 #if 0
     cout << "consume: " << *dep << endl;
     for(auto fld : ctx.threads[0].locals[get<1>(*dep)].consumed_fields)

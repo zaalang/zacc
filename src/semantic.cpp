@@ -674,7 +674,12 @@ namespace
         for(auto &parm : fn->parms)
           params.push_back(decl_cast<ParmVarDecl>(parm)->type);
 
-        field->type = sema.make_reference(sema.make_const(sema.make_fntype(fn->returntype, sema.make_tuple(params), type(Builtin::Type_Void))));
+        auto throwtype = type(Builtin::Type_Void);
+
+        if (fn->throws && fn->throws->kind() == Expr::DeclRef)
+          throwtype = sema.make_typeref(expr_cast<DeclRefExpr>(fn->throws)->decl);
+
+        field->type = sema.make_reference(sema.make_const(sema.make_fntype(fn->returntype, sema.make_tuple(params), throwtype)));
 
         decl = field;
       }
@@ -1059,7 +1064,8 @@ namespace
     {
       module = sema.module_declaration(name, path);
 
-      load(module, sema, ctx.diag);
+      if (!load(module, sema, ctx.diag))
+        ctx.diag.error("opening file '" + module->file() + "'", ctx.file, imprt->loc());
 
       semantic(module, sema, ctx.diag);
     }

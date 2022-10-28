@@ -168,7 +168,11 @@ int main(int argc, char *argv[])
 
     sema.add_cfg("zaa.build.outdir=" + dirname(outfile));
 
-    parse(input, sema, diag);
+    if (!parse(input, sema, diag))
+    {
+      cerr << "unable to open input file '" << input << "'\n";
+      exit(1);
+    }
 
 #if 0
     dump_ast(sema.ast);

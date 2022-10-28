@@ -1124,6 +1124,14 @@ namespace
     dst = sema.make_typearg(arg, koncept, std::move(typeref->args));
   }
 
+  //|///////////////////// resolve_typename /////////////////////////////////
+  void resolve_type(TyperContext &ctx, Scope const &scope, TypeNameDecl *typenam, TypeRefType *typeref, Type *&dst, Sema &sema)
+  {
+    resolve_type(ctx, scope, typenam->type, sema);
+
+    dst = typenam->type;
+  }
+
   //|///////////////////// resolve_typeref //////////////////////////////////
   void resolve_type(TyperContext &ctx, Scope const &scope, DeclRefDecl *declref, TypeRefType *typeref, Type *&dst, Sema &sema)
   {
@@ -1382,6 +1390,10 @@ namespace
 
       case Decl::Concept:
         resolve_type(ctx, scope, decl_cast<ConceptDecl>(typeref->decl), typeref, dst, sema);
+        break;
+
+      case Decl::TypeName:
+        resolve_type(ctx, scope, decl_cast<TypeNameDecl>(typeref->decl), typeref, dst, sema);
         break;
 
       default:

@@ -81,7 +81,7 @@ namespace
       }
     }
 
-    void comsume_til_resumable()
+    void consume_til_resumable()
     {
       while (true)
       {
@@ -104,6 +104,9 @@ namespace
 
           case Token::semi:
             consume_token();
+            return;
+
+          case Token::r_brace:
             return;
 
           case Token::eof:
@@ -2474,7 +2477,7 @@ namespace
     return ifd;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -2520,7 +2523,7 @@ namespace
     return elsed;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -2610,7 +2613,7 @@ namespace
     return imprt;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -2627,7 +2630,10 @@ namespace
     usein->decl = parse_qualified_name(ctx, sema);
 
     if (!usein->decl)
+    {
+      ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
       return nullptr;
+    }
 
     if (usein->decl->kind() == Decl::TypeName)
       ctx.diag.error("invalid use of typename", ctx.text, ctx.tok.loc);
@@ -2641,7 +2647,7 @@ namespace
     return usein;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -2691,7 +2697,7 @@ namespace
     return alias;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -2761,7 +2767,7 @@ namespace
     return var;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -2857,18 +2863,12 @@ namespace
       fn->body = retrn;
     }
 
-    if (!ctx.try_consume_token(Token::semi))
-    {
-      ctx.diag.error("expected semi", ctx.text, ctx.tok.loc);
-      goto resume;
-    }
-
     reqires->fn = fn;
 
     return reqires;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -2909,6 +2909,11 @@ namespace
       {
         switch (ctx.tok.type)
         {
+          case Token::semi:
+            ctx.diag.warn("extra semi", ctx.text, ctx.tok.loc);
+            ctx.consume_token(Token::semi);
+            continue;
+
           case Token::kw_requires:
             decl = parse_requires_declaration(ctx, sema);
             break;
@@ -2934,7 +2939,7 @@ namespace
     return koncept;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -2982,18 +2987,18 @@ namespace
       }
 
       fn->body = retrn;
+    }
 
-      if (!ctx.try_consume_token(Token::semi))
-      {
-        ctx.diag.error("expected semi", ctx.text, ctx.tok.loc);
-        goto resume;
-      }
+    if (!ctx.try_consume_token(Token::semi))
+    {
+      ctx.diag.error("expected semi", ctx.text, ctx.tok.loc);
+      goto resume;
     }
 
     return fn;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -3020,7 +3025,7 @@ namespace
     return var;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -3169,7 +3174,7 @@ namespace
     return fn;
 
   resume:
-    ctx.comsume_til_resumable();
+    ctx.consume_til_resumable();
     return nullptr;
   }
 
@@ -3294,7 +3299,7 @@ namespace
     return fn;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -3350,7 +3355,7 @@ namespace
     return fn;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -3383,12 +3388,16 @@ namespace
       field->defult = parse_expression(ctx, sema);
     }
 
-    ctx.try_consume_token(Token::semi) || ctx.try_consume_token(Token::comma);
+    if (!(ctx.try_consume_token(Token::semi) || ctx.try_consume_token(Token::comma)))
+    {
+      ctx.diag.error("expected semi", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
 
     return field;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -3605,16 +3614,14 @@ namespace
           default:
           unhandled:
             ctx.diag.error("expected member declaration", ctx.text, tok.loc);
-            goto resume;
-        }
-
-        if (!ctx.attributes.empty())
-        {
-          ctx.diag.error("unexpected attributes", ctx.text, tok.loc);
+            ctx.consume_til_resumable();
         }
 
         if (!decl)
-          break;
+          continue;
+
+        if (!ctx.attributes.empty())
+          ctx.diag.error("unexpected attributes", ctx.text, tok.loc);
 
         if (conditional)
         {
@@ -3644,7 +3651,7 @@ namespace
     return strct;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -3675,12 +3682,16 @@ namespace
       }
     }
 
-    ctx.try_consume_token(Token::semi) || ctx.try_consume_token(Token::comma);
+    if (!(ctx.try_consume_token(Token::semi) || ctx.try_consume_token(Token::comma)))
+    {
+      ctx.diag.error("expected semi", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
 
     return field;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -3859,16 +3870,14 @@ namespace
           default:
           unhandled:
             ctx.diag.error("expected member declaration", ctx.text, tok.loc);
-            goto resume;
-        }
-
-        if (!ctx.attributes.empty())
-        {
-          ctx.diag.error("unexpected attributes", ctx.text, tok.loc);
+            ctx.consume_til_resumable();
         }
 
         if (!decl)
-          break;
+          continue;
+
+        if (!ctx.attributes.empty())
+          ctx.diag.error("unexpected attributes", ctx.text, tok.loc);
 
         if (conditional)
         {
@@ -3898,7 +3907,7 @@ namespace
     return unnion;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -4059,16 +4068,14 @@ namespace
           default:
           unhandled:
             ctx.diag.error("expected member declaration", ctx.text, tok.loc);
-            goto resume;
-        }
-
-        if (!ctx.attributes.empty())
-        {
-          ctx.diag.error("unexpected attributes", ctx.text, tok.loc);
+            ctx.consume_til_resumable();
         }
 
         if (!decl)
-          break;
+          continue;
+
+        if (!ctx.attributes.empty())
+          ctx.diag.error("unexpected attributes", ctx.text, tok.loc);
 
         if (decl->kind() == Decl::Function)
         {
@@ -4115,7 +4122,7 @@ namespace
     return vtable;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -4140,12 +4147,16 @@ namespace
       }
     }
 
-    ctx.try_consume_token(Token::semi) || ctx.try_consume_token(Token::comma);
+    if (!(ctx.try_consume_token(Token::semi) || ctx.try_consume_token(Token::comma) || ctx.tok == Token::r_brace))
+    {
+      ctx.diag.error("expected comma", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
 
     return constant;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -4288,16 +4299,14 @@ namespace
           default:
           unhandled:
             ctx.diag.error("expected member declaration", ctx.text, tok.loc);
-            goto resume;
-        }
-
-        if (!ctx.attributes.empty())
-        {
-          ctx.diag.error("unexpected attributes", ctx.text, tok.loc);
+            ctx.consume_til_resumable();
         }
 
         if (!decl)
-          break;
+          continue;
+
+        if (!ctx.attributes.empty())
+          ctx.diag.error("unexpected attributes", ctx.text, tok.loc);
 
         if (conditional)
         {
@@ -4327,7 +4336,7 @@ namespace
     return enumm;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -4482,7 +4491,7 @@ namespace
     return casse;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -4647,11 +4656,11 @@ namespace
           default:
           unhandled:
             ctx.diag.error("expected declaration", ctx.text, tok.loc);
-            goto resume;
+            ctx.consume_til_resumable();
         }
 
         if (!decl)
-          break;
+          continue;
 
         decls.push_back(decl);
       }
@@ -4679,7 +4688,7 @@ namespace
     return injection;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -4744,7 +4753,7 @@ namespace
     return stmt;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -4770,7 +4779,7 @@ namespace
     return stmt;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -4795,9 +4804,16 @@ namespace
 
       if (ctx.tok != Token::semi)
       {
-        if (inits.size() == 1 && inits.back()->kind() == Stmt::Expression)
+        if (inits.size() == 1)
         {
-          ifs->cond = stmt_cast<ExprStmt>(inits.back())->expr;
+          if (inits.back()->kind() == Stmt::Expression)
+            ifs->cond = stmt_cast<ExprStmt>(inits.back())->expr;
+
+          if (inits.back()->kind() == Stmt::Declaration)
+          {
+            ifs->inits = std::move(inits);
+            ifs->cond = sema.make_declref_expression(sema.make_declref(decl_cast<VarDecl>(stmt_cast<DeclStmt>(ifs->inits.back())->decl)->name, ctx.tok.loc), ctx.tok.loc);
+          }
         }
       }
 
@@ -4850,7 +4866,7 @@ namespace
     return ifs;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -4914,7 +4930,7 @@ namespace
     return fors;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -4978,7 +4994,7 @@ namespace
     return rofs;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -5000,9 +5016,10 @@ namespace
 
       if (ctx.tok != Token::semi)
       {
-        if (inits.size() == 1 && inits.back()->kind() == Stmt::Expression)
+        if (inits.size() == 1)
         {
-          wile->cond = stmt_cast<ExprStmt>(inits.back())->expr;
+          if (inits.back()->kind() == Stmt::Expression)
+            wile->cond = stmt_cast<ExprStmt>(inits.back())->expr;
         }
       }
 
@@ -5051,7 +5068,7 @@ namespace
     return wile;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -5073,9 +5090,16 @@ namespace
 
       if (ctx.tok != Token::semi)
       {
-        if (inits.size() == 1 && inits.back()->kind() == Stmt::Expression)
+        if (inits.size() == 1)
         {
-          swtch->cond = stmt_cast<ExprStmt>(inits.back())->expr;
+          if (inits.back()->kind() == Stmt::Expression)
+            swtch->cond = stmt_cast<ExprStmt>(inits.back())->expr;
+
+          if (inits.back()->kind() == Stmt::Declaration)
+          {
+            swtch->inits = std::move(inits);
+            swtch->cond = sema.make_declref_expression(sema.make_declref(decl_cast<VarDecl>(stmt_cast<DeclStmt>(swtch->inits.back())->decl)->name, ctx.tok.loc), ctx.tok.loc);
+          }
         }
       }
 
@@ -5161,11 +5185,11 @@ namespace
           default:
           unhandled:
             ctx.diag.error("expected case declaration", ctx.text, tok.loc);
-            goto resume;
+            ctx.consume_til_resumable();
         }
 
         if (!decl)
-          break;
+          continue;
 
         if (conditional)
         {
@@ -5195,7 +5219,7 @@ namespace
     return swtch;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -5217,7 +5241,7 @@ namespace
     return retrn;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -5302,7 +5326,7 @@ namespace
     return trys;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -5330,7 +5354,7 @@ namespace
     return throwe;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -5350,7 +5374,7 @@ namespace
     return breck;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -5370,7 +5394,7 @@ namespace
     return continu;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -5392,7 +5416,7 @@ namespace
     return retrn;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -5463,7 +5487,7 @@ namespace
     return compound;
 
     resume:
-      ctx.comsume_til_resumable();
+      ctx.consume_til_resumable();
       return nullptr;
   }
 
@@ -5660,23 +5684,24 @@ namespace
           }
           break;
 
+        case Token::r_brace:
+          ctx.consume_token(Token::r_brace);
+          goto unhandled;
+
         case Token::eof:
           break;
 
         default:
         unhandled:
           ctx.diag.error("expected toplevel declaration", ctx.text, tok.loc);
-          ctx.comsume_til_resumable();
-          return nullptr;
-      }
-
-      if (!ctx.attributes.empty())
-      {
-        ctx.diag.error("unexpected attributes", ctx.text, tok.loc);
+          ctx.consume_til_resumable();
       }
 
       if (!decl || !conditional)
         break;
+
+      if (!ctx.attributes.empty())
+        ctx.diag.error("unexpected attributes", ctx.text, tok.loc);
 
       conditional->decls.push_back(decl);
     }
@@ -5695,15 +5720,12 @@ namespace
 //|--------------------------------------------------------------------------
 
 //|///////////////////// load ///////////////////////////////////////////////
-void load(ModuleDecl *module, Sema &sema, Diag &diag)
+bool load(ModuleDecl *module, Sema &sema, Diag &diag)
 {
   SourceText text(module->file());
 
   if (!text)
-  {
-    diag.error("opening file '" + module->file() + "'");
-    return;
-  }
+    return false;
 
   ParseContext ctx(text, diag);
 
@@ -5714,16 +5736,21 @@ void load(ModuleDecl *module, Sema &sema, Diag &diag)
       module->decls.push_back(decl);
     }
   }
+
+  return true;
 }
 
 //|///////////////////// parse //////////////////////////////////////////////
-void parse(string const &path, Sema &sema, Diag &diag)
+bool parse(string const &path, Sema &sema, Diag &diag)
 {
   auto unit = sema.translation_unit(path);
 
-  load(decl_cast<ModuleDecl>(unit->mainmodule), sema, diag);
+  if (!load(decl_cast<ModuleDecl>(unit->mainmodule), sema, diag))
+    return false;
 
   semantic(decl_cast<ModuleDecl>(unit->mainmodule), sema, diag);
 
   sema.end();
+
+  return true;
 }

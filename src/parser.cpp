@@ -1767,6 +1767,47 @@ namespace
     return sema.make_offsetof_expression(type, name, loc);
   }
 
+  //|///////////////////// parse_instanceof /////////////////////////////////
+  Expr *parse_instanceof(ParseContext &ctx, Sema &sema)
+  {
+    auto loc = ctx.tok.loc;
+
+    ctx.consume_token(Token::kw_instanceof);
+
+    if (!ctx.try_consume_token(Token::less))
+    {
+      ctx.diag.error("expected less", ctx.text, ctx.tok.loc);
+      return nullptr;
+    }
+
+    auto type = parse_type(ctx, sema);
+
+    if (!ctx.try_consume_token(Token::comma))
+    {
+      ctx.diag.error("expected comma", ctx.text, ctx.tok.loc);
+      return nullptr;
+    }
+
+    auto instance = parse_type(ctx, sema);
+
+    if (!ctx.try_consume_token(Token::greater))
+    {
+      ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
+      return nullptr;
+    }
+
+    if (ctx.try_consume_token(Token::l_paren))
+    {
+      if (!ctx.try_consume_token(Token::r_paren))
+      {
+        ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+        return nullptr;
+      }
+    }
+
+    return sema.make_instanceof_expression(type, instance, loc);
+  }
+
   //|///////////////////// parse_typeid /////////////////////////////////////
   Expr *parse_typeid(ParseContext &ctx, Sema &sema)
   {
@@ -2300,6 +2341,9 @@ namespace
 
       case Token::kw_offsetof:
         return parse_offsetof(ctx, sema);
+
+      case Token::kw_instanceof:
+        return parse_instanceof(ctx, sema);
 
       case Token::kw_cast:
         return parse_expression_post(ctx, parse_cast(ctx, sema), sema);
@@ -3431,6 +3475,9 @@ namespace
 
     if (ctx.try_consume_token(Token::colon))
     {
+      if (ctx.try_consume_token(Token::kw_pub))
+        strct->flags |= TagDecl::PublicBase;
+
       strct->basetype = parse_type(ctx, sema);
     }
 
@@ -3941,6 +3988,11 @@ namespace
 
     if (ctx.try_consume_token(Token::colon))
     {
+      vtable->flags |= TagDecl::PublicBase;
+
+      if (ctx.try_consume_token(Token::kw_pub))
+        vtable->flags |= TagDecl::PublicBase;
+
       vtable->basetype = parse_type(ctx, sema);
     }
 
@@ -4179,7 +4231,10 @@ namespace
 
     if (ctx.try_consume_token(Token::colon))
     {
-      enumm->representation = parse_type(ctx, sema);
+      if (ctx.try_consume_token(Token::kw_pub))
+        enumm->flags |= TagDecl::PublicBase;
+
+      enumm->basetype = parse_type(ctx, sema);
     }
 
     if (!ctx.try_consume_token(Token::semi))
@@ -4248,6 +4303,12 @@ namespace
 
           case Token::identifier:
           case Token::dollar:
+            if (enumm->name == tok.text || tok.text == "this")
+            {
+              decl = parse_constructor_declaration(ctx, sema);
+              break;
+            }
+
             decl = parse_constant_declaration(ctx, sema);
             break;
 

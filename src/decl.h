@@ -497,6 +497,7 @@ class TagDecl : public Decl
       Public = 0x01,
       Captures = 0x10,
       Packed = 0x100,
+      PublicBase = 0x200,
     };
 
   public:
@@ -712,8 +713,6 @@ class EnumDecl : public TagDecl
 {
   public:
     EnumDecl(SourceLocation loc);
-
-    Type *representation = nullptr;
 
     void dump(int indent) const override;
 };

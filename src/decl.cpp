@@ -1072,9 +1072,9 @@ void EnumDecl::dump(int indent) const
 {
   cout << spaces(indent) << "EnumDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 
-  if (representation)
+  if (basetype)
   {
-    representation->dump(indent + 2);
+    basetype->dump(indent + 2);
   }
 
   for(auto &decl : decls)

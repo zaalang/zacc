@@ -762,6 +762,10 @@ namespace
         if (identifier == "yield")
           type = Token::kw_yield;
         break;
+
+      case '_':
+        if (identifier == "__is_instance")
+          type = Token::kw_instanceof;
     }
 
     tok = make_token(type, beg, ptr, cursor);

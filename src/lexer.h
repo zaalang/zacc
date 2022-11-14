@@ -150,6 +150,7 @@ struct Token
     kw_sizeof,
     kw_alignof,
     kw_offsetof,
+    kw_instanceof,
     kw_typeof,
     kw_static,
     kw_cast,

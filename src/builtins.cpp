@@ -526,7 +526,7 @@ namespace Builtin
     make_function(is_same, "pub const fn __is_same<T, U>() -> bool", __LINE__);
     make_function(is_const, "pub const fn __is_const<T>() -> bool", __LINE__);
     make_function(is_rvalue, "pub const fn __is_rvalue<T>() -> bool", __LINE__);
-    make_function(is_match, "pub const fn __is_match<T, U>() -> bool", __LINE__);
+    make_function(is_match, "pub const fn __is_match<U, T>() -> bool", __LINE__);
     make_function(is_enum, "pub const fn __is_enum<T>() -> bool", __LINE__);
     make_function(is_array, "pub const fn __is_array<T>() -> bool", __LINE__);
     make_function(is_tuple, "pub const fn __is_tuple<T>() -> bool", __LINE__);
@@ -536,6 +536,7 @@ namespace Builtin
     make_function(is_builtin, "pub const fn __is_builtin<T>() -> bool", __LINE__);
     make_function(is_pointer, "pub const fn __is_pointer<T>() -> bool", __LINE__);
     make_function(is_reference, "pub const fn __is_reference<T>() -> bool", __LINE__);
+    make_function(is_instance, "pub const fn __is_instance<U, T>() -> bool", __LINE__);
     make_function(is_trivial_copy, "pub const fn __is_trivial_copy<T>() -> bool", __LINE__);
     make_function(is_trivial_assign, "pub const fn __is_trivial_assign<T>() -> bool", __LINE__);
     make_function(is_trivial_destroy, "pub const fn __is_trivial_destroy<T>() -> bool", __LINE__);

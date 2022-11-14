@@ -554,6 +554,12 @@ Expr *Sema::make_offsetof_expression(Type *type, Ident *field, SourceLocation lo
   return ast->make_expr<OffsetofExpr>(type, field, loc);
 }
 
+//|///////////////////// make_instanceof_expression /////////////////////////
+Expr *Sema::make_instanceof_expression(Type *type, Type *instance, SourceLocation loc)
+{
+  return ast->make_expr<InstanceofExpr>(type, instance, loc);
+}
+
 //|///////////////////// make_typeid_expression /////////////////////////////
 Expr *Sema::make_typeid_expression(Decl *decl, SourceLocation loc)
 {

@@ -259,6 +259,12 @@ namespace
     return new OffsetofExpr(copier_type(ctx, call->type), copier_name(ctx, call->field), call->loc());
   }
 
+  //|///////////////////// instanceof_expression ////////////////////////////
+  Expr *copier_expr(CopierContext &ctx, InstanceofExpr *call)
+  {
+    return new InstanceofExpr(copier_type(ctx, call->type), copier_type(ctx, call->instance), call->loc());
+  }
+
   //|///////////////////// typeid_expression ////////////////////////////////
   Expr *copier_expr(CopierContext &ctx, TypeidExpr *call)
   {
@@ -384,6 +390,9 @@ namespace
 
       case Expr::Offsetof:
         return copier_expr(ctx, expr_cast<OffsetofExpr>(expr));
+
+      case Expr::Instanceof:
+        return copier_expr(ctx, expr_cast<InstanceofExpr>(expr));
 
       case Expr::Typeid:
         return copier_expr(ctx, expr_cast<TypeidExpr>(expr));
@@ -802,9 +811,6 @@ namespace
     auto result = new EnumDecl(enumm->loc());
 
     copier_decl(ctx, result, decl_cast<TagDecl>(enumm));
-
-    if (enumm->representation)
-      result->representation = copier_type(ctx, enumm->representation);
 
     return result;
   }

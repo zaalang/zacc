@@ -193,6 +193,7 @@ namespace
       follow,
       launder,
       restrict,
+      none,
     };
 
     Type type = unknown;
@@ -849,6 +850,9 @@ namespace
                     break;
                   }
 
+                  if (target.type == Annotation::unknown)
+                    target.type = Annotation::none;
+
                   break;
                 }
 
@@ -895,6 +899,9 @@ namespace
         break;
 
       case Annotation::restrict:
+        break;
+
+      case Annotation::none:
         break;
 
       default:

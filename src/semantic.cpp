@@ -242,6 +242,13 @@ namespace
     semantic_type(ctx, call->type, sema);
   }
 
+  //|///////////////////// instanceof_expression ////////////////////////////
+  void semantic_expr(SemanticContext &ctx, InstanceofExpr *call, Sema &sema)
+  {
+    semantic_type(ctx, call->type, sema);
+    semantic_type(ctx, call->instance, sema);
+  }
+
   //|///////////////////// typeid_expression ////////////////////////////////
   void semantic_expr(SemanticContext &ctx, TypeidExpr *call, Sema &sema)
   {
@@ -373,6 +380,10 @@ namespace
 
       case Expr::Offsetof:
         semantic_expr(ctx, expr_cast<OffsetofExpr>(expr), sema);
+        break;
+
+      case Expr::Instanceof:
+        semantic_expr(ctx, expr_cast<InstanceofExpr>(expr), sema);
         break;
 
       case Expr::Typeid:
@@ -577,8 +588,10 @@ namespace
       auto basefield = sema.field_declaration(strct->loc());
 
       basefield->name = Ident::kw_super;
-      basefield->flags = VarDecl::Public;
       basefield->type = strct->basetype;
+
+      if (strct->flags & TagDecl::PublicBase)
+        basefield->flags = VarDecl::Public;
 
       strct->decls.insert(strct->decls.begin(), basefield);
     }
@@ -653,8 +666,10 @@ namespace
       auto basefield = sema.field_declaration(vtable->loc());
 
       basefield->name = Ident::kw_super;
-      basefield->flags = VarDecl::Public;
       basefield->type = vtable->basetype;
+
+      if (vtable->flags & TagDecl::PublicBase)
+        basefield->flags = VarDecl::Public;
 
       vtable->decls.insert(vtable->decls.begin(), basefield);
     }
@@ -940,7 +955,7 @@ namespace
       auto basefield = sema.field_declaration(enumm->loc());
 
       basefield->name = Ident::type_enum;
-      basefield->type = enumm->representation;
+      basefield->type = enumm->basetype;
 
       if (!basefield->type)
         basefield->type = type(Builtin::Type_ISize);
@@ -1178,7 +1193,7 @@ namespace
 
         fn->returntype = decl_type(ctx, *owner, sema);
 
-        if ((*owner)->kind() == Decl::Struct || (*owner)->kind() == Decl::Union)
+        if ((*owner)->kind() == Decl::Struct || (*owner)->kind() == Decl::Union || (*owner)->kind() == Decl::Enum)
         {
           fn->name = decl_cast<TagDecl>(*owner)->name;
 

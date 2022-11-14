@@ -4034,7 +4034,7 @@ namespace
     }
     else if (is_int(lhs) && is_float(rhs))
     {
-      auto value = Numeric::int_cast<uint64_t>(load_float(ctx, fx.locals[arg].alloc, fx.locals[arg].type));
+      auto value = Numeric::int_cast<double>(load_float(ctx, fx.locals[arg].alloc, fx.locals[arg].type));
 
       if (is_enum_type(lhs))
         lhs = type_cast<TagType>(lhs)->fields[0];

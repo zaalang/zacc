@@ -214,6 +214,10 @@ std::ostream &operator <<(std::ostream &os, Expr const &expr)
       os << "offsetof " << *static_cast<OffsetofExpr const &>(expr).field;
       break;
 
+    case Expr::Instanceof:
+      os << "__is_instance";
+      break;
+
     case Expr::Typeid:
       os << "typeid " << *static_cast<TypeidExpr const &>(expr).decl;
       break;
@@ -809,6 +813,29 @@ OffsetofExpr::OffsetofExpr(Type *type, Ident *field, SourceLocation loc)
 void OffsetofExpr::dump(int indent) const
 {
   cout << spaces(indent) << "OffsetofExpr " << this << " <" << m_loc << "> " << *this << "\n";
+
+  if (type)
+  {
+    type->dump(indent + 2);
+  }
+}
+
+
+//|--------------------- InstanceofExpr -------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// InstanceofExpr::Constructor ////////////////////////
+InstanceofExpr::InstanceofExpr(Type *type, Type *instance, SourceLocation loc)
+  : Expr(Instanceof, loc),
+    type(type),
+    instance(instance)
+{
+}
+
+//|///////////////////// InstanceofExpr::dump ///////////////////////////////
+void InstanceofExpr::dump(int indent) const
+{
+  cout << spaces(indent) << "InstanceofExpr " << this << " <" << m_loc << "> " << *this << "\n";
 
   if (type)
   {

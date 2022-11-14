@@ -1581,6 +1581,13 @@ namespace
     resolve_type(ctx, scope, call->type, sema);
   }
 
+  //|///////////////////// instanceof_expression ////////////////////////////
+  void resolve_expr(TyperContext &ctx, Scope const &scope, InstanceofExpr *call, Sema &sema)
+  {
+    resolve_type(ctx, scope, call->type, sema);
+    resolve_type(ctx, scope, call->instance, sema);
+  }
+
   //|///////////////////// typeid_expression ////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, TypeidExpr *call, Sema &sema)
   {
@@ -1718,6 +1725,10 @@ namespace
 
       case Expr::Offsetof:
         resolve_expr(ctx, scope, expr_cast<OffsetofExpr>(expr), sema);
+        break;
+
+      case Expr::Instanceof:
+        resolve_expr(ctx, scope, expr_cast<InstanceofExpr>(expr), sema);
         break;
 
       case Expr::Typeid:

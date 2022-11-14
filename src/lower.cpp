@@ -2362,7 +2362,7 @@ namespace
             if (lhs->klass() == Type::Tag && type_cast<TagType>(lhs)->decl == type_cast<TagType>(rhs)->decl)
               break;
 
-            if (!decl_cast<TagDecl>(type_cast<TagType>(rhs)->decl)->basetype)
+            if (!decl_cast<TagDecl>(type_cast<TagType>(rhs)->decl)->basetype || !(type_cast<TagType>(rhs)->decl->flags & TagDecl::PublicBase))
               break;
 
             rhs = type_cast<TagType>(rhs)->fields[0];
@@ -3425,10 +3425,8 @@ namespace
 
         auto enumm = resolve_type(ctx, typescope, decl_cast<EnumDecl>(decl));
 
-        if (parms.size() == 1 && !deduce_type(ctx, typescope, typescope, enumm, parms[0].type))
-          continue;
-
-        results.push_back(Builtin::fn(ctx.translationunit->builtins, Builtin::Type_Enum, enumm));
+        if (parms.size() == 0 || (parms.size() == 1 && deduce_type(ctx, typescope, typescope, enumm, parms[0].type)))
+          results.push_back(Builtin::fn(ctx.translationunit->builtins, Builtin::Type_Enum, enumm));
       }
 
       if (decl->kind() == Decl::EnumConstant)
@@ -3483,7 +3481,7 @@ namespace
         if ((alias->flags & TypeAliasDecl::Builtin) || (alias->flags & TypeAliasDecl::Implicit))
           continue;
 
-        if ((k & ~IllSpecified) != tx.args.size() + tx.namedargs.size())
+        if (k != tx.args.size() + tx.namedargs.size())
           continue;
 
         auto aliastype = resolve_type(ctx, aliasscope, alias->type);
@@ -3647,6 +3645,12 @@ namespace
     for(auto &fx : overloads)
     {
       int rank = fx.fn->args.size();
+
+      for(auto sx = Scope(fx.fn); sx; sx = parent_scope(std::move(sx)))
+      {
+        if (is_tag_scope(sx))
+          rank += decl_cast<TagDecl>(get<Decl*>(sx.owner))->args.size();
+      }
 
       for(size_t i = 0, k = 0; i < fx.fn->parms.size(); ++i)
       {
@@ -5168,7 +5172,7 @@ namespace
   {
     auto type = remove_const_type(callee.find_type(callee.fn->args[0])->second);
 
-    while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype)
+    while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype && (type_cast<TagType>(type)->decl->flags & TagDecl::PublicBase))
       type = type_cast<TagType>(type)->fields[0];
 
     if (type_cast<TypeLitType>(type_cast<ArrayType>(type)->size)->value->kind() != Expr::IntLiteral)
@@ -5183,7 +5187,7 @@ namespace
   {
     auto type = remove_const_type(callee.find_type(callee.fn->args[0])->second);
 
-    while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype)
+    while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype && (type_cast<TagType>(type)->decl->flags & TagDecl::PublicBase))
       type = type_cast<TagType>(type)->fields[0];
 
     result.type = MIR::Local(ctx.usizetype, MIR::Local::Const | MIR::Local::Literal);
@@ -6919,7 +6923,7 @@ namespace
             }
           }
 
-          if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype)
+          if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype || !(tagtype->decl->flags & TagDecl::PublicBase))
             break;
 
           type = tagtype->fields[0];
@@ -7859,6 +7863,37 @@ namespace
     result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, offsetof_field(tagtype, index)), call->loc());
   }
 
+  //|///////////////////// lower_instanceof /////////////////////////////////
+  void lower_expr(LowerContext &ctx, MIR::Fragment &result, InstanceofExpr *call)
+  {
+    Type *lhs = call->type;
+    Type *rhs = resolve_type(ctx, call->instance);
+
+    bool match = false;
+
+    rhs = remove_const_type(rhs);
+
+    if (is_tag_type(lhs) && is_tag_type(rhs))
+    {
+      if (type_cast<TagType>(lhs)->decl == type_cast<TagType>(rhs)->decl)
+      {
+        match = true;
+
+        for(size_t i = 0; i != type_cast<TagType>(lhs)->args.size(); ++i)
+        {
+          if (is_unresolved_type(type_cast<TagType>(lhs)->args[i].second))
+            continue;
+
+          if (type_cast<TagType>(lhs)->args[i].second != type_cast<TagType>(rhs)->args[i].second)
+            match = false;
+        }
+      }
+    }
+
+    result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
+    result.value = ctx.mir.make_expr<BoolLiteralExpr>(match, call->loc());
+  }
+
   //|///////////////////// lower_typeid /////////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, TypeidExpr *call)
   {
@@ -7956,6 +7991,7 @@ namespace
     if (is_function_type(casttype) && cast->expr->kind() == Expr::DeclRef)
     {
       lower_function_reference(ctx, result, ctx.stack.back(), type_cast<FunctionType>(casttype), expr_cast<DeclRefExpr>(cast->expr)->decl, cast->loc());
+
       return;
     }
 
@@ -7990,6 +8026,7 @@ namespace
       if (literal_cast(ctx, result.value, source.value, casttype))
       {
         result.type = MIR::Local(casttype, MIR::Local::Const | MIR::Local::Literal);
+
         return;
       }
 
@@ -8000,23 +8037,34 @@ namespace
     if (is_function_type(remove_qualifiers_type(casttype)) && is_lambda_type(source.type.type))
     {
       lower_lambda_decay(ctx, result, source, ctx.stack.back(), casttype, cast->loc());
+
       return;
     }
 
     if (!is_reference_type(cast->type))
     {
-      for(auto type = source.type.type;; )
+      while (is_tag_type(source.type.type))
       {
-        if (type == casttype)
-        {
-          lower_base_cast(ctx, result, source, casttype, cast->loc());
-          return;
-        }
-
-        if (!is_tag_type(type) || !decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype)
+        if (source.type.type == casttype)
           break;
 
-        type = type_cast<TagType>(type)->fields[0];
+        if (auto field = find_field(ctx, type_cast<TagType>(source.type.type), Ident::kw_super))
+        {
+          field.defn = ctx.typetable.var_defn;
+
+          lower_field(ctx, source, source, field, cast->loc());
+
+          continue;
+        }
+
+        break;
+      }
+
+      if (source.type.type == casttype)
+      {
+        result = std::move(source);
+
+        return;
       }
     }
 
@@ -8145,7 +8193,7 @@ namespace
                 }
               }
 
-              if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype)
+              if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype || !(tagtype->decl->flags & TagDecl::PublicBase))
                 break;
 
               type = tagtype->fields[0];
@@ -8404,6 +8452,10 @@ namespace
 
       case Expr::Offsetof:
         lower_expr(ctx, result, expr_cast<OffsetofExpr>(expr));
+        break;
+
+      case Expr::Instanceof:
+        lower_expr(ctx, result, expr_cast<InstanceofExpr>(expr));
         break;
 
       case Expr::Typeid:
@@ -8697,86 +8749,89 @@ namespace
     auto fn = ctx.mir.fx.fn;
     auto thistype = type_cast<TagType>(ctx.mir.locals[0].type);
 
-    auto sm = ctx.push_barrier();
-
-    size_t index = 0;
-
-    if (auto j = find_if(fn->inits.begin(), fn->inits.end(), [&](auto &k) { return decl_cast<InitialiserDecl>(k)->name == Ident::kw_this; }); j != fn->inits.end())
+    if (is_struct_type(thistype) || is_union_type(thistype) || is_lambda_type(thistype))
     {
-      auto init = decl_cast<InitialiserDecl>(*j);
+      auto sm = ctx.push_barrier();
 
-      MIR::Fragment address;
-      address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(thistype), MIR::Local::LValue);
-      address.value = MIR::RValue::local(MIR::RValue::Ref, 0, fn->loc());
+      size_t index = 0;
 
-      MIR::Fragment result;
-      vector<MIR::Fragment> parms;
-      map<Ident*, MIR::Fragment> namedparms;
-
-      ctx.mir.add_lineinfo(ctx.currentblockid, ctx.currentblock.statements.size(), init->loc().lineno);
-
-      if (!lower_parms(ctx, parms, namedparms, init->parms, init->namedparms, init->loc()))
-        return;
-
-      lower_new(ctx, result, address, thistype, parms, namedparms, init->loc());
-
-      index = thistype->fields.size();
-    }
-
-    for(; index < thistype->fields.size(); ++index)
-    {
-      auto type = thistype->fields[index];
-      auto decl = decl_cast<FieldVarDecl>(thistype->fieldvars[index]);
-
-      MIR::Fragment address;
-      address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(type), MIR::Local::LValue);
-      address.value = MIR::RValue::field(MIR::RValue::Ref, 0, MIR::RValue::Field{ MIR::RValue::Ref, index }, decl->loc());
-
-      MIR::Fragment result;
-      vector<MIR::Fragment> parms;
-      map<Ident*, MIR::Fragment> namedparms;
-
-      if (auto j = find_if(fn->inits.begin(), fn->inits.end(), [&](auto &k) { return decl_cast<InitialiserDecl>(k)->name == decl->name; }); j != fn->inits.end())
+      if (auto j = find_if(fn->inits.begin(), fn->inits.end(), [&](auto &k) { return decl_cast<InitialiserDecl>(k)->name == Ident::kw_this; }); j != fn->inits.end())
       {
         auto init = decl_cast<InitialiserDecl>(*j);
 
-        if (init->flags & InitialiserDecl::VoidInit)
-          continue;
+        MIR::Fragment address;
+        address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(thistype), MIR::Local::LValue);
+        address.value = MIR::RValue::local(MIR::RValue::Ref, 0, fn->loc());
+
+        MIR::Fragment result;
+        vector<MIR::Fragment> parms;
+        map<Ident*, MIR::Fragment> namedparms;
 
         ctx.mir.add_lineinfo(ctx.currentblockid, ctx.currentblock.statements.size(), init->loc().lineno);
-
-        if (is_union_type(thistype) && index != 0)
-        {
-          auto kinddst = ctx.add_temporary(thistype->fields[0], MIR::Local::LValue | MIR::Local::Reference);
-          auto kindres = ctx.add_temporary(thistype->fields[0], MIR::Local::LValue | MIR::Local::Reference);
-
-          ctx.add_statement(MIR::Statement::assign(kinddst, MIR::RValue::field(MIR::RValue::Ref, 0, MIR::RValue::Field{ MIR::RValue::Ref, 0 }, fn->loc())));
-          ctx.add_statement(MIR::Statement::construct(kindres, MIR::RValue::literal(ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(index), fn->loc()))));
-        }
 
         if (!lower_parms(ctx, parms, namedparms, init->parms, init->namedparms, init->loc()))
           return;
 
-        lower_new(ctx, result, address, type, parms, namedparms, init->loc());
+        lower_new(ctx, result, address, thistype, parms, namedparms, init->loc());
+
+        index = thistype->fields.size();
       }
-      else
+
+      for(; index < thistype->fields.size(); ++index)
       {
-        if (is_union_type(thistype) && index != 0)
-          continue;
+        auto type = thistype->fields[index];
+        auto decl = decl_cast<FieldVarDecl>(thistype->fieldvars[index]);
 
-        if (decl->defult)
+        MIR::Fragment address;
+        address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(type), MIR::Local::LValue);
+        address.value = MIR::RValue::field(MIR::RValue::Ref, 0, MIR::RValue::Field{ MIR::RValue::Ref, index }, decl->loc());
+
+        MIR::Fragment result;
+        vector<MIR::Fragment> parms;
+        map<Ident*, MIR::Fragment> namedparms;
+
+        if (auto j = find_if(fn->inits.begin(), fn->inits.end(), [&](auto &k) { return decl_cast<InitialiserDecl>(k)->name == decl->name; }); j != fn->inits.end())
         {
-          parms.resize(1);
+          auto init = decl_cast<InitialiserDecl>(*j);
 
-          if (!lower_expr(ctx, parms[0], decl->defult))
+          if (init->flags & InitialiserDecl::VoidInit)
+            continue;
+
+          ctx.mir.add_lineinfo(ctx.currentblockid, ctx.currentblock.statements.size(), init->loc().lineno);
+
+          if (is_union_type(thistype) && index != 0)
+          {
+            auto kinddst = ctx.add_temporary(thistype->fields[0], MIR::Local::LValue | MIR::Local::Reference);
+            auto kindres = ctx.add_temporary(thistype->fields[0], MIR::Local::LValue | MIR::Local::Reference);
+
+            ctx.add_statement(MIR::Statement::assign(kinddst, MIR::RValue::field(MIR::RValue::Ref, 0, MIR::RValue::Field{ MIR::RValue::Ref, 0 }, fn->loc())));
+            ctx.add_statement(MIR::Statement::construct(kindres, MIR::RValue::literal(ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(index), fn->loc()))));
+          }
+
+          if (!lower_parms(ctx, parms, namedparms, init->parms, init->namedparms, init->loc()))
             return;
+
+          lower_new(ctx, result, address, type, parms, namedparms, init->loc());
         }
+        else
+        {
+          if (is_union_type(thistype) && index != 0)
+            continue;
 
-        lower_new(ctx, result, address, type, parms, namedparms, decl->loc());
+          if (decl->defult)
+          {
+            parms.resize(1);
+
+            if (!lower_expr(ctx, parms[0], decl->defult))
+              return;
+          }
+
+          lower_new(ctx, result, address, type, parms, namedparms, decl->loc());
+        }
       }
-    }
 
-    ctx.retire_barrier(sm);
+      ctx.retire_barrier(sm);
+    }
   }
 
   //|///////////////////// lower_deinitialisers /////////////////////////////

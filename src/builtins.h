@@ -168,6 +168,7 @@ namespace Builtin
     is_builtin,
     is_pointer,
     is_reference,
+    is_instance,
     is_trivial_copy,
     is_trivial_assign,
     is_trivial_destroy,

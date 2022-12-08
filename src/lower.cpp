@@ -5013,16 +5013,18 @@ namespace
   }
 
   //|///////////////////// lower_lit ////////////////////////////////////////
-  void lower_lit(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
+  bool lower_lit(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
   {
     auto V = callee.find_type(callee.fn->args[1])->second;
 
     result.type = MIR::Local(find_returntype(ctx, callee).type, MIR::Local::Const | MIR::Local::Literal);
     result.value = MIR::RValue::literal(type_cast<TypeLitType>(V)->value);
+
+    return true;
   }
 
   //|///////////////////// lower_ctor ///////////////////////////////////////
-  void lower_ctor(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, MIR::Fragment &expr, SourceLocation loc)
+  bool lower_ctor(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, MIR::Fragment &expr, SourceLocation loc)
   {
     if (expr.type.flags & MIR::Local::Reference)
     {
@@ -5037,10 +5039,103 @@ namespace
 
     result.type = MIR::Local(find_returntype(ctx, callee).type, (expr.type.flags & (MIR::Local::Const | MIR::Local::Literal)));
     result.value = std::move(expr.value);
+
+    return true;
+  }
+
+  //|///////////////////// lower_vtor ///////////////////////////////////////
+  bool lower_vtor(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
+  {
+    auto thistype = type_cast<TagType>(find_returntype(ctx, callee).type);
+
+    size_t index = 0;
+    vector<Expr*> elements;
+
+    if (decl_cast<TagDecl>(thistype->decl)->basetype)
+    {
+      auto type = thistype->fields[index];
+
+      Callee callee;
+      vector<MIR::Fragment> parms;
+      map<Ident*, MIR::Fragment> namedparms;
+
+      FindContext tx(ctx, type);
+
+      find_overloads(ctx, tx, scopeof_type(ctx, type), parms, namedparms, callee.candidates, callee.overloads);
+
+      resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
+
+      if (!callee || !is_vtable_type(thistype->fields[0]))
+      {
+        ctx.diag.error("vtable base must be a vtable", thistype->fieldvars[index], loc);
+        return false;
+      }
+
+      if (!lower_vtor(ctx, result, callee.fx, loc))
+        return false;
+
+      elements.push_back(std::visit([&](auto &v) -> Expr* { return v; }, result.value.get<MIR::RValue::Constant>()));
+
+      index += 1;
+    }
+
+    for( ; index < thistype->fields.size(); ++index)
+    {
+      auto type = thistype->fields[index];
+      auto fntype = type_cast<FunctionType>(remove_qualifiers_type(type));
+      auto var = decl_cast<FieldVarDecl>(thistype->fieldvars[index]);
+
+      Callee callee;
+      vector<MIR::Fragment> parms;
+      map<Ident*, MIR::Fragment> namedparms;
+
+      for(auto &parm : type_cast<TupleType>(fntype->paramtuple)->fields)
+      {
+        MIR::Fragment value = { parm };
+
+        if (is_reference_type(parm))
+          value.type = resolve_as_reference(ctx, value.type);
+
+        parms.push_back(value);
+      }
+
+      FindContext tx(ctx, var->name);
+
+      find_overloads(ctx, tx, ctx.stack, parms, namedparms, callee.candidates, callee.overloads);
+
+      resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
+
+      if (callee && callee.fx.fn->parms.size() != parms.size())
+        callee.fx = nullptr;
+
+      if (callee && is_throws(ctx, callee.fx.fn, callee.fx.fn) != (fntype->throwtype != ctx.voidtype))
+        callee.fx = nullptr;
+
+      if (callee && find_returntype(ctx, callee.fx).type != fntype->returntype)
+        callee.fx = nullptr;
+
+      if (!callee)
+      {
+        ctx.diag.error("in vtable resolution", ctx.stack.back(), loc);
+        ctx.diag.error("cannot resolve vtable function", thistype->fieldvars[index], var->loc());
+        diag_callee(ctx, callee, parms, namedparms);
+        continue;
+      }
+
+      if (fntype->throwtype != ctx.voidtype)
+        callee.fx.throwtype = fntype->throwtype;
+
+      elements.push_back(ctx.mir.make_expr<FunctionPointerExpr>(callee.fx, var->loc()));
+    }
+
+    result.type = MIR::Local(thistype, MIR::Local::Const | MIR::Local::Literal);
+    result.value = ctx.mir.make_expr<CompoundLiteralExpr>(elements, loc);
+
+    return true;
   }
 
   //|///////////////////// lower_trait //////////////////////////////////////
-  void lower_trait(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
+  bool lower_trait(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
   {
     Type *args[2] = {};
     Type *type[2] = {};
@@ -5085,6 +5180,10 @@ namespace
 
       case Builtin::is_vtable:
         match = is_vtable_type(type[0]);
+        break;
+
+      case Builtin::is_lambda:
+        match = is_lambda_type(type[0]);
         break;
 
       case Builtin::is_builtin:
@@ -5148,7 +5247,7 @@ namespace
         if (!is_typearg_type(args[0]) || !type_cast<TypeArgType>(args[0])->koncept)
         {
           ctx.diag.error("first argument must be a concept", ctx.stack.back(), loc);
-          return;
+          return false;
         }
 
         if (auto typearg = type_cast<TypeArgType>(args[0]); typearg->koncept)
@@ -5165,10 +5264,12 @@ namespace
 
     result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
     result.value = ctx.mir.make_expr<BoolLiteralExpr>(match, loc);
+
+    return true;
   }
 
   //|///////////////////// array_len ////////////////////////////////////////
-  void lower_array_len(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
+  bool lower_array_len(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
   {
     auto type = remove_const_type(callee.find_type(callee.fn->args[0])->second);
 
@@ -5176,14 +5277,16 @@ namespace
       type = type_cast<TagType>(type)->fields[0];
 
     if (type_cast<TypeLitType>(type_cast<ArrayType>(type)->size)->value->kind() != Expr::IntLiteral)
-      return;
+      return false;
 
     result.type = MIR::Local(ctx.usizetype, MIR::Local::Const | MIR::Local::Literal);
     result.value = expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(type_cast<ArrayType>(type)->size)->value);
+
+    return true;
   }
 
   //|///////////////////// tuple_len ////////////////////////////////////////
-  void lower_tuple_len(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
+  bool lower_tuple_len(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
   {
     auto type = remove_const_type(callee.find_type(callee.fn->args[0])->second);
 
@@ -5192,10 +5295,12 @@ namespace
 
     result.type = MIR::Local(ctx.usizetype, MIR::Local::Const | MIR::Local::Literal);
     result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, type_cast<TupleType>(type)->fields.size()), loc);
+
+    return true;
   }
 
   //|///////////////////// lower_site ///////////////////////////////////////
-  void lower_site(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
+  bool lower_site(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
   {
     vector<Expr*> fields;
 
@@ -5207,10 +5312,12 @@ namespace
     result.type = find_returntype(ctx, callee);
     result.type.flags = MIR::Local::Const | MIR::Local::Literal;
     result.value = ctx.mir.make_expr<CompoundLiteralExpr>(fields, loc);
+
+    return true;
   }
 
   //|///////////////////// lower_declid /////////////////////////////////////
-  void lower_declid(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
+  bool lower_declid(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
   {
     Decl *declid = nullptr;
 
@@ -5256,6 +5363,8 @@ namespace
     result.type = find_returntype(ctx, callee);
     result.type.flags = MIR::Local::Const | MIR::Local::Literal;
     result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(0, reinterpret_cast<uintptr_t>(declid)), loc);
+
+    return true;
   }
 
   //|///////////////////// lower_ref ////////////////////////////////////////
@@ -6203,6 +6312,10 @@ namespace
           lower_lit(ctx, result, callee, loc);
           return true;
 
+        case Builtin::VTable_Constructor:
+          lower_vtor(ctx, result, callee, loc);
+          return true;
+
         case Builtin::Builtin_Destructor:
           lower_expr(ctx, result, ctx.mir.make_expr<VoidLiteralExpr>(loc));
           return true;
@@ -6225,6 +6338,7 @@ namespace
         case Builtin::is_union:
         case Builtin::is_struct:
         case Builtin::is_vtable:
+        case Builtin::is_lambda:
         case Builtin::is_builtin:
         case Builtin::is_pointer:
         case Builtin::is_reference:
@@ -9804,120 +9918,6 @@ namespace
     lower_trivial_assignment(ctx);
   }
 
-  //|///////////////////// lower_vtable_constructor /////////////////////////
-  void lower_vtable_constructor(LowerContext &ctx)
-  {
-    auto fn = ctx.mir.fx.fn;
-    auto thistype = type_cast<TagType>(ctx.mir.locals[0].type);
-    auto scopetype = ctx.mir.fx.find_type(fn->args[0])->second;
-
-    size_t index = 0;
-
-    if (decl_cast<TagDecl>(thistype->decl)->basetype)
-    {
-      auto type = thistype->fields[index];
-
-      auto dst = ctx.add_temporary();
-      auto res = ctx.add_temporary();
-
-      MIR::Fragment address;
-      address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(type), MIR::Local::LValue);
-      address.value = MIR::RValue::field(MIR::RValue::Ref, 0, MIR::RValue::Field{ MIR::RValue::Ref, index }, fn->loc());
-
-      realise_as_value(ctx, dst, address);
-
-      commit_type(ctx, dst, address.type.type, address.type.flags);
-
-      MIR::Fragment result;
-      vector<MIR::Fragment> parms;
-      map<Ident*, MIR::Fragment> namedparms;
-
-      Callee callee;
-      FindContext tx(ctx, type);
-      tx.args.insert(tx.args.begin(), scopetype);
-      find_overloads(ctx, tx, scopeof_type(ctx, type), parms, namedparms, callee.candidates, callee.overloads);
-      resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
-
-      if (!callee || !is_vtable_type(thistype->fields[0]))
-      {
-        ctx.diag.error("vtable base must be a vtable", thistype->fieldvars[index], fn->loc());
-        return;
-      }
-
-      callee.fx.set_type(callee.fx.fn->args[0], scopetype);
-
-      if (!lower_call(ctx, result, callee.fx, parms, namedparms, fn->loc()))
-        return;
-
-      realise_as_value(ctx, Place(Place::Fer, res), result);
-
-      commit_type(ctx, res, result.type.type, result.type.flags);
-
-      index += 1;
-    }
-
-    for( ; index < thistype->fields.size(); ++index)
-    {
-      auto type = thistype->fields[index];
-      auto fntype = type_cast<FunctionType>(remove_qualifiers_type(type));
-      auto var = decl_cast<FieldVarDecl>(thistype->fieldvars[index]);
-
-      auto dst = ctx.add_temporary();
-      auto res = ctx.add_temporary();
-
-      MIR::Fragment address;
-      address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(type), MIR::Local::LValue);
-      address.value = MIR::RValue::field(MIR::RValue::Ref, 0, MIR::RValue::Field{ MIR::RValue::Ref, index }, var->loc());
-
-      realise_as_value(ctx, dst, address);
-
-      commit_type(ctx, dst, address.type.type, address.type.flags);
-
-      MIR::Fragment result;
-      vector<MIR::Fragment> parms;
-      map<Ident*, MIR::Fragment> namedparms;
-
-      for(auto &parm : type_cast<TupleType>(fntype->paramtuple)->fields)
-      {
-        MIR::Fragment value = { parm };
-
-        if (is_reference_type(parm))
-          value.type = resolve_as_reference(ctx, value.type);
-
-        parms.push_back(value);
-      }
-
-      auto callee = find_callee(ctx, scopetype, var->name, parms, namedparms);
-
-      if (callee && callee.fx.fn->parms.size() != parms.size())
-        callee.fx = nullptr;
-
-      if (callee && is_throws(ctx, callee.fx.fn, callee.fx.fn) != (fntype->throwtype != ctx.voidtype))
-        callee.fx = nullptr;
-
-      if (callee && find_returntype(ctx, callee.fx).type != fntype->returntype)
-        callee.fx = nullptr;
-
-      if (!callee)
-      {
-        ctx.diag.error("cannot resolve vtable function", thistype->fieldvars[index], var->loc());
-        diag_callee(ctx, callee, parms, namedparms);
-        ctx.diag << Diag::white() << "  in scope\n" << Diag::cyan() << "    <" << *get_module(type_scope(ctx, scopetype))->name << "::" << *scopetype << ">\n" << Diag::normal();
-        continue;
-      }
-
-      if (fntype->throwtype != ctx.voidtype)
-        callee.fx.throwtype = fntype->throwtype;
-
-      result.type = type;
-      result.value = MIR::RValue::literal(ctx.mir.make_expr<FunctionPointerExpr>(callee.fx, var->loc()));
-
-      realise_as_value(ctx, Place(Place::Fer, res), result);
-
-      commit_type(ctx, res, result.type.type, result.type.flags);
-    }
-  }
-
   //|///////////////////// lower_defaulted_body /////////////////////////////
   void lower_defaulted_body(LowerContext &ctx)
   {
@@ -10035,10 +10035,6 @@ namespace
 
       case Builtin::Literal_Assignment:
         lower_literal_assignment(ctx);
-        break;
-
-      case Builtin::VTable_Constructor:
-        lower_vtable_constructor(ctx);
         break;
 
       default:
@@ -11156,6 +11152,13 @@ namespace
     for(auto i = ctx.barriers.back().firstgoto; i < ctx.gotos.size(); ++i)
     {
       auto [blk, label] = ctx.gotos[i];
+
+      if (label->kind() == Expr::DeclRef && expr_cast<DeclRefExpr>(label)->decl->kind() == Decl::DeclRef && decl_cast<DeclRefDecl>(expr_cast<DeclRefExpr>(label)->decl)->name == Ident::kw_else)
+      {
+        ctx.mir.blocks[blk].terminator.blockid = ctx.mir.blocks[block_cond].terminator.blockid;
+
+        continue;
+      }
 
       vector<size_t> values;
 

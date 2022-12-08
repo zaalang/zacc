@@ -46,6 +46,7 @@ class Ident
     static inline Ident *kw_opt_allocator = from("allocator?");
     static inline Ident *kw_import = from("import");
     static inline Ident *kw_using = from("using");
+    static inline Ident *kw_else = from("else");
     static inline Ident *kw_main = from("main");
 
     static inline Ident *op_call = from("()");

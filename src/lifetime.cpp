@@ -488,6 +488,7 @@ namespace
       ctx.threads[0].locals[get<1>(*dep)].consumed = false;
       ctx.threads[0].locals[get<1>(*dep)].poisoned = false;
       ctx.threads[0].locals[get<1>(*dep)].toxic = false;
+      ctx.threads[0].locals[get<1>(*dep)].sealed = false;
       ctx.threads[0].locals[get<1>(*dep)].depends_upon.clear();
       ctx.threads[0].locals[get<1>(*dep)].consumed_fields.clear();
     }
@@ -774,6 +775,7 @@ namespace
               ctx.threads[0].locals[get<1>(*dst)].consumed = false;
               ctx.threads[0].locals[get<1>(*dst)].poisoned = false;
               ctx.threads[0].locals[get<1>(*dst)].toxic = false;
+              ctx.threads[0].locals[get<1>(*dst)].sealed = false;
               ctx.threads[0].locals[get<1>(*dst)].depends_upon.clear();
               ctx.threads[0].locals[get<1>(*dst)].consumed_fields.clear();
 
@@ -975,6 +977,7 @@ namespace
       for(auto dep : ctx.threads[0].locals[dst].depends_upon)
         consume(ctx, mir, dst, dep);
 
+      ctx.threads[0].locals[dst].sealed = false;
       ctx.threads[0].locals[dst].depends_upon.clear();
     }
   }
@@ -1124,6 +1127,14 @@ namespace
     for(auto &annotation : notations)
     {
       apply(ctx, mir, annotation, dst, callee, args, loc);
+    }
+
+    if (mir.locals[dst].flags & MIR::Local::MoveRef)
+    {
+      for(auto dep : ctx.threads[0].locals[dst].depends_upon)
+        consume(ctx, mir, dst, dep);
+
+      ctx.threads[0].locals[dst].depends_upon.clear();
     }
 
     if ((callee.fn->name == Ident::op_index || callee.fn->name == Ident::op_deref || is_reference_type(mir.locals[dst].type)) && dst != 0)

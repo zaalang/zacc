@@ -239,7 +239,7 @@ std::ostream &operator <<(std::ostream &os, Expr const &expr)
       break;
 
     case Expr::Lambda:
-      os << "fn";
+      os << "lambda";
       break;
 
     case Expr::Fragment:

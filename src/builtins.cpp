@@ -533,6 +533,7 @@ namespace Builtin
     make_function(is_union, "pub const fn __is_union<T>() -> bool", __LINE__);
     make_function(is_struct, "pub const fn __is_struct<T>() -> bool", __LINE__);
     make_function(is_vtable, "pub const fn __is_vtable<T>() -> bool", __LINE__);
+    make_function(is_lambda, "pub const fn __is_lambda<T>() -> bool", __LINE__);
     make_function(is_builtin, "pub const fn __is_builtin<T>() -> bool", __LINE__);
     make_function(is_pointer, "pub const fn __is_pointer<T>() -> bool", __LINE__);
     make_function(is_reference, "pub const fn __is_reference<T>() -> bool", __LINE__);
@@ -838,9 +839,6 @@ namespace Builtin
         if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_tuple_type(T->second) || is_tuple_type(base_type(T->second));
         break;
-
-      case Builtin::VTable_Constructor:
-        return typeargs.size() > 0;
 
       case Builtin::Bool:
         if (auto T = find_type(fn->args[0]); T != typeargs.end())

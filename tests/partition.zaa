@@ -1,0 +1,45 @@
+import std.stdio;
+import std.list;
+import std.array;
+import std.range;
+import std.algorithm;
+
+fn quicksort(var mut &range) -> void
+{
+  if (range.empty)
+    return;
+
+  var pivot = range[std::next(range.begin, range.len/2)];
+
+  var middle1 = std::partition!(&mut range, |em| [pivot] {
+    return em < pivot;
+  });
+
+  var middle2 = std::partition!(&mut std::subrange(range, middle1, range.end), |em| [pivot] {
+    return !(pivot < em);
+  });
+
+  quicksort(&mut std::subrange(range, range.begin, middle1));
+  quicksort(&mut std::subrange(range, middle2, range.end));
+}
+
+fn main -> int
+{
+  var v = std::vector<int>::from([ 1, 2, 3, 4, 5, 6, 7, 8, 9 ]);
+
+  std::print("Original vector:\n    ", v);
+
+  var it = std::partition!(&mut v, |i| i % 2 == 0);
+
+  std::print("Partitioned vector:\n    ", v[v.begin .. it], v[it .. v.end]);
+
+  var c = std::list<int>::from([1, 30, -4, 3, 5, -4, 1, 6, -8, 2, -5, 64, 1, 92]);
+
+  std::print("Unsorted list:\n    ", c);
+
+  quicksort(&mut c);
+
+  std::print("Sorted using quicksort:\n    ", c);
+
+  return 0;
+}

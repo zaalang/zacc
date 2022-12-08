@@ -181,6 +181,10 @@ namespace Numeric
           value = '\a';
           break;
 
+        case 'b':
+          value = '\b';
+          break;
+
         case 'f':
           value = '\f';
           break;
@@ -205,8 +209,12 @@ namespace Numeric
           value = '\'';
           break;
 
-        case '"':
-          value = '"';
+        case '\"':
+          value = '\"';
+          break;
+
+        case '\?':
+          value = '\?';
           break;
 
         case '\\':

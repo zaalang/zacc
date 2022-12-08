@@ -700,20 +700,18 @@ namespace
       }
     }
 
-    //{
-    //  auto ctor = sema.function_declaration(vtable->loc());
-    //
-    //  ctor->name = vtable->name;
-    //  ctor->flags |= FunctionDecl::Public;
-    //  ctor->flags |= FunctionDecl::Const;
-    //  ctor->flags |= FunctionDecl::Constructor;
-    //  ctor->flags |= FunctionDecl::Defaulted;
-    //  ctor->builtin = Builtin::VTable_Constructor;
-    //
-    //  ctor->args.push_back(sema.typearg_declaration(vtable->loc()));
-    //
-    //  vtable->decls.push_back(ctor);
-    //}
+    {
+      auto ctor = sema.function_declaration(vtable->loc());
+
+      ctor->name = vtable->name;
+      ctor->flags |= FunctionDecl::Public;
+      ctor->flags |= FunctionDecl::Const;
+      ctor->flags |= FunctionDecl::Constructor;
+      ctor->flags |= FunctionDecl::Builtin;
+      ctor->builtin = Builtin::VTable_Constructor;
+
+      vtable->decls.push_back(ctor);
+    }
 
     {
       auto ctor = sema.function_declaration(vtable->loc());
@@ -765,37 +763,6 @@ namespace
       dtor->builtin = Builtin::Default_Destructor;
 
       vtable->decls.push_back(dtor);
-    }
-
-    if (auto owner = get_if<Decl*>(&vtable->owner))
-    {
-      auto ctor = sema.function_declaration(vtable->loc());
-
-      ctor->name = vtable->name;
-      ctor->flags |= FunctionDecl::Public;
-      ctor->flags |= FunctionDecl::Const;
-      ctor->flags |= FunctionDecl::Defaulted;
-      ctor->builtin = Builtin::VTable_Constructor;
-
-      ctor->args.push_back(sema.typearg_declaration(vtable->loc()));
-      ctor->args.insert(ctor->args.end(), vtable->args.begin(), vtable->args.end());
-
-      ctor->returntype = vtabletype;
-
-      switch((*owner)->kind())
-      {
-        case Decl::Module:
-          decl_cast<ModuleDecl>(*owner)->decls.push_back(ctor);
-          break;
-
-        case Decl::Struct:
-        case Decl::Union:
-          decl_cast<TagDecl>(*owner)->decls.push_back(ctor);
-          break;
-
-        default:
-          assert(false);
-      }
     }
 
     semantic_decl(ctx, decl_cast<TagDecl>(vtable), sema);

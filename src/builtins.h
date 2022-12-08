@@ -165,6 +165,7 @@ namespace Builtin
     is_union,
     is_struct,
     is_vtable,
+    is_lambda,
     is_builtin,
     is_pointer,
     is_reference,

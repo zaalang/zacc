@@ -2222,6 +2222,103 @@ namespace
     return sema.make_lambda_expression(lambda, lambda->loc());
   }
 
+  //|///////////////////// parse_lambda /////////////////////////////////////
+  Expr *parse_quick_lambda(ParseContext &ctx, Sema &sema)
+  {
+    auto lambda = sema.lambda_declaration(ctx.tok.loc);
+
+    auto fn = sema.function_declaration(lambda->loc());
+
+    if (ctx.tok != Token::pipepipe)
+      ctx.consume_token(Token::pipe);
+
+    if (ctx.tok == Token::pipepipe)
+      ctx.tok.type = Token::pipe;
+
+    fn->flags |= FunctionDecl::Public;
+    fn->flags |= FunctionDecl::LambdaDecl;
+
+    fn->name = Ident::op_call;
+
+    while (ctx.tok != Token::pipe && ctx.tok != Token::eof)
+    {
+      auto parm = sema.parm_declaration(ctx.tok.loc);
+
+      parm->name = parse_ident(ctx, IdentUsage::VarName, sema);
+
+      parm->type = sema.make_reference(sema.make_qualarg(sema.make_typearg(sema.make_typearg(Ident::kw_var, ctx.tok.loc))));
+
+      fn->parms.push_back(parm);
+
+      if (!ctx.try_consume_token(Token::comma))
+        break;
+    }
+
+    if (!ctx.try_consume_token(Token::pipe))
+    {
+      ctx.diag.error("expected pipe", ctx.text, ctx.tok.loc);
+      return nullptr;
+    }
+
+    if (ctx.try_consume_token(Token::l_square))
+    {
+      lambda->flags |= LambdaDecl::Captures;
+
+      lambda->captures = parse_captures_list(ctx, sema);
+
+      if (!ctx.try_consume_token(Token::r_square))
+      {
+        ctx.diag.error("expected bracket", ctx.text, ctx.tok.loc);
+        return nullptr;
+      }
+    }
+
+    if (ctx.tok == Token::arrow || ctx.tok == Token::l_brace)
+    {
+      if (ctx.try_consume_token(Token::arrow))
+      {
+        fn->returntype = parse_type(ctx, sema);
+
+        if (!fn->returntype)
+        {
+          ctx.diag.error("expected return type", ctx.text, ctx.tok.loc);
+          return nullptr;
+        }
+      }
+
+      if (ctx.tok != Token::l_brace)
+      {
+        ctx.diag.error("expected function body", ctx.text, ctx.tok.loc);
+        return nullptr;
+      }
+
+      fn->body = parse_compound_statement(ctx, sema);
+    }
+    else
+    {
+      auto compound = sema.compound_statement(ctx.tok.loc);
+
+      auto retrn = sema.return_statement(ctx.tok.loc);
+
+      retrn->expr = parse_expression(ctx, sema);
+
+      if (!retrn->expr)
+      {
+        ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+        return nullptr;
+      }
+
+      compound->stmts.push_back(retrn);
+
+      fn->body = compound;
+    }
+
+    lambda->fn = fn;
+    lambda->decls.push_back(fn);
+
+    return sema.make_lambda_expression(lambda, lambda->loc());
+  }
+
   //|///////////////////// parse_expression_head ////////////////////////////
   Expr *parse_expression_head(ParseContext &ctx, Token op, Expr *lhs, Sema &sema)
   {
@@ -2356,6 +2453,10 @@ namespace
 
       case Token::kw_fn:
         return parse_expression_post(ctx, parse_lambda(ctx, sema), sema);
+
+      case Token::pipe:
+      case Token::pipepipe:
+        return parse_expression_post(ctx, parse_quick_lambda(ctx, sema), sema);
 
       case Token::kw_extern:
         return parse_extern(ctx, sema);
@@ -2884,6 +2985,12 @@ namespace
           ctx.diag.error("expected requires type", ctx.text, ctx.tok.loc);
           goto resume;
         }
+      }
+
+      if (ctx.tok != Token::l_brace)
+      {
+        ctx.diag.error("expected requires body", ctx.text, ctx.tok.loc);
+        goto resume;
       }
 
       fn->body = parse_compound_statement(ctx, sema);
@@ -5291,7 +5398,16 @@ namespace
 
     ctx.consume_token(Token::kw_goto);
 
-    retrn->label = parse_expression(ctx, sema);
+    if (ctx.try_consume_token(Token::kw_else))
+      retrn->label = sema.make_declref_expression(sema.make_declref(Ident::kw_else, ctx.tok.loc), ctx.tok.loc);
+    else
+      retrn->label = parse_expression(ctx, sema);
+
+    if (!retrn->label)
+    {
+      ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
 
     if (!ctx.try_consume_token(Token::semi))
     {

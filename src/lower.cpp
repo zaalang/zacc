@@ -716,6 +716,12 @@ namespace
     return get<0>(value.value.get<MIR::RValue::Call>()).fn->flags & FunctionDecl::Inhibited;
   }
 
+  //|///////////////////// is_call_nodiscard ////////////////////////////////
+  bool is_call_nodiscard(LowerContext &ctx, MIR::Fragment const &value)
+  {
+    return get<0>(value.value.get<MIR::RValue::Call>()).fn->flags & FunctionDecl::NoDiscard;
+  }
+
   //|///////////////////// is_return_reference //////////////////////////////
   bool is_return_reference(LowerContext &ctx, Expr *expr)
   {
@@ -10124,6 +10130,11 @@ namespace
       {
         ctx.rollback_barrier(sm);
         return;
+      }
+
+      if (result.value.kind() == MIR::RValue::Call && is_call_nodiscard(ctx, result))
+      {
+        ctx.diag.error("discarding result on nodiscard function", ctx.stack.back(), stmt->loc());
       }
 
       auto arg = ctx.add_variable();

@@ -11,11 +11,11 @@ fn quicksort(var mut &range) -> void
 
   var pivot = range[std::next(range.begin, range.len/2)];
 
-  var middle1 = std::partition!(&mut range, |em| [pivot] {
+  var middle1 = std::partition(&mut range, |em| [pivot] {
     return em < pivot;
   });
 
-  var middle2 = std::partition!(&mut std::subrange(range, middle1, range.end), |em| [pivot] {
+  var middle2 = std::partition(&mut std::subrange(range, middle1, range.end), |em| [pivot] {
     return !(pivot < em);
   });
 
@@ -29,7 +29,7 @@ fn main -> int
 
   std::print("Original vector:\n    ", v);
 
-  var it = std::partition!(&mut v, |i| i % 2 == 0);
+  var it = std::partition(&mut v, |i| i % 2 == 0);
 
   std::print("Partitioned vector:\n    ", v[v.begin .. it], v[it .. v.end]);
 

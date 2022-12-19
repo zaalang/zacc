@@ -1306,6 +1306,11 @@ namespace
         fn->flags |= FunctionDecl::NoInline;
       }
 
+      if (attribute->name == "nodiscard")
+      {
+        fn->flags |= FunctionDecl::NoDiscard;
+      }
+
       if (attribute->name == "weak")
       {
         fn->flags |= FunctionDecl::Weak;

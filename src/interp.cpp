@@ -2777,8 +2777,8 @@ namespace
     return true;
   }
 
-  //|///////////////////// atomicstore /////////////////////////////////////
-  bool eval_builtin_atomicstore(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  //|///////////////////// atomic_store /////////////////////////////////////
+  bool eval_builtin_atomic_store(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
     auto &[callee, args, loc] = call;
 
@@ -2864,7 +2864,19 @@ namespace
 
       if (lhs == rhs)
       {
-        store(ctx, ptr, fx.locals[dst].type, load_int(ctx, fx, args[2]));
+        store(ctx, ptr, fx.locals[args[1]].type, load_int(ctx, fx, args[2]));
+        result = true;
+      }
+    }
+    else if (is_pointer_type(fx.locals[args[1]].type))
+    {
+      auto ptr = load_ptr(ctx, fx, args[0]);
+      auto lhs = load_ptr(ctx, ptr);
+      auto rhs = load_ptr(ctx, fx, args[1]);
+
+      if (lhs == rhs)
+      {
+        store(ctx, ptr, load_ptr(ctx, fx, args[2]));
         result = true;
       }
     }
@@ -3843,7 +3855,7 @@ namespace
           return eval_builtin_atomic_load(ctx, fx, dst, call);
 
         case Builtin::atomic_store:
-          return eval_builtin_atomicstore(ctx, fx, dst, call);
+          return eval_builtin_atomic_store(ctx, fx, dst, call);
 
         case Builtin::atomic_cmpxchg:
           return eval_builtin_atomic_cmpxchg(ctx, fx, dst, call);

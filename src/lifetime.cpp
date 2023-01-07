@@ -406,12 +406,15 @@ namespace
   //|///////////////////// consume //////////////////////////////////////////
   void consume(Context &ctx, MIR const &mir, MIR::local_t arg, MIR::RValue::VariableData const *dep)
   {
-    ctx.threads[0].locals[get<1>(*dep)].consumed = true;
     ctx.threads[0].locals[get<1>(*dep)].consumed_fields.push_back(dep);
 
-    for(auto dep2 : ctx.threads[0].locals[get<1>(*dep)].depends_upon)
-      if (get<1>(*dep2) < arg)
+    if (!ctx.threads[0].locals[get<1>(*dep)].consumed)
+    {
+      ctx.threads[0].locals[get<1>(*dep)].consumed = true;
+
+      for(auto dep2 : ctx.threads[0].locals[get<1>(*dep)].depends_upon)
         consume(ctx, mir, get<1>(*dep), dep2);
+    }
 
 #if 0
     cout << "consume: " << *dep << endl;

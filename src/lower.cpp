@@ -5023,7 +5023,8 @@ namespace
   {
     auto V = callee.find_type(callee.fn->args[1])->second;
 
-    result.type = MIR::Local(find_returntype(ctx, callee).type, MIR::Local::Const | MIR::Local::Literal);
+    result.type = find_returntype(ctx, callee);
+    result.type.flags = MIR::Local::Const | MIR::Local::Literal;
     result.value = MIR::RValue::literal(type_cast<TypeLitType>(V)->value);
 
     return true;
@@ -5043,7 +5044,8 @@ namespace
       expr.value = MIR::RValue::local(MIR::RValue::Val, arg, loc);
     }
 
-    result.type = MIR::Local(find_returntype(ctx, callee).type, (expr.type.flags & (MIR::Local::Const | MIR::Local::Literal)));
+    result.type = find_returntype(ctx, callee);
+    result.type.flags |= expr.type.flags & (MIR::Local::Const | MIR::Local::Literal);
     result.value = std::move(expr.value);
 
     return true;

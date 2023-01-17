@@ -108,6 +108,7 @@ class Sema
     Expr *make_alignof_expression(Expr *expr, SourceLocation loc);
     Expr *make_offsetof_expression(Type *type, Ident *field, SourceLocation loc);
     Expr *make_instanceof_expression(Type *type, Type *instance, SourceLocation loc);
+    Expr *make_throws_expression(Expr *expr, SourceLocation loc);
     Expr *make_typeid_expression(Decl *decl, SourceLocation loc);
     Expr *make_cast_expression(Type *type, Expr *expr, SourceLocation loc);
     Expr *make_new_expression(Type *type, Expr *address, SourceLocation loc);

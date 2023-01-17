@@ -1588,6 +1588,12 @@ namespace
     resolve_type(ctx, scope, call->instance, sema);
   }
 
+  //|///////////////////// throws_expression ////////////////////////////////
+  void resolve_expr(TyperContext &ctx, Scope const &scope, ThrowsExpr *call, Sema &sema)
+  {
+    resolve_expr(ctx, scope, call->expr, sema);
+  }
+
   //|///////////////////// typeid_expression ////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, TypeidExpr *call, Sema &sema)
   {
@@ -1729,6 +1735,10 @@ namespace
 
       case Expr::Instanceof:
         resolve_expr(ctx, scope, expr_cast<InstanceofExpr>(expr), sema);
+        break;
+
+      case Expr::Throws:
+        resolve_expr(ctx, scope, expr_cast<ThrowsExpr>(expr), sema);
         break;
 
       case Expr::Typeid:
@@ -2044,7 +2054,7 @@ namespace
 
     if (fn->throws)
     {
-      resolve_expr(ctx, ctx.stack.back(), fn->throws, sema);
+      resolve_type(ctx, ctx.stack.back(), fn->throws, sema);
     }
 
     if (fn->returntype)

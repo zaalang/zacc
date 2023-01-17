@@ -4291,6 +4291,8 @@ namespace
   //|///////////////////// codegen_catch_terminator /////////////////////////
   void codegen_catch_terminator(GenContext &ctx, FunctionContext &fx, MIR::local_t value, MIR::block_t blockid)
   {
+    ctx.builder.CreateBinaryIntrinsic(llvm::Intrinsic::expect, fx.lastcall, ctx.builder.getInt1(0));
+
     ctx.builder.CreateCondBr(fx.lastcall, fx.blocks[blockid].bx, fx.blocks[blockid + 1].bx);
 
     if (fx.mir.throws && value == 1)

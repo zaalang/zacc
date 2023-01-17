@@ -203,7 +203,7 @@ class FunctionDecl : public Decl
 
     Builtin::Kind builtin;
 
-    Expr *throws = nullptr;
+    Type *throws = nullptr;
     Expr *match = nullptr;
     Expr *where = nullptr;
 

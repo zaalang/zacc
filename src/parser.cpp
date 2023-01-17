@@ -1413,6 +1413,7 @@ namespace
         case Token::kw_cast:
         case Token::kw_sizeof:
         case Token::kw_alignof:
+        case Token::kw_throws:
         case Token::char_constant:
         case Token::numeric_constant:
         case Token::string_literal:
@@ -1808,6 +1809,36 @@ namespace
     return sema.make_instanceof_expression(type, instance, loc);
   }
 
+  //|///////////////////// parse_throws /////////////////////////////////////
+  Expr *parse_throws(ParseContext &ctx, Sema &sema)
+  {
+    auto loc = ctx.tok.loc;
+
+    ctx.consume_token(Token::kw_throws);
+
+    if (!ctx.try_consume_token(Token::l_paren))
+    {
+      ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+      return nullptr;
+    }
+
+    auto expr = parse_expression(ctx, sema);
+
+    if (!expr)
+    {
+      ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+      return nullptr;
+    }
+
+    if (!ctx.try_consume_token(Token::r_paren))
+    {
+      ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+      return nullptr;
+    }
+
+    return sema.make_throws_expression(expr, loc);
+  }
+
   //|///////////////////// parse_typeid /////////////////////////////////////
   Expr *parse_typeid(ParseContext &ctx, Sema &sema)
   {
@@ -2183,7 +2214,7 @@ namespace
     {
       if (ctx.try_consume_token(Token::l_paren))
       {
-        fn->throws = parse_expression(ctx, sema);
+        fn->throws = parse_type_ex(ctx, sema);
 
         if (!ctx.try_consume_token(Token::r_paren))
         {
@@ -2193,7 +2224,7 @@ namespace
       }
       else
       {
-        fn->throws = sema.make_bool_literal(true, ctx.tok.loc);
+        fn->throws = sema.make_typelit(sema.make_bool_literal(true, ctx.tok.loc));
       }
     }
 
@@ -2441,6 +2472,9 @@ namespace
 
       case Token::kw_instanceof:
         return parse_instanceof(ctx, sema);
+
+      case Token::kw_throws:
+        return parse_throws(ctx, sema);
 
       case Token::kw_cast:
         return parse_expression_post(ctx, parse_cast(ctx, sema), sema);
@@ -3259,7 +3293,7 @@ namespace
     {
       if (ctx.try_consume_token(Token::l_paren))
       {
-        fn->throws = parse_expression(ctx, sema);
+        fn->throws = parse_type_ex(ctx, sema);
 
         if (!ctx.try_consume_token(Token::r_paren))
         {
@@ -3269,7 +3303,7 @@ namespace
       }
       else
       {
-        fn->throws = sema.make_bool_literal(true, ctx.tok.loc);
+        fn->throws = sema.make_typelit(sema.make_bool_literal(true, ctx.tok.loc));
       }
     }
 

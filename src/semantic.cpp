@@ -249,6 +249,12 @@ namespace
     semantic_type(ctx, call->instance, sema);
   }
 
+  //|///////////////////// throws_expression ////////////////////////////////
+  void semantic_expr(SemanticContext &ctx, ThrowsExpr *call, Sema &sema)
+  {
+    semantic_expr(ctx, call->expr, sema);
+  }
+
   //|///////////////////// typeid_expression ////////////////////////////////
   void semantic_expr(SemanticContext &ctx, TypeidExpr *call, Sema &sema)
   {
@@ -384,6 +390,10 @@ namespace
 
       case Expr::Instanceof:
         semantic_expr(ctx, expr_cast<InstanceofExpr>(expr), sema);
+        break;
+
+      case Expr::Throws:
+        semantic_expr(ctx, expr_cast<ThrowsExpr>(expr), sema);
         break;
 
       case Expr::Typeid:
@@ -689,10 +699,10 @@ namespace
         for(auto &parm : fn->parms)
           params.push_back(decl_cast<ParmVarDecl>(parm)->type);
 
-        auto throwtype = type(Builtin::Type_Void);
+        auto throwtype = Builtin::type(Builtin::Type_Void);
 
-        if (fn->throws && fn->throws->kind() == Expr::DeclRef)
-          throwtype = sema.make_typeref(expr_cast<DeclRefExpr>(fn->throws)->decl);
+        if (fn->throws)
+          throwtype = fn->throws;
 
         field->type = sema.make_reference(sema.make_const(sema.make_fntype(fn->returntype, sema.make_tuple(params), throwtype)));
 
@@ -1324,7 +1334,7 @@ namespace
 
     if (fn->throws)
     {
-      semantic_expr(ctx, fn->throws, sema);
+      semantic_type(ctx, fn->throws, sema);
     }
 
     if (fn->match)

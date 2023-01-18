@@ -2839,6 +2839,51 @@ namespace
       store(ctx, ptr, fx.locals[dst].type, result);
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, lhs);
     }
+    else if (is_pointer_type(fx.locals[args[1]].type))
+    {
+      void *result;
+
+      auto ptr = load_ptr(ctx, fx, args[0]);
+      auto lhs = load_ptr(ctx, ptr);
+      auto rhs = load_ptr(ctx, fx, args[1]);
+
+      switch (callee.fn->builtin)
+      {
+        case Builtin::atomic_xchg:
+          result = rhs;
+          break;
+
+        case Builtin::atomic_fetch_add:
+          result = (void*)((uintptr_t)lhs + (uintptr_t)rhs);
+          break;
+
+        case Builtin::atomic_fetch_sub:
+          result = (void*)((uintptr_t)lhs - (uintptr_t)rhs);
+          break;
+
+        case Builtin::atomic_fetch_and:
+          result = (void*)((uintptr_t)lhs & (uintptr_t)rhs);
+          break;
+
+        case Builtin::atomic_fetch_xor:
+          result = (void*)((uintptr_t)lhs ^ (uintptr_t)rhs);
+          break;
+
+        case Builtin::atomic_fetch_or:
+          result = (void*)((uintptr_t)lhs | (uintptr_t)rhs);
+          break;
+
+        case Builtin::atomic_fetch_nand:
+          result = (void*)(~((uintptr_t)lhs & (uintptr_t)rhs));
+          break;
+
+        default:
+          assert(false);
+      }
+
+      store(ctx, ptr, result);
+      store(ctx, fx.locals[dst].alloc, lhs);
+    }
     else
     {
       ctx.diag.error("invalid atomic arithmetic arguments", fx.scope, loc);

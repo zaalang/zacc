@@ -7,15 +7,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Create Build Environment
         run: |
-          sudo apt-get install -y gcc-10 llvm-14
+          sudo wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+          sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-15 main"
+          sudo apt-get install -y gcc-12 llvm-15
           cmake -E make_directory ${{github.workspace}}/build
       - name: Configure
         env:
-          CC: gcc-10
-          CXX: g++-10
+          CC: gcc-12
+          CXX: g++-12
         shell: bash
         working-directory: ${{github.workspace}}/build
         run: |
@@ -29,15 +31,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Create Build Environment
         run: |
-          sudo apt-get install -y clang-10 llvm-14
+          sudo wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+          sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-15 main"
+          sudo apt-get install -y clang-15 llvm-15
           cmake -E make_directory ${{github.workspace}}/build
       - name: Configure
         env:
-          CC: clang-10
-          CXX: clang++-10
+          CC: clang-15
+          CXX: clang++-15
         shell: bash
         working-directory: ${{github.workspace}}/build
         run: |
@@ -51,28 +55,23 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Cache LLVM
         id: cache-llvm
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: llvm
-          key: llvm-libs-14.0.6
+          key: llvm-libs-15.0.6
       - name: Download LLVM
         if: steps.cache-llvm.outputs.cache-hit != 'true'
         run: |
-          iwr https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.6/llvm-14.0.6.src.tar.xz -OutFile llvm.tar.xz
+          iwr https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.6/llvm-project-15.0.6.src.tar.xz -OutFile llvm.tar.xz
           7z x llvm.tar.xz
           7z x llvm.tar
-          mv llvm-* llvm-src
-      - name: Patch LLVM for VS 2019 16.7.0
-        working-directory: ${{github.workspace}}/llvm-src
-        if: steps.cache-llvm.outputs.cache-hit != 'true'
-        run: |
-          sed -i 's/#ifdef HAVE_STD_IS_TRIVIALLY_COPYABLE/#if 0/' include/llvm/Support/type_traits.h
+          mv llvm-* llvm-project
       - name: Build LLVM
         if: steps.cache-llvm.outputs.cache-hit != 'true'
-        working-directory: ${{github.workspace}}/llvm-src
+        working-directory: ${{github.workspace}}/llvm-project/llvm
         run: |
           cmake -E make_directory ${{github.workspace}}/llvm
           cmake -Thost=x64 -DLLVM_TARGETS_TO_BUILD="host" -DBUILD_SHARED_LIBS=OFF -DCMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH=OFF -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/llvm .

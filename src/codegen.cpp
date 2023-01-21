@@ -4630,7 +4630,7 @@ namespace
     attrbuilder.addAttribute(llvm::Attribute::NoUnwind);
 
     if (ctx.triple.getOS() == llvm::Triple::Win32)
-      attrbuilder.addAttribute(llvm::Attribute::UWTable);
+      attrbuilder.addUWTableAttr(llvm::UWTableKind::Async);
 
     if ((fx.fn->flags & FunctionDecl::DeclType) == FunctionDecl::ConstDecl)
       attrbuilder.addAttribute(llvm::Attribute::AlwaysInline);
@@ -5016,7 +5016,7 @@ namespace
       fnprot->addFnAttr(llvm::Attribute::NoRedZone);
 
     if (ctx.triple.getOS() == llvm::Triple::Win32)
-      fnprot->addFnAttr(llvm::Attribute::UWTable);
+      fnprot->setUWTableKind(llvm::UWTableKind::Async);
 
     fnprot->addFnAttr("frame-pointer", "all");
 
@@ -5463,7 +5463,7 @@ void codegen(AST *ast, string const &target, GenOpts const &genopts, Diag &diag)
 
   codegen_finalise(ctx);
 
-#if 0
+#if 1
   ctx.module.print(llvm::outs(), nullptr);
   cout << "--" << endl;
 #endif

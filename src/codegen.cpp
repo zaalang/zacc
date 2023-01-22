@@ -5463,7 +5463,7 @@ void codegen(AST *ast, string const &target, GenOpts const &genopts, Diag &diag)
 
   codegen_finalise(ctx);
 
-#if 1
+#if 0
   ctx.module.print(llvm::outs(), nullptr);
   cout << "--" << endl;
 #endif

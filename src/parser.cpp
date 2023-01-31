@@ -1722,7 +1722,7 @@ namespace
 
     if (ctx.try_consume_token(Token::l_paren))
     {
-      auto expr = parse_expression(ctx, sema);
+      auto decl = parse_qualified_name(ctx, sema);
 
       if (!ctx.try_consume_token(Token::r_paren))
       {
@@ -1730,7 +1730,7 @@ namespace
         return nullptr;
       }
 
-      return sema.make_alignof_expression(expr, loc);
+      return sema.make_alignof_expression(decl, loc);
     }
 
     return nullptr;
@@ -1749,15 +1749,7 @@ namespace
       return nullptr;
     }
 
-    auto type = parse_type(ctx, sema);
-
-    if (!ctx.try_consume_token(Token::comma))
-    {
-      ctx.diag.error("expected comma", ctx.text, ctx.tok.loc);
-      return nullptr;
-    }
-
-    auto name = parse_ident(ctx, IdentUsage::VarName, sema);
+    auto decl = parse_qualified_name(ctx, sema);
 
     if (!ctx.try_consume_token(Token::r_paren))
     {
@@ -1765,7 +1757,7 @@ namespace
       return nullptr;
     }
 
-    return sema.make_offsetof_expression(type, name, loc);
+    return sema.make_offsetof_expression(decl, loc);
   }
 
   //|///////////////////// parse_instanceof /////////////////////////////////
@@ -2188,8 +2180,6 @@ namespace
 
     if (ctx.try_consume_token(Token::l_square))
     {
-      lambda->flags |= LambdaDecl::Captures;
-
       lambda->captures = parse_captures_list(ctx, sema);
 
       if (!ctx.try_consume_token(Token::r_square))
@@ -2291,10 +2281,13 @@ namespace
       return nullptr;
     }
 
+    if (ctx.tok != Token::l_square)
+    {
+      lambda->flags |= LambdaDecl::Capture;
+    }
+
     if (ctx.try_consume_token(Token::l_square))
     {
-      lambda->flags |= LambdaDecl::Captures;
-
       lambda->captures = parse_captures_list(ctx, sema);
 
       if (!ctx.try_consume_token(Token::r_square))

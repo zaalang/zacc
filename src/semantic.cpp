@@ -71,6 +71,254 @@ namespace
     return sema.make_typeref(decl);
   }
 
+  //|///////////////////// detect_captures //////////////////////////////////
+  std::vector<Decl*> detect_captures(SemanticContext &ctx, LambdaDecl *lambda, Sema &sema)
+  {
+    struct Visitor
+    {
+      std::vector<Ident*> unknowns;
+      std::vector<std::vector<Ident*>> knowns;
+
+      Visitor()
+      {
+        knowns.push_back({});
+      }
+
+      void visit(Ident *name)
+      {
+        if (std::none_of(knowns.begin(), knowns.end(), [&](auto &known) { return std::find(known.begin(), known.end(), name) != known.end(); }))
+        {
+          if (std::find(unknowns.begin(), unknowns.end(), name) == unknowns.end())
+            unknowns.push_back(name);
+        }
+      }
+
+      void visit(Expr *expr)
+      {
+        switch (expr->kind())
+        {
+          case Expr::ArrayLiteral:
+            for(auto &element : expr_cast<ArrayLiteralExpr>(expr)->elements)
+              visit(element);
+            break;
+
+          case Expr::CompoundLiteral:
+            for(auto &field : expr_cast<CompoundLiteralExpr>(expr)->fields)
+              visit(field);
+            break;
+
+          case Expr::ExprRef:
+            visit(expr_cast<ExprRefExpr>(expr)->expr);
+            break;
+
+          case Expr::Paren:
+            visit(expr_cast<ParenExpr>(expr)->subexpr);
+            break;
+
+          case Expr::UnaryOp:
+            visit(expr_cast<UnaryOpExpr>(expr)->subexpr);
+            break;
+
+          case Expr::BinaryOp:
+            visit(expr_cast<BinaryOpExpr>(expr)->lhs);
+            visit(expr_cast<BinaryOpExpr>(expr)->rhs);
+            break;
+
+          case Expr::TernaryOp:
+            visit(expr_cast<TernaryOpExpr>(expr)->cond);
+            visit(expr_cast<TernaryOpExpr>(expr)->lhs);
+            visit(expr_cast<TernaryOpExpr>(expr)->rhs);
+            break;
+
+          case Expr::Call:
+            if (expr_cast<CallExpr>(expr)->base)
+              visit(expr_cast<CallExpr>(expr)->base);
+            for(auto &parm: expr_cast<CallExpr>(expr)->parms)
+              visit(parm);
+            for(auto &[name, parm] : expr_cast<CallExpr>(expr)->namedparms)
+              visit(parm);
+            if (auto decl = expr_cast<CallExpr>(expr)->callee; decl->kind() == Decl::DeclRef)
+              if (!expr_cast<CallExpr>(expr)->base)
+                visit(decl_cast<DeclRefDecl>(decl)->name);
+            break;
+
+          case Expr::Sizeof:
+            if (expr_cast<SizeofExpr>(expr)->expr)
+              visit(expr_cast<SizeofExpr>(expr)->expr);
+            break;
+
+          case Expr::Cast:
+            if (expr_cast<CastExpr>(expr)->expr)
+              visit(expr_cast<CastExpr>(expr)->expr);
+            break;
+
+          case Expr::New:
+            visit(expr_cast<NewExpr>(expr)->address);
+            for(auto &parm: expr_cast<NewExpr>(expr)->parms)
+              visit(parm);
+            for(auto &[name, parm] : expr_cast<NewExpr>(expr)->namedparms)
+              visit(parm);
+            break;
+
+          case Expr::DeclRef:
+            if (expr_cast<DeclRefExpr>(expr)->base)
+              visit(expr_cast<DeclRefExpr>(expr)->base);
+            if (auto decl = expr_cast<DeclRefExpr>(expr)->decl; decl->kind() == Decl::DeclRef)
+              if (!expr_cast<DeclRefExpr>(expr)->base)
+                visit(decl_cast<DeclRefDecl>(decl)->name);
+            break;
+
+          default:
+            break;
+        }
+
+      }
+
+      void visit(Stmt *stmt)
+      {
+        switch (stmt->kind())
+        {
+          case Stmt::Null:
+            break;
+
+          case Stmt::Declaration:
+            if (auto decl = stmt_cast<DeclStmt>(stmt)->decl; is_var_decl(decl))
+              knowns.back().push_back(decl_cast<VarDecl>(decl)->name);
+            break;
+
+          case Stmt::Expression:
+            if (stmt_cast<ExprStmt>(stmt)->expr)
+              visit(stmt_cast<ExprStmt>(stmt)->expr);
+            break;
+
+          case Stmt::If:
+            if (stmt_cast<IfStmt>(stmt)->cond)
+              visit(stmt_cast<IfStmt>(stmt)->cond);
+            for(auto &init : stmt_cast<IfStmt>(stmt)->inits)
+              visit(init);
+            if (stmt_cast<IfStmt>(stmt)->stmts[0])
+              visit(stmt_cast<IfStmt>(stmt)->stmts[0]);
+            if (stmt_cast<IfStmt>(stmt)->stmts[1])
+              visit(stmt_cast<IfStmt>(stmt)->stmts[1]);
+            break;
+
+          case Stmt::For:
+            if (stmt_cast<ForStmt>(stmt)->cond)
+              visit(stmt_cast<ForStmt>(stmt)->cond);
+            for(auto &init : stmt_cast<ForStmt>(stmt)->inits)
+              visit(init);
+            for(auto &iter : stmt_cast<ForStmt>(stmt)->iters)
+              visit(iter);
+            visit(stmt_cast<ForStmt>(stmt)->stmt);
+            break;
+
+          case Stmt::Rof:
+            if (stmt_cast<RofStmt>(stmt)->cond)
+              visit(stmt_cast<RofStmt>(stmt)->cond);
+            for(auto &init : stmt_cast<RofStmt>(stmt)->inits)
+              visit(init);
+            for(auto &iter : stmt_cast<RofStmt>(stmt)->iters)
+              visit(iter);
+            visit(stmt_cast<RofStmt>(stmt)->stmt);
+            break;
+
+          case Stmt::While:
+            if (stmt_cast<WhileStmt>(stmt)->cond)
+              visit(stmt_cast<WhileStmt>(stmt)->cond);
+            for(auto &init : stmt_cast<WhileStmt>(stmt)->inits)
+              visit(init);
+            for(auto &iter : stmt_cast<WhileStmt>(stmt)->iters)
+              visit(iter);
+            visit(stmt_cast<WhileStmt>(stmt)->stmt);
+            break;
+
+          case Stmt::Switch:
+            if (stmt_cast<SwitchStmt>(stmt)->cond)
+              visit(stmt_cast<SwitchStmt>(stmt)->cond);
+            for(auto &init : stmt_cast<SwitchStmt>(stmt)->inits)
+              visit(init);
+            for(auto &decl : stmt_cast<SwitchStmt>(stmt)->decls)
+              if (decl->kind() == Decl::Case)
+                visit(decl_cast<CaseDecl>(decl)->body);
+            break;
+
+          case Stmt::Goto:
+            break;
+
+          case Stmt::Try:
+            visit(stmt_cast<TryStmt>(stmt)->body);
+            visit(stmt_cast<TryStmt>(stmt)->handler);
+            break;
+
+          case Stmt::Throw:
+            if (stmt_cast<ThrowStmt>(stmt)->expr)
+              visit(stmt_cast<ThrowStmt>(stmt)->expr);
+            break;
+
+          case Stmt::Break:
+            break;
+
+          case Stmt::Continue:
+            break;
+
+          case Stmt::Injection:
+            break;
+
+          case Stmt::Return:
+            if (stmt_cast<ReturnStmt>(stmt)->expr)
+              visit(stmt_cast<ReturnStmt>(stmt)->expr);
+            break;
+
+          case Stmt::Compound:
+            knowns.push_back({});
+            for(auto &stmt : stmt_cast<CompoundStmt>(stmt)->stmts)
+              visit(stmt);
+            knowns.pop_back();
+            break;
+
+          default:
+            assert(false);
+        }
+      }
+    };
+
+    Visitor visitor;
+    std::vector<Decl*> captures;
+
+    for(auto &parm : decl_cast<FunctionDecl>(lambda->fn)->parms)
+      visitor.knowns.back().push_back(decl_cast<ParmVarDecl>(parm)->name);
+
+    visitor.visit(decl_cast<FunctionDecl>(lambda->fn)->body);
+
+    for(auto &name : visitor.unknowns)
+    {
+      vector<Decl*> decls;
+
+      for(auto sx = ctx.stack.rbegin(); sx != ctx.stack.rend(); ++sx)
+      {
+        find_decls(*sx, name, QueryFlags::Variables | QueryFlags::Parameters, decls);
+
+        if (decls.empty())
+          continue;
+
+        auto loc = lambda->loc();
+        auto var = sema.capture_declaration(loc);
+
+        var->arg = sema.make_typearg(Ident::from("_" + to_string(captures.size() + 1)), loc);
+
+        var->name = name;
+        var->type = sema.make_reference(sema.make_qualarg(sema.make_typearg(var->arg)));
+        var->value = sema.make_declref_expression(sema.make_declref(var->name, loc), loc);
+
+        captures.push_back(var);
+
+        break;
+      }
+    }
+
+    return captures;
+  }
+
   //|///////////////////// type /////////////////////////////////////////////
   void semantic_type(SemanticContext &ctx, Type *type, Sema &sema)
   {
@@ -230,16 +478,16 @@ namespace
       semantic_type(ctx, call->type, sema);
     }
 
-    if (call->expr)
+    if (call->decl)
     {
-      semantic_expr(ctx, call->expr, sema);
+      semantic_decl(ctx, call->decl, sema);
     }
   }
 
   //|///////////////////// offsetof_expression //////////////////////////////
   void semantic_expr(SemanticContext &ctx, OffsetofExpr *call, Sema &sema)
   {
-    semantic_type(ctx, call->type, sema);
+    semantic_decl(ctx, call->decl, sema);
   }
 
   //|///////////////////// instanceof_expression ////////////////////////////
@@ -812,15 +1060,25 @@ namespace
 
     auto lambdatype = decl_type(ctx, lambda, sema);
 
-    for(auto &capture : lambda->captures)
+    if (lambda->flags & LambdaDecl::Capture)
     {
-      auto field = sema.field_declaration(capture->loc());
-      field->name = decl_cast<LambdaVarDecl>(capture)->name;
-      field->flags = capture->flags;
-      field->type = decl_cast<LambdaVarDecl>(capture)->type;
+      lambda->captures = detect_captures(ctx, lambda, sema);
+    }
 
-      lambda->decls.push_back(field);
-      lambda->args.push_back(decl_cast<LambdaVarDecl>(capture)->arg);
+    if (lambda->captures.size() != 0)
+    {
+      lambda->flags |= LambdaDecl::Captures;
+
+      for(auto &capture : lambda->captures)
+      {
+        auto field = sema.field_declaration(capture->loc());
+        field->name = decl_cast<LambdaVarDecl>(capture)->name;
+        field->flags = capture->flags;
+        field->type = decl_cast<LambdaVarDecl>(capture)->type;
+
+        lambda->decls.push_back(field);
+        lambda->args.push_back(decl_cast<LambdaVarDecl>(capture)->arg);
+      }
     }
 
     {

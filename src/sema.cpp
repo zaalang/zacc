@@ -543,15 +543,15 @@ Expr *Sema::make_alignof_expression(Type *type, SourceLocation loc)
 }
 
 //|///////////////////// make_alignof_expression ////////////////////////////
-Expr *Sema::make_alignof_expression(Expr *expr, SourceLocation loc)
+Expr *Sema::make_alignof_expression(Decl *decl, SourceLocation loc)
 {
-  return ast->make_expr<AlignofExpr>(expr, loc);
+  return ast->make_expr<AlignofExpr>(decl, loc);
 }
 
 //|///////////////////// make_offsetof_expression ///////////////////////////
-Expr *Sema::make_offsetof_expression(Type *type, Ident *field, SourceLocation loc)
+Expr *Sema::make_offsetof_expression(Decl *decl, SourceLocation loc)
 {
-  return ast->make_expr<OffsetofExpr>(type, field, loc);
+  return ast->make_expr<OffsetofExpr>(decl, loc);
 }
 
 //|///////////////////// make_instanceof_expression /////////////////////////

@@ -142,6 +142,9 @@ int main(int argc, char *argv[])
     if (opts.triple.find("windows") != std::string::npos)
       sema.add_cfg("os.windows");
 
+    if (opts.triple.find("zaos") != std::string::npos)
+      sema.add_cfg("os.zaos");
+
     if (opts.checkmode == GenOpts::CheckedMode::Checked)
       sema.add_cfg("zaa.build.checked");
 

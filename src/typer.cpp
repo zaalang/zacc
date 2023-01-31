@@ -1569,16 +1569,16 @@ namespace
       resolve_type(ctx, scope, call->type, sema);
     }
 
-    if (call->expr)
+    if (call->decl)
     {
-      resolve_expr(ctx, scope, call->expr, sema);
+      resolve_decl(ctx, scope, call->decl, sema);
     }
   }
 
   //|///////////////////// offsetof_expression //////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, OffsetofExpr *call, Sema &sema)
   {
-    resolve_type(ctx, scope, call->type, sema);
+    resolve_decl(ctx, scope, call->decl, sema);
   }
 
   //|///////////////////// instanceof_expression ////////////////////////////

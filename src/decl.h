@@ -496,7 +496,6 @@ class TagDecl : public Decl
     enum Flags
     {
       Public = 0x01,
-      Captures = 0x10,
       Packed = 0x100,
       PublicBase = 0x200,
     };
@@ -555,6 +554,14 @@ class VTableDecl : public TagDecl
 
 class LambdaDecl : public TagDecl
 {
+  public:
+
+    enum Flags
+    {
+      Capture = 0x10,
+      Captures = 0x20,
+    };
+
   public:
     LambdaDecl(SourceLocation loc);
 

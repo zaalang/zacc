@@ -245,9 +245,9 @@ namespace
       return new AlignofExpr(copier_type(ctx, call->type), call->loc());
     }
 
-    if (call->expr)
+    if (call->decl)
     {
-      return new AlignofExpr(copier_expr(ctx, call->expr), call->loc());
+      return new AlignofExpr(copier_decl(ctx, call->decl), call->loc());
     }
 
     return call;
@@ -256,7 +256,7 @@ namespace
   //|///////////////////// offsetof_expression //////////////////////////////
   Expr *copier_expr(CopierContext &ctx, OffsetofExpr *call)
   {
-    return new OffsetofExpr(copier_type(ctx, call->type), copier_name(ctx, call->field), call->loc());
+    return new OffsetofExpr(copier_decl(ctx, call->decl), call->loc());
   }
 
   //|///////////////////// instanceof_expression ////////////////////////////

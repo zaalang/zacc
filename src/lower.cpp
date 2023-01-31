@@ -1285,7 +1285,7 @@ namespace
           return size_t(-1);
 
         result.type = literal.type.type;
-        result.value = get<IntLiteralExpr*>(literal.value.get<MIR::RValue::Constant>());
+        result.value = std::visit([&](auto &v) -> Expr * { return v; }, literal.value.get<MIR::RValue::Constant>());
       }
 
       if (!result)
@@ -1826,11 +1826,8 @@ namespace
 
           if (is_compound_type(type))
           {
-            if (declref.decl->name->kind() == Ident::Index || declref.decl->name->kind() == Ident::Hash)
-            {
-              if (auto field = find_field(ctx, ctx.stack, type_cast<CompoundType>(type), declref.decl->name))
-                return resolve_deref(ctx, field.type, field.defn);
-            }
+            if (auto field = find_field(ctx, ctx.stack, type_cast<CompoundType>(type), declref.decl->name))
+              return resolve_deref(ctx, field.type, field.defn);
           }
 
           if (is_enum_type(type))
@@ -2652,7 +2649,8 @@ namespace
 
       case Type::QualArg:
 
-        tx.pointerdepth -= 1;
+        if (type_cast<QualArgType>(lhs)->qualifiers & QualArgType::Const)
+          tx.constdepth += 1;
 
         return deduce_type(ctx, tx, scope, fx, type_cast<QualArgType>(lhs)->type, remove_const_type(rhs));
 
@@ -2819,7 +2817,7 @@ namespace
           return false;
       }
 
-      if (!(is_const_type(lhs) || (rhs.flags & MIR::Local::Const)))
+      if (!is_const_type(lhs))
         tx.pointerdepth += 1;
     }
 
@@ -5003,7 +5001,7 @@ namespace
           if (!literal_cast(ctx, value, MIR::RValue::literal(expr), elemtype))
             return false;
 
-          elements.push_back(std::visit([&](auto &v) -> Expr* { return v; }, value.get<MIR::RValue::Constant>()));
+          elements.push_back(std::visit([&](auto &v) -> Expr * { return v; }, value.get<MIR::RValue::Constant>()));
         }
 
         literal = ctx.mir.make_expr<ArrayLiteralExpr>(elements, literal->size, literal->loc());
@@ -5030,7 +5028,7 @@ namespace
         if (!literal_cast(ctx, value, MIR::RValue::literal(literal->fields[i]), type_cast<CompoundType>(type)->fields[i]))
           return false;
 
-        elements.push_back(std::visit([&](auto &v) -> Expr* { return v; }, value.get<MIR::RValue::Constant>()));
+        elements.push_back(std::visit([&](auto &v) -> Expr * { return v; }, value.get<MIR::RValue::Constant>()));
       }
 
       result = ctx.mir.make_expr<CompoundLiteralExpr>(elements, literal->loc());
@@ -5105,7 +5103,7 @@ namespace
       if (!lower_vtor(ctx, result, callee.fx, loc))
         return false;
 
-      elements.push_back(std::visit([&](auto &v) -> Expr* { return v; }, result.value.get<MIR::RValue::Constant>()));
+      elements.push_back(std::visit([&](auto &v) -> Expr * { return v; }, result.value.get<MIR::RValue::Constant>()));
 
       index += 1;
     }
@@ -6441,7 +6439,7 @@ namespace
           EvalResult arg;
 
           arg.type = parm.type.type;
-          arg.value = std::visit([&](auto &v) -> Expr* { return v; }, parm.value.get<MIR::RValue::Constant>());
+          arg.value = std::visit([&](auto &v) -> Expr * { return v; }, parm.value.get<MIR::RValue::Constant>());
 
           arglist.push_back(arg);
         }
@@ -7931,10 +7929,9 @@ namespace
 
     if (call->expr)
     {
-      type = find_type(ctx, ctx.stack, call->expr).type;
+      TypeOfDecl decl(call->expr, call->loc());
 
-      if (!type)
-        return;
+      type = resolve_type(ctx, ctx.stack.back(), &decl);
     }
 
     if (is_unresolved_type(type))
@@ -7950,67 +7947,98 @@ namespace
   //|///////////////////// lower_alignof ///////////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, AlignofExpr *call)
   {
-    Type *type = nullptr;
+    auto align = size_t(-1);
 
     if (call->type)
     {
-      type = resolve_type(ctx, call->type);
-    }
+      auto type = resolve_type(ctx, call->type);
 
-    if (call->expr)
-    {
-      type = find_type(ctx, ctx.stack, call->expr).type;
-
-      if (!type)
+      if (is_unresolved_type(type))
+      {
+        ctx.diag.error("unresolved type for alignof", ctx.stack.back(), call->loc());
         return;
+      }
+
+      align = alignof_type(type);
     }
 
-    if (is_unresolved_type(type))
+    if (call->decl && call->decl->kind() == Decl::DeclRef)
     {
-      ctx.diag.error("unresolved type for alignof", ctx.stack.back(), call->loc());
+      if (auto vardecl = find_vardecl(ctx, ctx.stack, decl_cast<DeclRefDecl>(call->decl)->name); vardecl)
+      {
+        auto type = resolve_type(ctx, ctx.stack.back(), decl_cast<VarDecl>(vardecl));
+
+        if (is_unresolved_type(type))
+        {
+          ctx.diag.error("unresolved type for alignof", ctx.stack.back(), call->loc());
+          return;
+        }
+
+        align = alignof_type(type);
+      }
+    }
+
+    if (call->decl && call->decl->kind() == Decl::DeclScoped)
+    {
+      long queryflags = 0;
+
+      if (Scoped declref = find_scoped(ctx, ctx.stack, decl_cast<DeclScopedDecl>(call->decl), queryflags))
+      {
+        if (auto owner = get_if<Decl*>(&declref.scope.owner); owner && *owner && *owner != ctx.translationunit && !is_module_decl(*owner))
+        {
+          auto type = resolve_type(ctx, declref.scope, *owner);
+
+          if (is_compound_type(type))
+          {
+            if (auto field = find_field(ctx, ctx.stack, type_cast<CompoundType>(type), declref.decl->name))
+              align = alignof_type(field.type);
+          }
+        }
+      }
+    }
+
+    if (align == size_t(-1))
+    {
+      ctx.diag.error("invalid field for alignof", ctx.stack.back(), call->loc());
       return;
     }
 
     result.type = MIR::Local(ctx.intliteraltype, MIR::Local::Const | MIR::Local::Literal);
-    result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, alignof_type(type)), call->loc());
+    result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, align), call->loc());
   }
 
   //|///////////////////// lower_offsetof ///////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, OffsetofExpr *call)
   {
-    Type *type = resolve_type(ctx, call->type);
+    auto offset = size_t(-1);
 
-    if (is_unresolved_type(type))
+    if (call->decl->kind() == Decl::DeclScoped)
     {
-      ctx.diag.error("unresolved type for offsetof", ctx.stack.back(), call->loc());
-      return;
+      long queryflags = 0;
+
+      if (Scoped declref = find_scoped(ctx, ctx.stack, decl_cast<DeclScopedDecl>(call->decl), queryflags))
+      {
+        if (auto owner = get_if<Decl*>(&declref.scope.owner); owner && *owner && *owner != ctx.translationunit && !is_module_decl(*owner))
+        {
+          auto type = resolve_type(ctx, declref.scope, *owner);
+
+          if (is_compound_type(type))
+          {
+            if (auto field = find_field(ctx, ctx.stack, type_cast<CompoundType>(type), declref.decl->name))
+              offset = offsetof_field(type_cast<CompoundType>(type), field.index);
+          }
+        }
+      }
     }
 
-    if (!is_tag_type(type))
-    {
-      ctx.diag.error("invalid type for offsetof", ctx.stack.back(), call->loc());
-      return;
-    }
-
-    size_t index = 0;
-    auto tagtype = type_cast<TagType>(type);
-
-    for(auto &decl : tagtype->fieldvars)
-    {
-      if (decl_cast<FieldVarDecl>(decl)->name == call->field)
-        break;
-
-      ++index;
-    }
-
-    if (index == tagtype->fieldvars.size())
+    if (offset == size_t(-1))
     {
       ctx.diag.error("invalid field for offsetof", ctx.stack.back(), call->loc());
       return;
     }
 
     result.type = MIR::Local(ctx.intliteraltype, MIR::Local::Const | MIR::Local::Literal);
-    result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, offsetof_field(tagtype, index)), call->loc());
+    result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, offset), call->loc());
   }
 
   //|///////////////////// lower_instanceof /////////////////////////////////

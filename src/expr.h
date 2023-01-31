@@ -472,10 +472,10 @@ class AlignofExpr : public Expr
 {
   public:
     AlignofExpr(Type *type, SourceLocation loc);
-    AlignofExpr(Expr *expr, SourceLocation loc);
+    AlignofExpr(Decl *decl, SourceLocation loc);
 
     Type *type = nullptr;
-    Expr *expr = nullptr;
+    Decl *decl = nullptr;
 
     void dump(int indent) const override;
 };
@@ -487,10 +487,9 @@ class AlignofExpr : public Expr
 class OffsetofExpr : public Expr
 {
   public:
-    OffsetofExpr(Type *type, Ident *field, SourceLocation loc);
+    OffsetofExpr(Decl *decl, SourceLocation loc);
 
-    Type *type;
-    Ident *field;
+    Decl *decl;
 
     void dump(int indent) const override;
 };

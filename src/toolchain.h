@@ -26,6 +26,7 @@ class ToolChain
       MinGW,
       GCC,
       MSVC,
+      ZaOS,
 
       Unknown,
     };

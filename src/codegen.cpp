@@ -5220,6 +5220,10 @@ namespace
   {
     string error;
     string triple = ctx.genopts.triple;
+
+    if (auto j = triple.find("zaos"); j != std::string::npos)
+      triple.replace(j, 4, "linux");
+
     auto target = llvm::TargetRegistry::lookupTarget(triple, error);
 
     if (!target)

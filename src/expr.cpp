@@ -211,7 +211,7 @@ std::ostream &operator <<(std::ostream &os, Expr const &expr)
       break;
 
     case Expr::Offsetof:
-      os << "offsetof " << *static_cast<OffsetofExpr const &>(expr).field;
+      os << "offsetof";
       break;
 
     case Expr::Instanceof:
@@ -779,9 +779,9 @@ AlignofExpr::AlignofExpr(Type *type, SourceLocation loc)
 }
 
 //|///////////////////// AlignofExpr::Constructor ///////////////////////////
-AlignofExpr::AlignofExpr(Expr *expr, SourceLocation loc)
+AlignofExpr::AlignofExpr(Decl *decl, SourceLocation loc)
   : Expr(Alignof, loc),
-    expr(expr)
+    decl(decl)
 {
 }
 
@@ -795,9 +795,9 @@ void AlignofExpr::dump(int indent) const
     type->dump(indent + 2);
   }
 
-  if (expr)
+  if (decl)
   {
-    expr->dump(indent + 2);
+    decl->dump(indent + 2);
   }
 }
 
@@ -806,10 +806,9 @@ void AlignofExpr::dump(int indent) const
 //|--------------------------------------------------------------------------
 
 //|///////////////////// OffsetofExpr::Constructor //////////////////////////
-OffsetofExpr::OffsetofExpr(Type *type, Ident *field, SourceLocation loc)
+OffsetofExpr::OffsetofExpr(Decl *decl, SourceLocation loc)
   : Expr(Offsetof, loc),
-    type(type),
-    field(field)
+    decl(decl)
 {
 }
 
@@ -818,9 +817,9 @@ void OffsetofExpr::dump(int indent) const
 {
   cout << spaces(indent) << "OffsetofExpr " << this << " <" << m_loc << "> " << *this << "\n";
 
-  if (type)
+  if (decl)
   {
-    type->dump(indent + 2);
+    decl->dump(indent + 2);
   }
 }
 

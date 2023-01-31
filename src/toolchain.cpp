@@ -109,6 +109,29 @@ ToolChain::ToolChain(string const &triple)
       }
     }
   }
+
+  if (m_os == "zaos" && m_env == "gnu")
+  {
+    m_type = ZaOS;
+
+    if (string paths = "/usr/lib;"; !paths.empty())
+    {
+      for(size_t i = 0, j = paths.find_first_of(';'); j != string::npos; i = j + 1, j = paths.find_first_of(';', j + 1))
+      {
+        auto libdir = paths.substr(i, j-i) + "/gcc/" + triple;
+
+        if (access(libdir.c_str(), F_OK) == 0)
+        {
+          m_base = paths.substr(i, paths.substr(i, j-i).find_last_of('/'));
+
+          if (access((m_base + '/' + triple).c_str(), F_OK) == 0)
+            m_base = m_base + '/' + triple;
+        }
+
+        add_library_path(paths.substr(i, j-i));
+      }
+    }
+  }
 }
 
 //|///////////////////// add_library_path ///////////////////////////////////
@@ -175,6 +198,22 @@ int ToolChain::ld(string_view input, string_view output, vector<string> librarie
 
     for (auto& library : libraries)
       cmd += " " + library + ".lib";
+  }
+
+  if (m_type == ZaOS)
+  {
+    cmd = m_base + "/bin/ld";
+
+    cmd += " -pie --dynamic-linker=/zaos/lib/loader -nostdlib";
+
+    cmd += " " + string(input);
+    cmd += " -o " + string(output);
+
+    for(auto &librarypath : m_library_paths)
+      cmd += " -L" + librarypath;
+
+    for(auto &library : libraries)
+      cmd += " -l" + library;
   }
 
   return system(cmd.c_str());

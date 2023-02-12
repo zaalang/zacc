@@ -28,6 +28,8 @@ using namespace std;
 ToolChain::ToolChain(string const &triple)
   : m_type(Unknown)
 {
+  m_arch = triple;
+
   if (auto i = triple.find_first_of('-'); i != string::npos)
   {
     m_arch = triple.substr(0, i);
@@ -131,6 +133,11 @@ ToolChain::ToolChain(string const &triple)
         add_library_path(paths.substr(i, j-i));
       }
     }
+  }
+
+  if (m_arch == "wasm64")
+  {
+    m_type = Wasm;
   }
 }
 

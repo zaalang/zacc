@@ -5410,10 +5410,21 @@ string get_default_triple()
 //|///////////////////// codegen ////////////////////////////////////////////
 void codegen(AST *ast, string const &target, GenOpts const &genopts, Diag &diag)
 {
-  llvm::InitializeNativeTarget();
-  //llvm::InitializeAllTargetMCs();
-  llvm::InitializeNativeTargetAsmPrinter();
-  llvm::InitializeNativeTargetAsmParser();
+  //llvm::InitializeNativeTarget();
+  //llvm::InitializeNativeTargetAsmPrinter();
+  //llvm::InitializeNativeTargetAsmParser();
+
+  //LLVMInitializeWebAssemblyTarget();
+  //LLVMInitializeWebAssemblyTargetInfo();
+  //LLVMInitializeWebAssemblyAsmPrinter();
+  //LLVMInitializeWebAssemblyAsmParser();
+  //LLVMInitializeWebAssemblyTargetMC();
+
+  llvm::InitializeAllTargets();
+  llvm::InitializeAllTargetInfos();
+  llvm::InitializeAllAsmPrinters();
+  llvm::InitializeAllAsmParsers();
+  llvm::InitializeAllTargetMCs();
 
   GenContext ctx(ast, genopts, diag);
 

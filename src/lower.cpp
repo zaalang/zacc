@@ -20,7 +20,6 @@ using namespace std;
 
 #define PACK_REFS 1
 #define TRANSATIVE_CONST 1
-#define EARLY_DEDUCE_PARMS 1
 #define STRICT_BINDING 1
 #define REFERENCE_DECAY 1
 #define ASSOCIATED_DEREF 0
@@ -2656,10 +2655,16 @@ namespace
 
       case Type::TypeRef:
 
+        if (!fx)
+          return false;
+
         return deduce_type(ctx, tx, scope, fx, resolve_type(ctx, fx, lhs), rhs);
 
       case Type::TypeLit:
       case Type::Constant:
+
+        if (!fx)
+          return false;
 
         return resolve_type(ctx, fx, lhs) == rhs;
 
@@ -2817,7 +2822,7 @@ namespace
           return false;
       }
 
-      if (!is_const_type(lhs))
+      if (!(is_const_type(lhs) || (rhs.flags & MIR::Local::Const)))
         tx.pointerdepth += 1;
     }
 
@@ -3265,6 +3270,26 @@ namespace
         if (viable)
         {
           fill_defaultargs(ctx, fn, fx.typeargs);
+
+          for(size_t i = 0; i < fn->parms.size(); ++i)
+          {
+            auto parm = decl_cast<ParmVarDecl>(fn->parms[i]);
+            auto basetype = remove_qualifiers_type(parm->type);
+
+            if (parm->defult && is_typearg_type(basetype))
+            {
+              auto arg = type_cast<TypeArgType>(basetype)->decl;
+
+              if (fx.find_type(arg) == fx.typeargs.end())
+              {
+                vector<Scope> stack;
+                seed_stack(stack, fx);
+
+                if (auto type = find_type(ctx, stack, parm->defult))
+                  deduce_type(ctx, fnscope, fx, parm, type);
+              }
+            }
+          }
         }
 
         if (viable)
@@ -3396,27 +3421,6 @@ namespace
 
           if (fn->where)
           {
-#if EARLY_DEDUCE_PARMS
-            for(size_t i = 0; i < fn->parms.size(); ++i)
-            {
-              auto parm = decl_cast<ParmVarDecl>(fn->parms[i]);
-              auto basetype = remove_qualifiers_type(parm->type);
-
-              if (parm->defult && is_typearg_type(basetype))
-              {
-                auto arg = type_cast<TypeArgType>(basetype)->decl;
-
-                if (fx.find_type(arg) == fx.typeargs.end())
-                {
-                  vector<Scope> stack;
-                  seed_stack(stack, fx);
-
-                  if (auto type = find_type(ctx, stack, parm->defult))
-                    deduce_type(ctx, fnscope, fx, parm, type);
-                }
-              }
-            }
-#endif
             if (eval(ctx, fx, fn->where) != 1)
             {
               candidates.push_back(std::make_tuple(fn, WhereExprFailed));
@@ -4474,7 +4478,7 @@ namespace
         tx.allow_object_downcast = false;
         tx.allow_pointer_downcast = false;
 
-        if (deduce_type(ctx, tx, ctx.stack.back(), fx, rhs, lhs))
+        if (deduce_type(ctx, tx, fx, fx, rhs, lhs))
         {
           lhs = rhs;
 
@@ -6175,7 +6179,7 @@ namespace
         callee.throwtype = ctx.mir.locals[ctx.errorarg].type;
     }
 
-    if ((callee.fn->flags & FunctionDecl::Builtin) && callee.fn->builtin == Builtin::CallOp && type_cast<FunctionType>(parms[0].type.type)->throwtype != ctx.voidtype)
+    if ((callee.fn->flags & FunctionDecl::Builtin) && callee.fn->builtin == Builtin::CallOp && is_function_type(parms[0].type.type) && type_cast<FunctionType>(parms[0].type.type)->throwtype != ctx.voidtype)
     {
       callee.throwtype = type_cast<FunctionType>(parms[0].type.type)->throwtype;
     }

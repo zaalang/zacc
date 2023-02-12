@@ -1044,7 +1044,7 @@ namespace
 
     if (ctx.tok.text == "typename")
     {
-      if (auto nexttok = ctx.token(1); nexttok == Token::identifier || nexttok == Token::kw_void || nexttok == Token::kw_null || nexttok == Token::l_paren || nexttok == Token::dollar)
+      if (auto nexttok = ctx.token(1); nexttok == Token::identifier || nexttok == Token::kw_const || nexttok == Token::kw_void || nexttok == Token::kw_null || nexttok == Token::l_paren || nexttok == Token::dollar)
       {
         ctx.consume_token();
 
@@ -2227,6 +2227,16 @@ namespace
         ctx.diag.error("expected return type", ctx.text, ctx.tok.loc);
         return nullptr;
       }
+    }
+
+    if (ctx.tok == Token::identifier && ctx.tok.text == "match")
+    {
+      fn->match = parse_match(ctx, sema);
+    }
+
+    if (ctx.tok == Token::identifier && ctx.tok.text == "where")
+    {
+      fn->where = parse_where(ctx, sema);
     }
 
     if (ctx.tok != Token::l_brace)

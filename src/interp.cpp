@@ -4270,14 +4270,14 @@ namespace
       return false;
     }
 
-    fx.locals.reserve(mir.locals.size());
+    fx.locals.resize(mir.locals.size());
 
     for(size_t i = mir.args_end, end = mir.locals.size(); i != end; ++i)
     {
       if (is_unresolved_type(mir.locals[i].type))
         continue;
 
-      fx.locals.push_back(alloc(ctx, mir.locals[i]));
+      fx.locals[i] = alloc(ctx, mir.locals[i]);
     }
 
     for(auto &[arg, value] : mir.statics)

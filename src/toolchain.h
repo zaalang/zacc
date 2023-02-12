@@ -27,6 +27,7 @@ class ToolChain
       GCC,
       MSVC,
       ZaOS,
+      Wasm,
 
       Unknown,
     };

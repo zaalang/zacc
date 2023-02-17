@@ -1,7 +1,7 @@
 //
 // lifetime.cpp
 //
-// Copyright (C) 2020-2022 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -88,8 +88,13 @@ namespace
       for(auto dep1 : threads[0].locals[arg1].depends_upon)
       {
         for(auto dep2: threads[0].locals[arg2].depends_upon)
+        {
           if (get<1>(*dep2) == get<1>(*dep1) && is_common_field(get<2>(*dep2), get<2>(*dep1)))
             return true;
+
+          if (depth != 0 && get<2>(*dep2).empty() && is_shared(arg1, get<1>(*dep2), depth - 1))
+            return true;
+        }
       }
 
       return false;
@@ -177,30 +182,6 @@ namespace
     }
   };
 
-  struct Annotation
-  {
-    enum Type
-    {
-      unknown,
-
-      consume,
-      borrow,
-      clone,
-      depend,
-      poison,
-      assign,
-      append,
-      follow,
-      launder,
-      restrict,
-      none,
-    };
-
-    Type type = unknown;
-    SourceLocation loc;
-    string_view text;
-  };
-
   string_view trim(string_view str, const char *characters = " \t\r\n")
   {
     auto i = str.find_first_not_of(characters);
@@ -213,68 +194,67 @@ namespace
   }
 
   //|///////////////////// parse ////////////////////////////////////////////
-  Annotation parse(Context &ctx, string_view src, SourceLocation loc)
+  Lifetime parse(string_view src, SourceLocation loc)
   {
-    Annotation tok = {};
+    Lifetime tok = {};
 
     if (src.substr(0, 7) == "consume")
     {
-      tok.type = Annotation::consume;
+      tok.type = Lifetime::consume;
       tok.text = trim(src.substr(8), "( \t)");
     }
 
     if (src.substr(0, 6) == "borrow")
     {
-      tok.type = Annotation::borrow;
+      tok.type = Lifetime::borrow;
       tok.text = trim(src.substr(7), "( \t)");
-    }
-
-    if (src.substr(0, 5) == "clone")
-    {
-      tok.type = Annotation::clone;
-      tok.text = trim(src.substr(6), "( \t)");
     }
 
     if (src.substr(0, 6) == "depend")
     {
-      tok.type = Annotation::depend;
+      tok.type = Lifetime::depend;
       tok.text = trim(src.substr(7), "( \t)");
+
+      if (tok.text.substr(0, 1) == "*")
+      {
+        tok.type = Lifetime::clone;
+        tok.text = trim(tok.text.substr(1));
+
+        if (tok.text.find('.') != tok.text.npos)
+        {
+          tok.type = Lifetime::follow;
+        }
+      }
     }
 
     if (src.substr(0, 6) == "poison")
     {
-      tok.type = Annotation::poison;
+      tok.type = Lifetime::poison;
       tok.text = trim(src.substr(7), "( \t)");
     }
 
     if (src.substr(0, 6) == "assign")
     {
-      tok.type = Annotation::assign;
+      tok.type = Lifetime::assign;
       tok.text = trim(src.substr(7), "( \t)");
     }
 
     if (src.substr(0, 6) == "append")
     {
-      tok.type = Annotation::append;
-      tok.text = trim(src.substr(7), "( \t)");
-    }
-
-    if (src.substr(0, 6) == "follow")
-    {
-      tok.type = Annotation::follow;
+      tok.type = Lifetime::append;
       tok.text = trim(src.substr(7), "( \t)");
     }
 
     if (src.substr(0, 7) == "launder")
     {
-      tok.type = Annotation::launder;
+      tok.type = Lifetime::launder;
       tok.text = trim(src.substr(8), "( \t)");
     }
 
-    if (src.substr(0, 8) == "restrict")
+    if (src.substr(0, 6) == "repose")
     {
-      tok.type = Annotation::restrict;
-      tok.text = trim(src.substr(9), "( \t)");
+      tok.type = Lifetime::repose;
+      tok.text = trim(src.substr(7), "( \t)");
     }
 
     tok.loc = loc;
@@ -283,55 +263,44 @@ namespace
   }
 
   //|///////////////////// annotations //////////////////////////////////////
-  vector<Annotation> annotations(Context &ctx, FunctionDecl *fn)
+  vector<Lifetime> annotations(string_view lifetime, SourceLocation loc)
   {
-    vector<Annotation> result;
+    vector<Lifetime> result;
 
-    if (fn->flags & FunctionDecl::Lifetimed)
+    auto i = lifetime.find_first_not_of(" \t", 1);
+
+    while (i < lifetime.length() - 1)
     {
-      for(auto attr : fn->attributes)
+      auto j = lifetime.find_first_of("(", i);
+
+      for(int indent = 0; j != string_view::npos; )
       {
-        auto attribute = decl_cast<AttributeDecl>(attr);
+        if (lifetime[j] == '(')
+          indent += 1;
 
-        if (attribute->name == "lifetime")
-        {
-          auto i = attribute->options.find_first_not_of(" \t", 1);
+        if (lifetime[j] == ')')
+          if (--indent <= 0)
+            break;
 
-          while (i < attribute->options.length() - 1)
-          {
-            auto j = attribute->options.find_first_of("(", i);
-
-            for(int indent = 0; j != string::npos; )
-            {
-              if (attribute->options[j] == '(')
-                indent += 1;
-
-              if (attribute->options[j] == ')')
-                if (--indent <= 0)
-                  break;
-
-              j += 1;
-            }
-
-            auto annotation = parse(ctx, string_view(attribute->options).substr(i, j - i + 1), SourceLocation { attribute->loc().lineno, attribute->loc().charpos + int(i) + 8 });
-
-            result.push_back(annotation);
-
-            i = attribute->options.find_first_not_of(" \t,", j + 1);
-          }
-        }
+        j += 1;
       }
+
+      auto annotation = parse(lifetime.substr(i, j - i + 1), SourceLocation { loc.lineno, loc.charpos + int(i) + 8 });
+
+      result.push_back(annotation);
+
+      i = lifetime.find_first_not_of(" \t,", j + 1);
     }
 
     return result;
   }
 
   //|///////////////////// has_launder //////////////////////////////////////
-  bool has_launder(Context &ctx, vector<Annotation> const &annotations)
+  bool has_launder(Context &ctx, vector<Lifetime> const &annotations)
   {
     for(auto &annotation : annotations)
     {
-      if (annotation.type == Annotation::launder)
+      if (annotation.type == Lifetime::launder)
         return true;
     }
 
@@ -339,11 +308,11 @@ namespace
   }
 
   //|///////////////////// has_consume //////////////////////////////////////
-  bool has_consume(Context &ctx, vector<Annotation> const &annotations, Decl *parm)
+  [[maybe_unused]] bool has_consume(Context &ctx, vector<Lifetime> const &annotations, Decl *parm)
   {
     for(auto &annotation : annotations)
     {
-      if (annotation.type == Annotation::consume)
+      if (annotation.type == Lifetime::consume)
       {
         if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
           return true;
@@ -354,41 +323,92 @@ namespace
   }
 
   //|///////////////////// has_poison ///////////////////////////////////////
-  //bool has_poison(Context &ctx, vector<Annotation> const &annotations, Decl *parm)
-  //{
-  //  for(auto &annotation : annotations)
-  //  {
-  //    if (annotation.type == Annotation::poison)
-  //    {
-  //      if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
-  //        return true;
-  //    }
-  //  }
-  //
-  //  return false;
-  //}
+  [[maybe_unused]] bool has_poison(Context &ctx, vector<Lifetime> const &annotations, Decl *parm)
+  {
+    for(auto &annotation : annotations)
+    {
+      if (annotation.type == Lifetime::poison)
+      {
+        if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
+          return true;
+      }
+    }
+
+    return false;
+  }
+
+  //|///////////////////// has_repose ///////////////////////////////////////
+  [[maybe_unused]] bool has_repose(Context &ctx, vector<Lifetime> const &annotations, Decl *parm1, Decl *parm2)
+  {
+    for(auto &annotation : annotations)
+    {
+      if (annotation.type == Lifetime::repose)
+      {
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of(',')));
+        auto rhs = trim(annotation.text.substr(annotation.text.find_first_of(',') + 1));
+
+        if (decl_cast<ParmVarDecl>(parm1)->name == lhs && decl_cast<ParmVarDecl>(parm2)->name == rhs)
+          return true;
+      }
+    }
+
+    return false;
+  }
 
   //|///////////////////// is_const_reference ///////////////////////////////
-  bool is_const_reference(Context &ctx, MIR::Local const &local)
+  [[maybe_unused]] bool is_const_reference(Context &ctx, MIR::Local const &local)
   {
     if (local.flags & MIR::Local::Reference)
     {
       return (local.flags & MIR::Local::Const);
     }
 
-    if (is_reference_type(local.type))
+    if (is_pointference_type(local.type))
     {
-      if (is_qualarg_reference(local.type))
-        return (type_cast<QualArgType>(remove_reference_type(local.type))->qualifiers & QualArgType::Const);
+      switch (auto type = remove_pointference_type(local.type); type->klass())
+      {
+        case Type::Const:
+          return true;
 
-      return is_const_reference(local.type);
+        case Type::QualArg:
+          return (type_cast<QualArgType>(type)->qualifiers & QualArgType::Const);
+
+        default:
+          return false;
+      }
+    }
+
+    return false;
+  }
+
+  //|///////////////////// is_mutable_reference /////////////////////////////
+  [[maybe_unused]] bool is_mutable_reference(Context &ctx, MIR::Local const &local)
+  {
+    if (local.flags & MIR::Local::Reference)
+    {
+      return !(local.flags & MIR::Local::Const);
+    }
+
+    if (is_pointference_type(local.type))
+    {
+      switch (auto type = remove_pointference_type(local.type); type->klass())
+      {
+        case Type::Const:
+          return false;
+
+        case Type::QualArg:
+          return !(type_cast<QualArgType>(type)->qualifiers & QualArgType::Const);
+
+        default:
+          return true;
+      }
     }
 
     return false;
   }
 
   //|///////////////////// is_rvalue_reference //////////////////////////////
-  bool is_rvalue_reference(Context &ctx, MIR::Local const &local)
+  [[maybe_unused]] bool is_rvalue_reference(Context &ctx, MIR::Local const &local)
   {
     if (local.flags & MIR::Local::Reference)
     {
@@ -401,6 +421,22 @@ namespace
     }
 
     return false;
+  }
+
+  //|///////////////////// find_arg /////////////////////////////////////////
+  pair<ParmVarDecl*, size_t> find_arg(Context &ctx, FnSig const &callee, string_view name)
+  {
+    size_t arg = 0;
+
+    for(auto &parm : callee.parameters())
+    {
+      if (decl_cast<ParmVarDecl>(parm)->name == name)
+        return { decl_cast<ParmVarDecl>(parm), arg };
+
+      arg += 1;
+    }
+
+    return { nullptr, 0 };
   }
 
   //|///////////////////// consume //////////////////////////////////////////
@@ -502,70 +538,116 @@ namespace
     ctx.threads[0].locals[arg].consumed = false;
   }
 
-  //|///////////////////// apply ////////////////////////////////////////////
-  void apply(Context &ctx, MIR const &mir, Annotation const &annotation, MIR::local_t dst, FnSig const &callee, vector<MIR::local_t> const &args, SourceLocation loc)
+  //|///////////////////// setup ////////////////////////////////////////////
+  void setup(Context &ctx, MIR const &mir, Lifetime const &annotation)
   {
     switch (annotation.type)
     {
-      case Annotation::consume: {
+      case Lifetime::consume:
+      case Lifetime::borrow:
+      case Lifetime::clone:
+      case Lifetime::depend:
+      case Lifetime::poison:
+      case Lifetime::assign:
+      case Lifetime::append:
+      case Lifetime::follow:
+      case Lifetime::launder:
+        break;
+
+      case Lifetime::repose: {
+
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of(',')));
+        auto rhs = trim(annotation.text.substr(annotation.text.find_first_of(',') + 1));
+
+        auto [parm1, arg1] = find_arg(ctx, mir.fx, lhs);
+        auto [parm2, arg2] = find_arg(ctx, mir.fx, rhs);
+
+        if (parm1 && parm2)
+        {
+          arg1 += mir.args_beg;
+          arg2 += mir.args_beg;
+
+          if (is_reference_type(decl_cast<ParmVarDecl>(parm1)->type))
+          {
+            for(auto dep : ctx.threads[0].locals[arg1].depends_upon)
+              ctx.threads[0].locals[get<1>(*dep)].depends_upon.push_back(ctx.make_field(arg2 + mir.locals.size()));
+          }
+          else
+          {
+            ctx.threads[0].locals[arg1].depends_upon.push_back(ctx.make_field(arg2 + mir.locals.size()));
+          }
+        }
+        else
+        {
+          ctx.diag.error("unknown repose parameter", mir.fx.fn, annotation.loc);
+        }
+
+        break;
+      }
+
+      case Lifetime::none:
+        break;
+
+      default:
+        ctx.diag.error("unknown lifetime annotation", mir.fx.fn, annotation.loc);
+    }
+  }
+
+  //|///////////////////// apply ////////////////////////////////////////////
+  void apply(Context &ctx, MIR const &mir, Lifetime const &annotation, MIR::local_t dst, FnSig const &callee, vector<MIR::local_t> const &args, SourceLocation loc)
+  {
+    switch (annotation.type)
+    {
+      case Lifetime::consume: {
 
         auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of('.')));
 
-        size_t arg = 0;
-        for(auto &parm : callee.parameters())
+        if (auto [parm, arg] = find_arg(ctx, callee, lhs); parm)
         {
-          if (decl_cast<ParmVarDecl>(parm)->name == lhs)
+          if (lhs == annotation.text)
           {
-            if (lhs == annotation.text)
-            {
-              for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-                consume(ctx, mir, args[arg], dep);
-            }
-            else
-            {
-              auto rhs = trim(annotation.text.substr(annotation.text.find_first_of('.') + 1));
+            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+              consume(ctx, mir, args[arg], dep);
+          }
+          else
+          {
+            auto rhs = trim(annotation.text.substr(annotation.text.find_first_of('.') + 1));
 
-              Decl *target = nullptr;
-              vector<MIR::RValue::Field> subfields;
-              for(auto type = mir.locals[args[arg]].type; is_tag_type(type); )
+            Decl *target = nullptr;
+            vector<MIR::RValue::Field> subfields;
+            for(auto type = mir.locals[args[arg]].type; is_tag_type(type); )
+            {
+              auto tagtype = type_cast<TagType>(type);
+
+              for(auto &decl : tagtype->fieldvars)
               {
-                auto tagtype = type_cast<TagType>(type);
-
-                for(auto &decl : tagtype->fieldvars)
+                if (decl_cast<VarDecl>(decl)->name == rhs)
                 {
-                  if (decl_cast<VarDecl>(decl)->name == rhs)
-                  {
-                    target = decl;
-                    subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, size_t(&decl - &tagtype->fieldvars.front()) });
+                  target = decl;
+                  subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, size_t(&decl - &tagtype->fieldvars.front()) });
 
-                    for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-                      consume(ctx, mir, args[arg], ctx.make_field(dep, subfields));
+                  for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+                    consume(ctx, mir, args[arg], ctx.make_field(dep, subfields));
 
-                    break;
-                  }
+                  break;
                 }
-
-                if (target)
-                  break;
-
-                if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype)
-                  break;
-
-                type = tagtype->fields[0];
-                subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, 0 });
               }
 
-              if (!target)
-                ctx.diag.error("unknown consume subfield", callee.fn, annotation.loc);;
+              if (target)
+                break;
+
+              if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype)
+                break;
+
+              type = tagtype->fields[0];
+              subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, 0 });
             }
 
-            break;
+            if (!target)
+              ctx.diag.error("unknown consume subfield", callee.fn, annotation.loc);;
           }
-
-          arg += 1;
         }
-
-        if (arg == args.size())
+        else
         {
           ctx.diag.error("unknown consume parameter", callee.fn, annotation.loc);
         }
@@ -573,25 +655,16 @@ namespace
         break;
       }
 
-      case Annotation::borrow: {
+      case Lifetime::borrow: {
 
-        size_t arg = 0;
-        for(auto &parm : callee.parameters())
+        if (auto [parm, arg] = find_arg(ctx, callee, annotation.text); parm)
         {
-          if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
-          {
-            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-              ctx.threads[0].locals[get<1>(*dep)].consumed = true;
+          for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+            ctx.threads[0].locals[get<1>(*dep)].consumed = true;
 
-            ctx.threads[0].locals[dst].borrowed = args[arg];
-
-            break;
-          }
-
-          arg += 1;
+          ctx.threads[0].locals[dst].borrowed = args[arg];
         }
-
-        if (arg == args.size())
+        else
         {
           ctx.diag.error("unknown borrow parameter", callee.fn, annotation.loc);
         }
@@ -599,30 +672,21 @@ namespace
         break;
       }
 
-      case Annotation::clone: {
+      case Lifetime::clone: {
 
-        size_t arg = 0;
-        for(auto &parm : callee.parameters())
+        if (auto [parm, arg] = find_arg(ctx, callee, annotation.text); parm)
         {
-          if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
+          if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type))
           {
-            if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type))
-            {
-              for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-                ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.begin(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.end());
-            }
-            else
-            {
-              ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[args[arg]].depends_upon.begin(), ctx.threads[0].locals[args[arg]].depends_upon.end());
-            }
-
-            break;
+            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+              ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.begin(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.end());
           }
-
-          arg += 1;
+          else
+          {
+            ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[args[arg]].depends_upon.begin(), ctx.threads[0].locals[args[arg]].depends_upon.end());
+          }
         }
-
-        if (arg == args.size())
+        else
         {
           ctx.diag.error("unknown clone parameter", callee.fn, annotation.loc);
         }
@@ -630,65 +694,56 @@ namespace
         break;
       }
 
-      case Annotation::depend: {
+      case Lifetime::depend: {
 
         auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of('.')));
 
-        size_t arg = 0;
-        for(auto &parm : callee.parameters())
+        if (auto [parm, arg] = find_arg(ctx, callee, lhs); parm)
         {
-          if (decl_cast<ParmVarDecl>(parm)->name == lhs)
+          if (lhs == annotation.text)
           {
-            if (lhs == annotation.text)
-            {
-              for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-                ctx.threads[0].locals[dst].depends_upon.push_back(dep);
-            }
-            else
-            {
-              auto rhs = trim(annotation.text.substr(annotation.text.find_first_of('.') + 1));
+            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+              ctx.threads[0].locals[dst].depends_upon.push_back(dep);
+          }
+          else
+          {
+            auto rhs = trim(annotation.text.substr(annotation.text.find_first_of('.') + 1));
 
-              Decl *target = nullptr;
-              vector<MIR::RValue::Field> subfields;
-              for(auto type = mir.locals[args[arg]].type; is_tag_type(type); )
+            Decl *target = nullptr;
+            vector<MIR::RValue::Field> subfields;
+            for(auto type = mir.locals[args[arg]].type; is_tag_type(type); )
+            {
+              auto tagtype = type_cast<TagType>(type);
+
+              for(auto &decl : tagtype->fieldvars)
               {
-                auto tagtype = type_cast<TagType>(type);
-
-                for(auto &decl : tagtype->fieldvars)
+                if (decl_cast<VarDecl>(decl)->name == rhs)
                 {
-                  if (decl_cast<VarDecl>(decl)->name == rhs)
-                  {
-                    target = decl;
-                    subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, size_t(&decl - &tagtype->fieldvars.front()) });
+                  target = decl;
+                  subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, size_t(&decl - &tagtype->fieldvars.front()) });
 
-                    for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-                      ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(dep, subfields));
+                  for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+                    ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(dep, subfields));
 
-                    break;
-                  }
+                  break;
                 }
-
-                if (target)
-                  break;
-
-                if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype)
-                  break;
-
-                type = tagtype->fields[0];
-                subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, 0 });
               }
 
-              if (!target)
-                ctx.diag.error("unknown depend subfield", callee.fn, annotation.loc);;
+              if (target)
+                break;
+
+              if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype)
+                break;
+
+              type = tagtype->fields[0];
+              subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, 0 });
             }
 
-            break;
+            if (!target)
+              ctx.diag.error("unknown depend subfield", callee.fn, annotation.loc);;
           }
-
-          arg += 1;
         }
-
-        if (arg == args.size())
+        else
         {
           ctx.diag.error("unknown depend parameter", callee.fn, annotation.loc);
         }
@@ -696,65 +751,56 @@ namespace
         break;
       }
 
-      case Annotation::poison: {
+      case Lifetime::poison: {
 
         auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of('.')));
 
-        size_t arg = 0;
-        for(auto &parm : callee.parameters())
+        if (auto [parm, arg] = find_arg(ctx, callee, lhs); parm)
         {
-          if (decl_cast<ParmVarDecl>(parm)->name == lhs)
+          if (lhs == annotation.text)
           {
-            if (lhs == annotation.text)
-            {
-              for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-                poison(ctx, mir, args[arg], dep);
-            }
-            else
-            {
-              auto rhs = trim(annotation.text.substr(annotation.text.find_first_of('.') + 1));
+            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+              poison(ctx, mir, args[arg], dep);
+          }
+          else
+          {
+            auto rhs = trim(annotation.text.substr(annotation.text.find_first_of('.') + 1));
 
-              Decl *target = nullptr;
-              vector<MIR::RValue::Field> subfields;
-              for(auto type = mir.locals[args[arg]].type; is_tag_type(type); )
+            Decl *target = nullptr;
+            vector<MIR::RValue::Field> subfields;
+            for(auto type = mir.locals[args[arg]].type; is_tag_type(type); )
+            {
+              auto tagtype = type_cast<TagType>(type);
+
+              for(auto &decl : tagtype->fieldvars)
               {
-                auto tagtype = type_cast<TagType>(type);
-
-                for(auto &decl : tagtype->fieldvars)
+                if (decl_cast<VarDecl>(decl)->name == rhs)
                 {
-                  if (decl_cast<VarDecl>(decl)->name == rhs)
-                  {
-                    target = decl;
-                    subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, size_t(&decl - &tagtype->fieldvars.front()) });
+                  target = decl;
+                  subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, size_t(&decl - &tagtype->fieldvars.front()) });
 
-                    for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
-                      poison(ctx, mir, args[arg], ctx.make_field(dep, subfields));
+                  for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+                    poison(ctx, mir, args[arg], ctx.make_field(dep, subfields));
 
-                    break;
-                  }
+                  break;
                 }
-
-                if (target)
-                  break;
-
-                if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype)
-                  break;
-
-                type = tagtype->fields[0];
-                subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, 0 });
               }
 
-              if (!target)
-                ctx.diag.error("unknown poison subfield", callee.fn, annotation.loc);;
+              if (target)
+                break;
+
+              if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype)
+                break;
+
+              type = tagtype->fields[0];
+              subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, 0 });
             }
 
-            break;
+            if (!target)
+              ctx.diag.error("unknown poison subfield", callee.fn, annotation.loc);;
           }
-
-          arg += 1;
         }
-
-        if (arg == args.size())
+        else
         {
           ctx.diag.error("unknown poison parameter", callee.fn, annotation.loc);
         }
@@ -762,36 +808,28 @@ namespace
         break;
       }
 
-      case Annotation::assign: {
+      case Lifetime::assign: {
 
         auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of(',')));
-        auto rhs = parse(ctx, trim(annotation.text.substr(annotation.text.find_first_of(',') + 1)), annotation.loc);
 
-        size_t arg = 0;
-        for(auto &parm : callee.parameters())
+        if (auto [parm, arg] = find_arg(ctx, callee, lhs); parm)
         {
-          if (decl_cast<ParmVarDecl>(parm)->name == lhs)
+          auto rhs = parse(trim(annotation.text.substr(annotation.text.find_first_of(',') + 1)), annotation.loc);
+
+          for(auto dst : ctx.threads[0].locals[args[arg]].depends_upon)
           {
-            for(auto dst : ctx.threads[0].locals[args[arg]].depends_upon)
-            {
-              ctx.threads[0].locals[get<1>(*dst)].immune = false;
-              ctx.threads[0].locals[get<1>(*dst)].consumed = false;
-              ctx.threads[0].locals[get<1>(*dst)].poisoned = false;
-              ctx.threads[0].locals[get<1>(*dst)].toxic = false;
-              ctx.threads[0].locals[get<1>(*dst)].sealed = false;
-              ctx.threads[0].locals[get<1>(*dst)].depends_upon.clear();
-              ctx.threads[0].locals[get<1>(*dst)].consumed_fields.clear();
+            ctx.threads[0].locals[get<1>(*dst)].immune = false;
+            ctx.threads[0].locals[get<1>(*dst)].consumed = false;
+            ctx.threads[0].locals[get<1>(*dst)].poisoned = false;
+            ctx.threads[0].locals[get<1>(*dst)].toxic = false;
+            ctx.threads[0].locals[get<1>(*dst)].sealed = false;
+            ctx.threads[0].locals[get<1>(*dst)].depends_upon.clear();
+            ctx.threads[0].locals[get<1>(*dst)].consumed_fields.clear();
 
-              apply(ctx, mir, rhs, get<1>(*dst), callee, args, loc);
-            }
-
-            break;
+            apply(ctx, mir, rhs, get<1>(*dst), callee, args, loc);
           }
-
-          arg += 1;
         }
-
-        if (arg == args.size())
+        else
         {
           ctx.diag.error("unknown assign parameter", callee.fn, annotation.loc);
         }
@@ -799,28 +837,20 @@ namespace
         break;
       }
 
-      case Annotation::append: {
+      case Lifetime::append: {
 
         auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of(',')));
-        auto rhs = parse(ctx, trim(annotation.text.substr(annotation.text.find_first_of(',') + 1)), annotation.loc);
 
-        size_t arg = 0;
-        for(auto &parm : callee.parameters())
+        if (auto [parm, arg] = find_arg(ctx, callee, lhs); parm)
         {
-          if (decl_cast<ParmVarDecl>(parm)->name == lhs)
+          auto rhs = parse(trim(annotation.text.substr(annotation.text.find_first_of(',') + 1)), annotation.loc);
+
+          for(auto dst : ctx.threads[0].locals[args[arg]].depends_upon)
           {
-            for(auto dst : ctx.threads[0].locals[args[arg]].depends_upon)
-            {
-              apply(ctx, mir, rhs, get<1>(*dst), callee, args, loc);
-            }
-
-            break;
+            apply(ctx, mir, rhs, get<1>(*dst), callee, args, loc);
           }
-
-          arg += 1;
         }
-
-        if (arg == args.size())
+        else
         {
           ctx.diag.error("unknown append parameter", callee.fn, annotation.loc);
         }
@@ -828,71 +858,58 @@ namespace
         break;
       }
 
-      case Annotation::follow: {
+      case Lifetime::follow: {
 
         auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of('.')));
-        auto rhs = trim(annotation.text.substr(annotation.text.find_first_of('.') + 1));
 
-        size_t arg = 0;
-        for(auto &parm : callee.parameters())
+        if (auto [parm, arg] = find_arg(ctx, callee, lhs); parm)
         {
-          if (decl_cast<ParmVarDecl>(parm)->name == lhs)
+          auto rhs = trim(annotation.text.substr(annotation.text.find_first_of('.') + 1));
+
+          Lifetime target;
+          target.text = lhs;
+          target.loc = annotation.loc;
+
+          for(auto type = mir.locals[args[arg]].type; is_tag_type(type); )
           {
-            Annotation target;
+            auto tagtype = type_cast<TagType>(type);
 
-            for(auto type = mir.locals[args[arg]].type; is_tag_type(type); )
+            for(auto decl : tagtype->decls)
             {
-              auto tagtype = type_cast<TagType>(type);
-
-              for(auto decl : tagtype->decls)
+              if (decl->kind() == Decl::Function && decl_cast<FunctionDecl>(decl)->name == rhs)
               {
-                if (decl->kind() == Decl::Function && decl_cast<FunctionDecl>(decl)->name == rhs)
+                target.type = Lifetime::none;
+
+                for(auto &annotation : decl_cast<FunctionDecl>(decl)->lifetimes)
                 {
-                  for(auto &annotation : annotations(ctx, decl_cast<FunctionDecl>(decl)))
-                  {
-                    target.type = annotation.type;
-
-                    break;
-                  }
-
-                  if (target.type == Annotation::unknown)
-                    target.type = Annotation::none;
+                  target.type = annotation.type;
 
                   break;
                 }
 
-                if (decl->kind() == Decl::FieldVar && decl_cast<VarDecl>(decl)->name == rhs)
-                {
-                  target.type = Annotation::clone;
-
-                  break;
-                }
+                break;
               }
 
-              if (target.type != Annotation::unknown)
-                break;
+              if (decl->kind() == Decl::FieldVar && decl_cast<VarDecl>(decl)->name == rhs)
+              {
+                target.type = Lifetime::clone;
 
-              if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype)
                 break;
-
-              type = tagtype->fields[0];
+              }
             }
 
-            if (target.type != Annotation::unknown)
-            {
-              target.text = lhs;
-              target.loc = annotation.loc;
-
-              apply(ctx, mir, target, dst, callee, args, loc);
-
+            if (target.type != Lifetime::unknown)
               break;
-            }
+
+            if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype)
+              break;
+
+            type = tagtype->fields[0];
           }
 
-          arg += 1;
+          apply(ctx, mir, target, dst, callee, args, loc);
         }
-
-        if (arg == args.size())
+        else
         {
           ctx.diag.error("unknown follow parameter", callee.fn, annotation.loc);
         }
@@ -900,13 +917,13 @@ namespace
         break;
       }
 
-      case Annotation::launder:
+      case Lifetime::launder:
         break;
 
-      case Annotation::restrict:
+      case Lifetime::repose:
         break;
 
-      case Annotation::none:
+      case Lifetime::none:
         break;
 
       default:
@@ -924,6 +941,8 @@ namespace
       switch(op)
       {
         case MIR::RValue::Val:
+          if (is_builtin_type(mir.locals[dst].type))
+            break;
           ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[arg].depends_upon;
           ctx.threads[0].locals[dst].sealed = ctx.threads[0].locals[arg].sealed;
           ctx.threads[0].locals[dst].immune = ctx.threads[0].locals[arg].immune;
@@ -993,7 +1012,7 @@ namespace
     if (callee.fn->flags & FunctionDecl::Destructor)
       return;
 
-    auto notations = annotations(ctx, callee.fn);
+    auto &notations = callee.fn->lifetimes;
 
     if (callee.fn->name == Ident::op_assign || has_launder(ctx, notations))
     {
@@ -1021,31 +1040,21 @@ namespace
           break;
       }
 
-      for(auto &annotation : notations)
+      if (callee.fn->flags & FunctionDecl::Lifetimed)
       {
-        switch (annotation.type)
+        if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type) && is_mutable_reference(ctx, mir.locals[arg]))
         {
-          case Annotation::restrict: {
+          for(auto const &[other_parm, other_arg] : zip(callee.parameters(), args))
+          {
+            if (other_arg == arg)
+              continue;
 
-            if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
-            {
-              for(auto const &[other_parm, other_arg] : zip(callee.parameters(), args))
-              {
-                if (other_arg == arg)
-                  continue;
+            if (has_repose(ctx, notations, other_parm, parm))
+              continue;
 
-                if (ctx.is_shared(arg, other_arg))
-                  ctx.diag.error("potentially shared restrict value", mir.fx.fn, loc);
-              }
-
-              break;
-            }
-
-            break;
+            if (ctx.is_shared(arg, other_arg))
+              ctx.diag.warn("potentially shared lifetime parameter", mir.fx.fn, loc);
           }
-
-          default:
-            break;
         }
       }
     }
@@ -1082,6 +1091,11 @@ namespace
           ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[args[0]].depends_upon;
           break;
 
+        case Builtin::Range:
+          ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[args[0]].depends_upon;
+          ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[args[1]].depends_upon.begin(), ctx.threads[0].locals[args[1]].depends_upon.end());
+          break;
+
         default:
           break;
       }
@@ -1100,7 +1114,7 @@ namespace
             {
               if (is_reference_type(decl_cast<LambdaVarDecl>(lambda->captures[&arg - &args.front()])->type))
               {
-                // clone(arg)
+                // depend(*arg)
                 ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[arg].depends_upon.begin(), ctx.threads[0].locals[arg].depends_upon.end());
               }
             }
@@ -1108,13 +1122,19 @@ namespace
           break;
 
         case Builtin::Default_Copytructor:
-          // clone(other)
+        case Builtin::Array_Copytructor:
+        case Builtin::Tuple_Copytructor:
+        case Builtin::Tuple_CopytructorEx:
+          // depend(*other)
           for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
             ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.begin(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.end());
           break;
 
         case Builtin::Default_Assignment:
-          // assign(this, clone(other))
+        case Builtin::Array_Assignment:
+        case Builtin::Tuple_Assignment:
+        case Builtin::Tuple_AssignmentEx:
+          // append(this, depend(*other))
           for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
             for(auto src : ctx.threads[0].locals[args[1]].depends_upon)
               ctx.threads[0].locals[get<1>(*dep)].depends_upon = ctx.threads[0].locals[get<1>(*src)].depends_upon;
@@ -1285,7 +1305,13 @@ namespace
     if (mir.fx.fn->flags & FunctionDecl::Defaulted)
       return;
 
-    auto notations = annotations(ctx, mir.fx.fn);
+    if ((mir.fx.fn->flags & FunctionDecl::DeclType) == FunctionDecl::MatchDecl)
+      return;
+
+    if ((mir.fx.fn->flags & FunctionDecl::DeclType) == FunctionDecl::RequiresDecl)
+      return;
+
+    auto &notations = mir.fx.fn->lifetimes;
 
     ctx.add_thread(0, vector<Context::Storage>(mir.locals.size() + mir.args_end));
 
@@ -1304,6 +1330,11 @@ namespace
     for(auto &[arg, value] : mir.statics)
     {
       ctx.threads[0].locals[arg].live = true;
+    }
+
+    for(auto &annotation : notations)
+    {
+      setup(ctx, mir, annotation);
     }
 
     for(size_t block_id = 0; block_id < mir.blocks.size(); ++block_id)
@@ -1413,6 +1444,9 @@ namespace
       ctx.threads[0].locals[arg].live = false;
     }
 
+    if (mir.fx.fn->flags & FunctionDecl::Destructor)
+      return;
+
     auto arg = mir.args_beg;
     for(auto &parm : mir.fx.parameters())
     {
@@ -1472,6 +1506,10 @@ namespace
   }
 }
 
+vector<Lifetime> parse_lifetime(string_view str, SourceLocation loc)
+{
+  return annotations(str, loc);
+}
 
 //|--------------------- Lifetime -------------------------------------------
 //|--------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 //
 // type.h
 //
-// Copyright (C) 2020-2022 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -30,6 +30,7 @@ class Type
       Const,
       Pointer,
       Reference,
+      Slice,
       Array,
       Tuple,
       TypeRef,
@@ -180,6 +181,20 @@ class ReferenceType : public Type
 {
   public:
     ReferenceType(Type *type);
+
+    Type *type;
+
+    void dump(int indent) const override;
+};
+
+
+//-------------------------- SliceType --------------------------------------
+//---------------------------------------------------------------------------
+
+class SliceType : public Type
+{
+  public:
+    SliceType(Type *type);
 
     Type *type;
 
@@ -417,6 +432,7 @@ bool is_qualarg_type(Type const *type);
 bool is_qualarg_reference(Type const *type);
 bool is_typelit_type(Type const *type);
 bool is_array_type(Type const *type);
+bool is_slice_type(Type const *type);
 bool is_tuple_type(Type const *type);
 bool is_function_type(Type const *type);
 
@@ -475,6 +491,7 @@ template<> inline auto type_cast<BuiltinType>(Type *type) { assert(type && type-
 template<> inline auto type_cast<ConstType>(Type *type) { assert(type && type->klass() == Type::Const); return static_cast<ConstType*>(type); };
 template<> inline auto type_cast<PointerType>(Type *type) { assert(type && type->klass() == Type::Pointer); return static_cast<PointerType*>(type); };
 template<> inline auto type_cast<ReferenceType>(Type *type) { assert(type && type->klass() == Type::Reference); return static_cast<ReferenceType*>(type); };
+template<> inline auto type_cast<SliceType>(Type *type) { assert(type && type->klass() == Type::Slice); return static_cast<SliceType*>(type); };
 template<> inline auto type_cast<ArrayType>(Type *type) { assert(type && type->klass() == Type::Array); return static_cast<ArrayType*>(type); };
 template<> inline auto type_cast<TupleType>(Type *type) { assert(type && type->klass() == Type::Tuple); return static_cast<TupleType*>(type); };
 template<> inline auto type_cast<TypeRefType>(Type *type) { assert(type && type->klass() == Type::TypeRef); return static_cast<TypeRefType*>(type); };
@@ -493,6 +510,7 @@ template<> inline auto type_cast<BuiltinType>(Type const *type) { assert(type &&
 template<> inline auto type_cast<ConstType>(Type const *type) { assert(type && type->klass() == Type::Const); return static_cast<ConstType const *>(type); };
 template<> inline auto type_cast<PointerType>(Type const *type) { assert(type && type->klass() == Type::Pointer); return static_cast<PointerType const *>(type); };
 template<> inline auto type_cast<ReferenceType>(Type const *type) { assert(type && type->klass() == Type::Reference); return static_cast<ReferenceType const *>(type); };
+template<> inline auto type_cast<SliceType>(Type const *type) { assert(type && type->klass() == Type::Slice); return static_cast<SliceType const *>(type); };
 template<> inline auto type_cast<ArrayType>(Type const *type) { assert(type && type->klass() == Type::Array); return static_cast<ArrayType const *>(type); };
 template<> inline auto type_cast<TupleType>(Type const *type) { assert(type && type->klass() == Type::Tuple); return static_cast<TupleType const *>(type); };
 template<> inline auto type_cast<TypeRefType>(Type const *type) { assert(type && type->klass() == Type::TypeRef); return static_cast<TypeRefType const *>(type); };

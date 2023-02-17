@@ -1,7 +1,7 @@
 //
 // builtins.cpp
 //
-// Copyright (C) 2020-2022 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -47,9 +47,6 @@ namespace Builtin
     static inline BuiltinType declidliteraltype = BuiltinType(BuiltinType::DeclidLiteral);
     static inline BuiltinType typeidliteraltype = BuiltinType(BuiltinType::TypeidLiteral);
     static inline BuiltinType ptrliteraltype = BuiltinType(BuiltinType::PtrLiteral);
-
-    static inline Type *declidspantype = new ArrayType(new TupleType(vector<Type*>{ new PointerType(&declidliteraltype), new PointerType(&declidliteraltype) }), new TypeLitType(new IntLiteralExpr(Numeric::int_literal(1), {})));
-    static inline Type *typeidspantype = new ArrayType(new TupleType(vector<Type*>{ new PointerType(&typeidliteraltype), new PointerType(&typeidliteraltype) }), new TypeLitType(new IntLiteralExpr(Numeric::int_literal(1), {})));
 
     Decl *make_typealias(string_view name, Type *type, long flags, int line)
     {
@@ -111,9 +108,7 @@ namespace Builtin
         if (name == "#float") return &floatliteraltype;
         if (name == "#string") return &stringliteraltype;
         if (name == "#declid") return &declidliteraltype;
-        if (name == "#declspan") return declidspantype;
         if (name == "#typeid") return &typeidliteraltype;
-        if (name == "#typespan") return typeidspantype;
         if (name == "null") return &ptrliteraltype;
         if (name == "var") return new TypeArgType(new TypeArgDecl(Ident::kw_var, {}));
         if (auto j = typeargs.find(name); j != typeargs.end()) return j->second;
@@ -187,7 +182,10 @@ namespace Builtin
         {
           tok = consume(cursor);
 
-          type = new ArrayType(type, find_type(tok.text));
+          if (tok.text == "*")
+            type = new SliceType(type);
+          else
+            type = new ArrayType(type, find_type(tok.text));
 
           consume(cursor);
         }
@@ -503,6 +501,7 @@ namespace Builtin
     make_function(ArrayEnd, "pub fn end<T, N>(T[N] mut &) -> T mut *", __LINE__);
     make_function(ArrayEq, "pub const fn ==<T>(T&, T&) -> bool", FunctionDecl::Defaulted, __LINE__);
     make_function(ArrayCmp, "pub const fn <=><T>(T&, T&) -> int", FunctionDecl::Defaulted, __LINE__);
+    make_function(ArrayCreate, "pub const fn __array_literal<T>(T*, usize) -> T[*]", __LINE__);
 
     make_function(TupleLen, "pub const fn len<T>(T&) -> usize", __LINE__);
     make_function(TupleEq, "pub const fn ==<T>(T&, T&) -> bool", FunctionDecl::Defaulted, __LINE__);
@@ -518,6 +517,7 @@ namespace Builtin
     make_function(StringSlice, "pub const fn [](#string, (usize, usize)) -> #string", __LINE__);
     make_function(StringAppend, "pub const fn +(#string, #string) -> #string", __LINE__);
     make_function(StringCreate, "pub const fn #string(u8*, usize) -> #string", __LINE__);
+    make_function(StringCreate, "pub const fn __string_literal(u8*, usize) -> #string", __LINE__);
 
     make_function(Bool, "pub const fn bool<T>(T) -> bool", __LINE__);
 
@@ -604,10 +604,10 @@ namespace Builtin
     make_function(decl_name, "pub const fn __decl_name(#declid) -> #string", __LINE__);
     make_function(decl_flags, "pub const fn __decl_flags(#declid) -> #int", __LINE__);
     make_function(decl_parent, "pub const fn __decl_parent(#declid) -> #declid", __LINE__);
-    make_function(decl_children, "pub const fn __decl_children(#declid, #int = 0) -> #declspan", __LINE__);
+    make_function(decl_children, "pub const fn __decl_children(#declid, #int = 0) -> #declid[*]", __LINE__);
     make_function(type_decl, "pub const fn #declid(#typeid) -> #declid", __LINE__);
     make_function(type_name, "pub const fn __type_name(#typeid) -> #string", __LINE__);
-    make_function(type_children, "pub const fn __type_children(#typeid, #int = 0) -> #declspan", __LINE__);
+    make_function(type_children, "pub const fn __type_children(#typeid, #int = 0) -> #declid[*]", __LINE__);
     make_function(type_query, "pub const fn __type_query(#int, var ...) -> #typeid", __LINE__);
 
     make_function(__argc__, "pub fn __argc__() -> int", __LINE__);

@@ -1,7 +1,7 @@
 //
 // decl.h
 //
-// Copyright (C) 2020-2022 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -12,6 +12,7 @@
 #include "lexer.h"
 #include "numeric.h"
 #include "builtins.h"
+#include "lifetime.h"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -208,6 +209,7 @@ class FunctionDecl : public Decl
     Expr *where = nullptr;
 
     std::vector<Decl*> attributes;
+    std::vector<Lifetime> lifetimes;
 
     void dump(int indent) const override;
 };

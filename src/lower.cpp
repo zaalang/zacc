@@ -1,7 +1,7 @@
 //
 // lower.cpp
 //
-// Copyright (C) 2020-2022 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -1469,6 +1469,11 @@ namespace
     return ctx.typetable.find_or_create<ReferenceType>(resolve_type(ctx, scope, reftype->type));
   }
 
+  Type *resolve_type(LowerContext &ctx, Scope const &scope, SliceType *slicetype)
+  {
+    return ctx.typetable.find_or_create<SliceType>(resolve_type(ctx, scope, slicetype->type));
+  }
+
   Type *resolve_type(LowerContext &ctx, Scope const &scope, ArrayType *arraytype)
   {
     auto elemtype = resolve_type(ctx, scope, arraytype->type);
@@ -2038,6 +2043,9 @@ namespace
 
       case Type::Reference:
         return resolve_type(ctx, scope, type_cast<ReferenceType>(type));
+
+      case Type::Slice:
+        return resolve_type(ctx, scope, type_cast<SliceType>(type));
 
       case Type::Array:
         return resolve_type(ctx, scope, type_cast<ArrayType>(type));
@@ -2652,6 +2660,15 @@ namespace
           tx.constdepth += 1;
 
         return deduce_type(ctx, tx, scope, fx, type_cast<QualArgType>(lhs)->type, remove_const_type(rhs));
+
+      case Type::Slice:
+
+        if (rhs->klass() == Type::Slice)
+        {
+          return deduce_type(ctx, tx, scope, fx, type_cast<SliceType>(lhs)->type, type_cast<SliceType>(rhs)->type);
+        }
+
+        return false;
 
       case Type::TypeRef:
 
@@ -6711,6 +6728,7 @@ namespace
     {
       elemtype = resolve_type(ctx, arrayliteral->coercedtype);
     }
+
     else if (arrayliteral->elements.size() != 0)
     {
       elemtype = find_type(ctx, ctx.stack, arrayliteral->elements.front()).type;
@@ -6729,7 +6747,7 @@ namespace
 
     auto type = ctx.typetable.find_or_create<ArrayType>(elemtype, size);
 
-    if (all_of(arrayliteral->elements.begin(), arrayliteral->elements.end(), [](auto &k) { return is_literal_expr(k); }))
+    if (all_of(arrayliteral->elements.begin(), arrayliteral->elements.end(), [](auto expr) { return is_literal_expr(expr); }))
     {
       for(auto &element : arrayliteral->elements)
       {
@@ -6760,7 +6778,7 @@ namespace
         return;
     }
 
-    if (all_of(values.begin(), values.end(), [](auto &k) { return k.type.flags & MIR::Local::Literal; }))
+    if (all_of(values.begin(), values.end(), [](auto &value) { return value.type.flags & MIR::Local::Literal; }))
     {
       vector<Expr*> elements(values.size());
 
@@ -8274,31 +8292,31 @@ namespace
       return;
     }
 
-    if (!is_reference_type(cast->type))
+    while (is_tag_type(source.type.type))
     {
-      while (is_tag_type(source.type.type))
-      {
-        if (source.type.type == casttype)
-          break;
-
-        if (auto field = find_field(ctx, type_cast<TagType>(source.type.type), Ident::kw_super))
-        {
-          field.defn = ctx.typetable.var_defn;
-
-          lower_field(ctx, source, source, field, cast->loc());
-
-          continue;
-        }
-
-        break;
-      }
-
       if (source.type.type == casttype)
-      {
-        result = std::move(source);
+        break;
 
-        return;
+      if (is_reference_type(cast->type) && source.type.type == remove_const_type(remove_reference_type(casttype)))
+        break;
+
+      if (auto field = find_field(ctx, type_cast<TagType>(source.type.type), Ident::kw_super))
+      {
+        field.defn = ctx.typetable.var_defn;
+
+        lower_field(ctx, source, source, field, cast->loc());
+
+        continue;
       }
+
+      break;
+    }
+
+    if (source.type.type == casttype)
+    {
+      result = std::move(source);
+
+      return;
     }
 
     auto arg = ctx.add_temporary();
@@ -8328,7 +8346,7 @@ namespace
         return;
       }
 
-      result.type = MIR::Local(casttype, MIR::Local::RValue);
+      result.type = MIR::Local(casttype, ctx.typetable.var_defn, MIR::Local::RValue);
 
       realise_as_value(ctx, arg, source);
     }

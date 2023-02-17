@@ -1,7 +1,7 @@
 //
 // type.cpp
 //
-// Copyright (C) 2020-2022 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -177,6 +177,12 @@ bool is_qualarg_reference(Type const *type)
 bool is_typelit_type(Type const *type)
 {
   return type->klass() == Type::TypeLit;
+}
+
+//|///////////////////// is_slice_type //////////////////////////////////////
+bool is_slice_type(Type const *type)
+{
+  return type->klass() == Type::Slice;
 }
 
 //|///////////////////// is_array_type //////////////////////////////////////
@@ -449,6 +455,10 @@ std::ostream &operator <<(std::ostream &os, Type const &type)
           os << *static_cast<ReferenceType const &>(type).type << " mut &";
           break;
       }
+      break;
+
+    case Type::Slice:
+      os << *static_cast<SliceType const &>(type).type << " [*]";
       break;
 
     case Type::Array:
@@ -737,6 +747,33 @@ ReferenceType::ReferenceType(Type *type)
 void ReferenceType::dump(int indent) const
 {
   cout << spaces(indent) << "ReferenceType " << this << '\n';
+
+  if (type)
+  {
+    type->dump(indent + 2);
+  }
+}
+
+
+//|--------------------- SliceType ------------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// SliceType::Constructor /////////////////////////////
+SliceType::SliceType(Type *type)
+  : Type(Slice),
+    type(type)
+{
+  flags |= Type::TrivialCopy;
+  flags |= Type::TrivialAssign;
+  flags |= Type::TrivialDestroy;
+  flags |= type->flags & Type::Concrete;
+  flags |= type->flags & Type::Resolved;
+}
+
+//|///////////////////// SliceType::dump ////////////////////////////////////
+void SliceType::dump(int indent) const
+{
+  cout << spaces(indent) << "SliceType " << this << '\n';
 
   if (type)
   {
@@ -1367,6 +1404,9 @@ size_t sizeof_type(Type const *type)
     case Type::Reference:
       return sizeof(void*);
 
+    case Type::Slice:
+      return 8 + sizeof(void*);
+
     case Type::Array:
       return sizeof_type(type_cast<ArrayType>(type));
 
@@ -1484,6 +1524,9 @@ size_t alignof_type(Type const *type)
 
     case Type::Pointer:
     case Type::Reference:
+      return alignof(void*);
+
+    case Type::Slice:
       return alignof(void*);
 
     case Type::Array:

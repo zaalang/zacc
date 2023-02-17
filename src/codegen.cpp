@@ -1,7 +1,7 @@
 //
 // codegen.cpp
 //
-// Copyright (C) 2020-2022 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -221,6 +221,9 @@ namespace
       case Type::Pointer:
       case Type::Reference:
         return TypeCategory::Pointer;
+
+      case BuiltinType::Slice:
+        return TypeCategory::Slice;
 
       case Type::Array:
         return TypeCategory::Array;
@@ -4015,6 +4018,7 @@ namespace
         case Builtin::StringSlice:
         case Builtin::StringAppend:
         case Builtin::StringCreate:
+        case Builtin::ArrayCreate:
           ctx.diag.error("function not callable in runtime context", fx.fn, loc);
           break;
 

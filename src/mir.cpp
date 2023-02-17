@@ -1,7 +1,7 @@
 //
 // mir.cpp
 //
-// Copyright (C) 2020-2022 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -517,7 +517,7 @@ void MIR::Local::dump(int indent, size_t idx) const
 void MIR::Statement::dump(int indent, size_t idx) const
 {
 #if 1
-  if (kind == MIR::Statement::StorageLive || kind == MIR::Statement::StorageDead)
+  if (kind == MIR::Statement::StorageLive || kind == MIR::Statement::StorageDead || kind == MIR::Statement::StorageLoop)
     return;
 #endif
 

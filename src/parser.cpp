@@ -1,7 +1,7 @@
 //
 // parser.cpp
 //
-// Copyright (C) 2020-2022 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -1174,7 +1174,32 @@ namespace
 
     auto elements = parse_expression_list(ctx, sema);
 
-    Expr *size;
+    if (ctx.try_consume_token(Token::colon))
+    {
+      if (elements.size() != 1)
+      {
+        ctx.diag.error("expected single source value", ctx.text, ctx.tok.loc);
+        return nullptr;
+      }
+
+      elements.push_back(parse_expression(ctx, sema));
+
+      if (!elements.back())
+      {
+        ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+        return nullptr;
+      }
+
+      if (!ctx.try_consume_token(Token::r_square))
+      {
+        ctx.diag.error("expected bracket", ctx.text, ctx.tok.loc);
+        return nullptr;
+      }
+
+      return sema.make_call_expression(sema.make_declref(Ident::from("__array_literal"), loc), elements, {}, loc);
+    }
+
+    Expr *size = nullptr;
 
     if (ctx.try_consume_token(Token::semi))
     {
@@ -1185,16 +1210,16 @@ namespace
       }
 
       size = parse_expression(ctx, sema);
+
+      if (!size)
+      {
+        ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+        return nullptr;
+      }
     }
     else
     {
       size = sema.make_numeric_literal(+1, elements.size(), loc);
-    }
-
-    if (!size)
-    {
-      ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-      return nullptr;
     }
 
     if (!ctx.try_consume_token(Token::r_square))

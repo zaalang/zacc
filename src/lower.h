@@ -1,7 +1,7 @@
 //
 // lower.h
 //
-// Copyright (C) 2020-2022 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -22,6 +22,7 @@ struct TypeTable
   std::unordered_map<Type*, ConstType*> const_types;
   std::unordered_map<Type*, PointerType*> pointer_types;
   std::unordered_map<Type*, ReferenceType*> reference_types;
+  std::unordered_map<Type*, SliceType*> slice_types;
   std::unordered_multimap<Type*, ArrayType*> array_types;
   std::unordered_multimap<Type*, TupleType*> tuple_types;
   std::unordered_multimap<Decl*, TagType*> tag_types;
@@ -110,6 +111,19 @@ inline ReferenceType *TypeTable::find_or_create<ReferenceType>(Type *subtype)
   if (j == reference_types.end())
   {
     j = reference_types.emplace(subtype, make_type<ReferenceType>(subtype)).first;
+  }
+
+  return j->second;
+}
+
+template<>
+inline SliceType *TypeTable::find_or_create<SliceType>(Type *elemtype)
+{
+  auto j = slice_types.find(elemtype);
+
+  if (j == slice_types.end())
+  {
+    j = slice_types.emplace(elemtype, make_type<SliceType>(elemtype)).first;
   }
 
   return j->second;

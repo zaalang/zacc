@@ -1,7 +1,7 @@
 ﻿//
 // interp.cpp
 //
-// Copyright (C) 2020-2022 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -159,15 +159,6 @@ namespace
     return is_float_type(type);
   }
 
-  bool is_span_type(Type const *type)
-  {
-    return is_array_type(type) && is_tuple_type(type_cast<ArrayType>(type)->type) &&
-           (type_cast<TupleType>(type_cast<ArrayType>(type)->type)->fields.size() == 2 ||
-           (type_cast<TupleType>(type_cast<ArrayType>(type)->type)->fields.size() == 3 && is_void_type(type_cast<TupleType>(type_cast<ArrayType>(type)->type)->fields[2]))) &&
-           is_pointference_type(type_cast<TupleType>(type_cast<ArrayType>(type)->type)->fields[0]) &&
-           is_pointference_type(type_cast<TupleType>(type_cast<ArrayType>(type)->type)->fields[1]);
-  }
-
   bool is_typed_literal(Type const *type)
   {
     if (type->klass() == Type::Builtin)
@@ -177,7 +168,7 @@ namespace
       return kind == BuiltinType::IntLiteral || kind == BuiltinType::FloatLiteral || kind == BuiltinType::StringLiteral || kind == BuiltinType::PtrLiteral || kind == BuiltinType::Void || kind == BuiltinType::Bool || kind == BuiltinType::Char;
     }
 
-    if (is_span_type(type))
+    if (is_slice_type(type))
       return true;
 
     return false;
@@ -371,6 +362,23 @@ namespace
 
   //|///////////////////// load /////////////////////////////////////////////
   template <typename T>
+  Slice<T> load_slice(EvalContext &ctx, void *alloc, Type *type)
+  {
+    Slice<T> value;
+
+    memcpy(&value, alloc, sizeof(value));
+
+    return value;
+  }
+
+  template <typename T>
+  Slice<T> load_slice(EvalContext &ctx, FunctionContext &fx, size_t src)
+  {
+    return load_slice<T>(ctx, fx.locals[src].alloc, fx.locals[src].type);
+  }
+
+  //|///////////////////// load /////////////////////////////////////////////
+  template <typename T>
   Range<T> load_range(EvalContext &ctx, void *alloc, Type *type)
   {
     Range<T> value;
@@ -506,10 +514,16 @@ namespace
   }
 
   //|///////////////////// store ////////////////////////////////////////////
-  void store(EvalContext &ctx, void *alloc, Type *type, Slice<const char> const &value)
+  template<typename T>
+  void store(EvalContext &ctx, void *alloc, Type *type, Slice<T> const &value)
   {
-    assert(is_string_type(type));
+    memcpy(alloc, &value, sizeof(value));
+  }
 
+  //|///////////////////// store ////////////////////////////////////////////
+  template<typename T>
+  void store(EvalContext &ctx, void *alloc, Type *type, Range<T> const &value)
+  {
     memcpy(alloc, &value, sizeof(value));
   }
 
@@ -658,13 +672,6 @@ namespace
     return true;
   }
 
-  //|///////////////////// store ////////////////////////////////////////////
-  template<typename T>
-  void store(EvalContext &ctx, void *alloc, Type *type, Range<T> const &value)
-  {
-    memcpy(alloc, &value, sizeof(value));
-  }
-
   //|///////////////////// eval_result //////////////////////////////////////
   Expr *make_expr(EvalContext &ctx, void *alloc, Type *type, SourceLocation loc)
   {
@@ -731,24 +738,20 @@ namespace
     {
       return ctx.make_expr<IntLiteralExpr>(load_int(ctx, alloc, type), loc);
     }
-    else if (is_span_type(type))
+    else if (is_slice_type(type))
     {
-      auto slicetype = type_cast<TupleType>(type_cast<ArrayType>(type)->type);
-      auto elemtype = remove_const_type(remove_pointference_type(slicetype->fields[0]));
+      auto span = load_slice<void>(ctx, alloc, type);
+
+      auto elemtype = type_cast<SliceType>(type)->type;
       auto elemsize = sizeof_type(elemtype);
-
-      auto span = load_range<void*>(ctx, alloc, slicetype);
-
-      if (slicetype->fields.size() == 3)
-        span.end = (void*)((size_t)span.end + elemsize);
-
-      auto arraylen = ((size_t)span.end - (size_t)span.beg) / elemsize;
+      auto arraylen = span.len;
       auto sizetype = ctx.typetable.find_or_create<TypeLitType>(ctx.make_expr<IntLiteralExpr>(Numeric::int_literal(arraylen), loc));
+
       auto elements = vector<Expr*>(arraylen);
 
-      for(size_t i = 0; i < arraylen; ++i)
+      for(size_t i = 0; i < elements.size(); ++i)
       {
-        elements[i] = make_expr(ctx, (void*)((size_t)span.beg + i * elemsize), elemtype, loc);
+        elements[i] = make_expr(ctx, (void*)((size_t)span.data + i * elemsize), elemtype, loc);
       }
 
       if (any_of(elements.begin(), elements.end(), [](auto &k) { return !k; }))
@@ -761,9 +764,10 @@ namespace
       auto elemtype = type_cast<ArrayType>(type)->type;
       auto elemsize = sizeof_type(elemtype);
       auto arraylen = array_len(type_cast<ArrayType>(type));
+
       auto elements = vector<Expr*>(arraylen);
 
-      for(size_t i = 0; i < arraylen; ++i)
+      for(size_t i = 0; i < elements.size(); ++i)
       {
         elements[i] = make_expr(ctx, (void*)((size_t)alloc + i * elemsize), elemtype, loc);
       }
@@ -777,6 +781,7 @@ namespace
     {
       auto compoundtype = type_cast<CompoundType>(type);
       auto active = load_int(ctx, alloc, type_cast<CompoundType>(type)->fields[0]).value;
+
       auto fields = vector<Expr*>(2);
 
       fields[0] = make_expr(ctx, alloc, compoundtype->fields[0], loc);
@@ -791,9 +796,10 @@ namespace
     {
       auto compoundtype = type_cast<CompoundType>(type);
       auto fieldslen = compoundtype->fields.size();
+
       auto fields = vector<Expr*>(fieldslen);
 
-      for(size_t i = 0; i < fieldslen; ++i)
+      for(size_t i = 0; i < fields.size(); ++i)
       {
         auto alignment = alignof_field(compoundtype, i);
 
@@ -2339,6 +2345,24 @@ namespace
     return true;
   }
 
+  //|///////////////////// array_create /////////////////////////////////////
+  bool eval_builtin_array_create(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto ptr = load_ptr(ctx, fx, args[0]);
+    auto length = load_int(ctx, fx, args[1]);
+    auto elemsize = sizeof_type(remove_pointer_type(fx.locals[args[0]].type));
+
+    auto data = ctx.allocate(length.value * elemsize, alignof(uintptr_t));
+
+    memcpy(data, ptr, length.value * elemsize);
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Slice<void>{ length.value, data });
+
+    return true;
+  }
+
   //|///////////////////// callop ///////////////////////////////////////////
   bool eval_builtin_callop(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &callop)
   {
@@ -3128,7 +3152,7 @@ namespace
         data[size++] = Numeric::int_literal(0, reinterpret_cast<uintptr_t>(results[i]));
     }
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Range<void*>{ data, data + size });
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Slice<Numeric::Int>{ size, data});
 
     return true;
   }
@@ -3215,7 +3239,7 @@ namespace
       }
     }
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Range<void*>{ data, data + size });
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Slice<Numeric::Int>{ size, data});
 
     return true;
   }
@@ -3836,6 +3860,9 @@ namespace
         case Builtin::ArrayEnd:
           return eval_builtin_array_end(ctx, fx, dst, call);
 
+        case Builtin::ArrayCreate:
+          return eval_builtin_array_create(ctx, fx, dst, call);
+
         case Builtin::CallOp:
           return eval_builtin_callop(ctx, fx, dst, call);
 
@@ -4165,22 +4192,16 @@ namespace
       auto fragment = copier(decl, substitutions, ctx.diag);
 
       if (fragment->kind() == Decl::EnumConstant && (!is_decl_scope(ctx.dx) || get<Decl*>(ctx.dx.owner)->kind() != Decl::Enum))
-      {
         ctx.diag.error("invalid constant fragment in non-enum", fx.scope, loc);
-        continue;
-      }
 
       if (fragment->kind() == Decl::Requires && (!is_decl_scope(ctx.dx) || get<Decl*>(ctx.dx.owner)->kind() != Decl::Concept))
-      {
         ctx.diag.error("invalid requires fragment in non-concept", fx.scope, loc);
-        continue;
-      }
 
       if (fragment->kind() == Decl::Case && (!is_stmt_scope(ctx.dx) || get<Stmt*>(ctx.dx.owner)->kind() != Stmt::Switch))
-      {
         ctx.diag.error("invalid case fragment in non-switch", fx.scope, loc);
+
+      if (ctx.diag.has_errored())
         continue;
-      }
 
       semantic(ctx.dx, fragment, sema, ctx.diag);
 
@@ -4420,14 +4441,9 @@ namespace
     result.type = value.type;
     result.value = make_expr(ctx, value.alloc, value.type, loc);
 
-    if (is_span_type(result.type))
+    if (is_slice_type(result.type))
     {
-      auto slicetype = type_cast<TupleType>(type_cast<ArrayType>(result.type)->type);
-
-      auto elemtype = remove_const_type(remove_pointference_type(slicetype->fields[0]));
-      auto sizetype = expr_cast<ArrayLiteralExpr>(result.value)->size;
-
-      result.type = ctx.typetable.find_or_create<ArrayType>(elemtype, sizetype);
+      result.type = ctx.typetable.find_or_create<ArrayType>(type_cast<SliceType>(result.type)->type, expr_cast<ArrayLiteralExpr>(result.value)->size);
     }
 
     if (ctx.fragments.size() != 0)

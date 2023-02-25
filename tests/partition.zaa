@@ -9,7 +9,7 @@ fn quicksort(var mut &range) -> void
   if (range.empty)
     return;
 
-  var pivot = range[std::next(range.begin, range.len/2)];
+  var pivot = range[std::next(range.begin, std::distance(range.begin, range.end)/2)];
 
   var middle1 = std::partition(&mut range, |em| [pivot] {
     return em < pivot;

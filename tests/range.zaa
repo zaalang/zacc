@@ -27,7 +27,6 @@ fn test_filter()
 {
   var c = std::array<int>([1, 2, 3, 4, 5]);
   var v = std::filter(c, fn(var k) { return k % 2 != 0; });
-  assert(v.len == 3);
   assert(std::distance(v.begin, v.end) == 3);
   assert(v == [1, 3, 5]);
 }

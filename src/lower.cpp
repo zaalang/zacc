@@ -1233,9 +1233,6 @@ namespace
         {
           auto fn = decl_cast<FunctionDecl>(get<Decl*>(sx->owner));
 
-          if (fn != ctx.mir.fx.fn)
-            queryflags &= ~QueryFlags::Fields;
-
           if (!(fn->flags & (FunctionDecl::Constructor | FunctionDecl::Destructor)) && (fn->flags & FunctionDecl::DeclType) != FunctionDecl::LambdaDecl)
             queryflags &= ~QueryFlags::Fields;
 

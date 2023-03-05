@@ -124,16 +124,16 @@ namespace Builtin
 
         if (tok == Token::tilde && text[cursor.position] == '#')
         {
-          auto beg = tok.text.begin();
+          auto beg = tok.text.data();
           cursor = lex(src, cursor, tok);
-          tok.text = string_view(&*beg, tok.text.end() - beg);
+          tok.text = string_view(beg, tok.text.length() + 1);
         }
 
         if (tok == Token::hash && text[cursor.position] != '#')
         {
-          auto beg = tok.text.begin();
+          auto beg = tok.text.data();
           cursor = lex(src, cursor, tok);
-          tok.text = string_view(&*beg, tok.text.end() - beg);
+          tok.text = string_view(beg, tok.text.length() + 1);
         }
 
         return tok;

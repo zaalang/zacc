@@ -1357,7 +1357,7 @@ namespace
 
     for(auto &usein : imprt->usings)
     {
-      if (decl_cast<UsingDecl>(usein)->decl->kind() == Decl::DeclRef && decl_cast<DeclRefDecl>(decl_cast<UsingDecl>(usein)->decl)->name == std::string_view("*"))
+      if (decl_cast<UsingDecl>(usein)->decl->kind() == Decl::DeclRef && decl_cast<DeclRefDecl>(decl_cast<UsingDecl>(usein)->decl)->name == string_view("*"))
       {
         decl_cast<UsingDecl>(usein)->decl = module;
         usein->owner = imprt->owner;

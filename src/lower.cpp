@@ -2416,7 +2416,7 @@ namespace
         if (rhs == type(Builtin::Type_FloatLiteral) && is_float_type(lhs))
           return true;
 
-        if (is_void_type(lhs) && !is_const_type(rhs) && tx.pointerdepth == 1 && tx.allow_pointer_downcast)
+        if (is_void_type(lhs) && !is_const_type(rhs) && tx.pointerdepth >= 1 && tx.allow_pointer_downcast)
           return true;
 
         return false;

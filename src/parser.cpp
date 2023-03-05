@@ -424,7 +424,7 @@ namespace
 
         if (tok == Token::l_square || tok == Token::l_paren || (tok == Token::tilde && ctx.tok == Token::identifier))
         {
-          if (ctx.tok.text.begin() != tok.text.end())
+          if (ctx.tok.text.data() != tok.text.data() + tok.text.length())
             ctx.diag.error("extra characters within identifier", ctx.text, ctx.tok.loc);
 
           tok.text = string_view(tok.text.data(), tok.text.length() + ctx.tok.text.length());
@@ -1613,7 +1613,7 @@ namespace
 
     if (ctx.tok == Token::numeric_constant)
     {
-      if (ctx.tok.text.begin() != text.end())
+      if (ctx.tok.text.data() != text.data() + text.length())
         ctx.diag.warn("extra characters within numeric literal", ctx.text, op.loc);
 
       auto value = ctx.tok.text;
@@ -2766,7 +2766,7 @@ namespace
 
     while (ctx.try_consume_token(Token::period) || ctx.try_consume_token(Token::minus))
     {
-      name = string_view(name.data(), ctx.tok.text.end() - name.begin());
+      name = string_view(name.data(), name.length() + ctx.tok.text.length() + 1);
 
       if (!ctx.try_consume_token(Token::identifier))
       {

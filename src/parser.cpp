@@ -1021,27 +1021,6 @@ namespace
         return decls.back();
     }
 
-    if (ctx.tok.text == "declname")
-    {
-      if (auto nexttok = ctx.token(1); nexttok == Token::dollar)
-      {
-        ctx.consume_token();
-
-        auto name = parse_ident(ctx, IdentUsage::ScopedName, sema);
-
-        if (!name)
-        {
-          ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-          return nullptr;
-        }
-
-        decls.push_back(sema.make_declname(name, loc));
-
-        if (!ctx.try_consume_token(Token::coloncolon))
-          return decls.back();
-      }
-    }
-
     if (ctx.tok.text == "typename")
     {
       if (auto nexttok = ctx.token(1); nexttok == Token::identifier || nexttok == Token::kw_const || nexttok == Token::kw_void || nexttok == Token::kw_null || nexttok == Token::l_paren || nexttok == Token::dollar)
@@ -2302,7 +2281,7 @@ namespace
 
       parm->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
-      parm->type = sema.make_reference(sema.make_qualarg(sema.make_typearg(sema.make_typearg(Ident::kw_var, ctx.tok.loc))));
+      parm->type = sema.make_reference(sema.make_qualarg(sema.make_typeref(sema.make_declref(Ident::kw_var, ctx.tok.loc))));
 
       fn->parms.push_back(parm);
 

@@ -79,7 +79,6 @@ class Sema
     DeclRefDecl *make_declref(Ident *name, SourceLocation loc);
     DeclScopedDecl *make_declref(std::vector<Decl*> const &decls, SourceLocation loc);
     TypeNameDecl *make_typename(Type *type, SourceLocation loc);
-    DeclNameDecl *make_declname(Ident *name, SourceLocation loc);
     TypeOfDecl *make_decltype(Expr *expr, SourceLocation loc);
     TypeArgDecl *make_typearg(Ident *name, SourceLocation loc);
 

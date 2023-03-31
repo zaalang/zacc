@@ -662,20 +662,6 @@ namespace
     resolve_type(ctx, scope, declref->type, sema);
   }
 
-  //|///////////////////// resolve_declname /////////////////////////////////
-  void resolve_decl(TyperContext &ctx, Scope const &scope, DeclNameDecl *declref, Sema &sema)
-  {
-    for(auto &arg : declref->args)
-    {
-      resolve_type(ctx, scope, arg, sema);
-    }
-
-    for(auto &[name, arg] : declref->namedargs)
-    {
-      resolve_type(ctx, scope, arg, sema);
-    }
-  }
-
   //|///////////////////// resolve_decl /////////////////////////////////////
   void resolve_decl(TyperContext &ctx, Scope const &scope, TypeOfDecl *typedecl, Sema &sema)
   {
@@ -937,10 +923,6 @@ namespace
 
       case Decl::TypeName:
         resolve_decl(ctx, scope, decl_cast<TypeNameDecl>(decl), sema);
-        break;
-
-      case Decl::DeclName:
-        resolve_decl(ctx, scope, decl_cast<DeclNameDecl>(decl), sema);
         break;
 
       case Decl::TypeOf:

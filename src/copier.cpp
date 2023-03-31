@@ -64,6 +64,47 @@ namespace
       {
         return Ident::make_index_ident(expr_cast<IntLiteralExpr>(expr)->value().value);
       }
+
+      if (expr->kind() == Expr::Cast && expr_cast<CastExpr>(expr)->type == Builtin::type(Builtin::Type_DeclidLiteral))
+      {
+        auto declid = reinterpret_cast<Decl*>(expr_cast<IntLiteralExpr>(expr_cast<CastExpr>(expr)->expr)->value().value);
+
+        switch (declid->kind())
+        {
+          case Decl::Module:
+            return decl_cast<ModuleDecl>(declid)->name;
+
+          case Decl::Function:
+            return decl_cast<FunctionDecl>(declid)->name;
+
+          case Decl::Struct:
+          case Decl::Union:
+          case Decl::VTable:
+          case Decl::Concept:
+          case Decl::Enum:
+            return decl_cast<TagDecl>(declid)->name;
+
+          case Decl::VoidVar:
+          case Decl::StmtVar:
+          case Decl::ParmVar:
+          case Decl::FieldVar:
+          case Decl::ThisVar:
+          case Decl::ErrorVar:
+            return decl_cast<VarDecl>(declid)->name;
+
+          case Decl::EnumConstant:
+            return decl_cast<EnumConstantDecl>(declid)->name;
+
+          case Decl::TypeAlias:
+            return decl_cast<TypeAliasDecl>(declid)->name;
+
+          case Decl::TypeArg:
+            return decl_cast<TypeArgDecl>(declid)->name;
+
+          default:
+            break;
+        }
+      }
     }
 
     return name;
@@ -216,7 +257,7 @@ namespace
       result->namedparms.emplace(name, copier_expr(ctx, parm));
 
     if (call->base)
-      call->base = copier_expr(ctx, call->base);
+      result->base = copier_expr(ctx, call->base);
 
     return result;
   }
@@ -604,6 +645,21 @@ namespace
     for(auto &decl : declref->decls)
       result->decls.push_back(copier_decl(ctx, decl));
 
+    if (result->decls[0]->kind() == Decl::DeclRef && decl_cast<DeclRefDecl>(result->decls[0])->argless)
+    {
+      auto name = decl_cast<DeclRefDecl>(result->decls[0])->name;
+
+      if (name->kind() == Ident::Dollar)
+      {
+        auto expr = ctx.get(static_cast<DollarIdent*>(name)->value());
+
+        if (expr->kind() == Expr::Cast && expr_cast<CastExpr>(expr)->type == Builtin::type(Builtin::Type_TypeidLiteral))
+        {
+          result->decls[0] = new TypeNameDecl(reinterpret_cast<Type*>(expr_cast<IntLiteralExpr>(expr_cast<CastExpr>(expr)->expr)->value().value), result->decls[0]->loc());
+        }
+      }
+    }
+
     return result;
   }
 
@@ -614,84 +670,6 @@ namespace
 
     result->flags = declref->flags;
     result->type = copier_type(ctx, declref->type);
-
-    return result;
-  }
-
-  //|///////////////////// declname /////////////////////////////////////////
-  Decl *copier_decl(CopierContext &ctx, DeclNameDecl *declref)
-  {
-    auto result = new DeclRefDecl(declref->loc());
-
-    result->flags = declref->flags;
-
-    if (auto expr = ctx.get(static_cast<DollarIdent*>(declref->name)->value()))
-    {
-      if (expr->kind() == Expr::Cast && expr_cast<CastExpr>(expr)->type == Builtin::type(Builtin::Type_DeclidLiteral))
-      {
-        auto declid = reinterpret_cast<Decl*>(expr_cast<IntLiteralExpr>(expr_cast<CastExpr>(expr)->expr)->value().value);
-
-        switch (declid->kind())
-        {
-          case Decl::TranslationUnit:
-            result->name = Ident::op_scope;
-            break;
-
-          case Decl::Module:
-            result->name = decl_cast<ModuleDecl>(declid)->name;
-            break;
-
-          case Decl::Function:
-            result->name = decl_cast<FunctionDecl>(declid)->name;
-            break;
-
-          case Decl::Struct:
-          case Decl::Union:
-          case Decl::VTable:
-          case Decl::Concept:
-          case Decl::Enum:
-            result->name = decl_cast<TagDecl>(declid)->name;
-            break;
-
-          case Decl::VoidVar:
-          case Decl::StmtVar:
-          case Decl::ParmVar:
-          case Decl::FieldVar:
-          case Decl::ThisVar:
-          case Decl::ErrorVar:
-            result->name = decl_cast<VarDecl>(declid)->name;
-            break;
-
-          case Decl::EnumConstant:
-            result->name = decl_cast<EnumConstantDecl>(declid)->name;
-            break;
-
-          case Decl::TypeAlias:
-            result->name = decl_cast<TypeAliasDecl>(declid)->name;
-            break;
-
-          case Decl::TypeArg:
-            result->name = decl_cast<TypeArgDecl>(declid)->name;
-            break;
-
-          default:
-            break;
-        }
-      }
-
-      if (expr->kind() == Expr::StringLiteral)
-      {
-        result->name = Ident::from(expr_cast<StringLiteralExpr>(expr)->value());
-      }
-    }
-
-    for(auto &arg : declref->args)
-      result->args.push_back(copier_type(ctx, arg));
-
-    for(auto &[name, arg] : declref->namedargs)
-      result->namedargs.emplace(name, copier_type(ctx, arg));
-
-    result->argless = declref->argless;
 
     return result;
   }
@@ -1034,10 +1012,6 @@ namespace
 
       case Decl::TypeName:
         decl = copier_decl(ctx, decl_cast<TypeNameDecl>(decl));
-        break;
-
-      case Decl::DeclName:
-        decl = copier_decl(ctx, decl_cast<DeclNameDecl>(decl));
         break;
 
       case Decl::TypeOf:

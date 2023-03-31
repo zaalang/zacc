@@ -126,7 +126,8 @@ namespace Builtin
         {
           auto beg = tok.text.data();
           cursor = lex(src, cursor, tok);
-          tok.text = string_view(beg, tok.text.length() + 1);
+          cursor = lex(src, cursor, tok);
+          tok.text = string_view(beg, tok.text.length() + 2);
         }
 
         if (tok == Token::hash && text[cursor.position] != '#')
@@ -949,7 +950,7 @@ namespace Builtin
 
       case Builtin::tuple_len:
         if (auto T = find_type(fn->args[0]); T != typeargs.end())
-          return is_tuple_type(remove_const_type(T->second));
+          return is_compound_type(remove_const_type(T->second));
         break;
 
       default:

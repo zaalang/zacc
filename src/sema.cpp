@@ -377,12 +377,6 @@ TypeNameDecl *Sema::make_typename(Type *type, SourceLocation loc)
   return ast->make_decl<TypeNameDecl>(type, loc);
 }
 
-//|///////////////////// make_declname //////////////////////////////////////
-DeclNameDecl *Sema::make_declname(Ident *name, SourceLocation loc)
-{
-  return ast->make_decl<DeclNameDecl>(name, loc);
-}
-
 //|///////////////////// make_decltype //////////////////////////////////////
 TypeOfDecl *Sema::make_decltype(Expr *expr, SourceLocation loc)
 {

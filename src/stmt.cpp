@@ -37,6 +37,8 @@ namespace
 //|///////////////////// print //////////////////////////////////////////////
 std::ostream &operator <<(std::ostream &os, Stmt const &stmt)
 {
+  os << '<' << stmt.loc() << '>' << ':';
+
   switch (stmt.kind())
   {
     case Stmt::Null:
@@ -103,8 +105,6 @@ std::ostream &operator <<(std::ostream &os, Stmt const &stmt)
       os << "Return";
       break;
   }
-
-  os << '<' << stmt.loc() << '>';
 
   return os;
 }

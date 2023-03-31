@@ -93,10 +93,6 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
       os << "typename";
       break;
 
-    case Decl::DeclName:
-      os << "declname";
-      break;
-
     case Decl::TypeOf:
       os << "typeof";
       break;
@@ -273,7 +269,7 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
     case Decl::Requires:
       if (auto &reqires = static_cast<RequiresDecl const &>(decl); true)
       {
-        os << reqires.fn;
+        os << *reqires.fn;
       }
       break;
 
@@ -441,28 +437,6 @@ TypeNameDecl::TypeNameDecl(Type *type, SourceLocation loc)
 void TypeNameDecl::dump(int indent) const
 {
   cout << spaces(indent) << "TypeNameDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
-}
-
-
-//|--------------------- DeclNameDecl ---------------------------------------
-//|--------------------------------------------------------------------------
-
-//|///////////////////// DeclNameDecl::Constructor //////////////////////////
-DeclNameDecl::DeclNameDecl(SourceLocation loc)
-  : Decl(DeclName, loc)
-{
-}
-
-DeclNameDecl::DeclNameDecl(Ident *name, SourceLocation loc)
-  : Decl(DeclName, loc),
-    name(name)
-{
-}
-
-//|///////////////////// DeclNameDecl::dump /////////////////////////////////
-void DeclNameDecl::dump(int indent) const
-{
-  cout << spaces(indent) << "DeclNameDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 }
 
 

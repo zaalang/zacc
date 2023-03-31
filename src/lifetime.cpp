@@ -567,7 +567,7 @@ namespace
           arg1 += mir.args_beg;
           arg2 += mir.args_beg;
 
-          if (is_reference_type(decl_cast<ParmVarDecl>(parm1)->type))
+          if (is_pack_type(decl_cast<ParmVarDecl>(parm1)->type) || is_reference_type(decl_cast<ParmVarDecl>(parm1)->type))
           {
             for(auto dep : ctx.threads[0].locals[arg1].depends_upon)
               ctx.threads[0].locals[get<1>(*dep)].depends_upon.push_back(ctx.make_field(arg2 + mir.locals.size()));
@@ -676,7 +676,7 @@ namespace
 
         if (auto [parm, arg] = find_arg(ctx, callee, annotation.text); parm)
         {
-          if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type))
+          if (is_pack_type(decl_cast<ParmVarDecl>(parm)->type) || is_reference_type(decl_cast<ParmVarDecl>(parm)->type))
           {
             for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
               ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.begin(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.end());
@@ -870,7 +870,9 @@ namespace
           target.text = lhs;
           target.loc = annotation.loc;
 
-          for(auto type = mir.locals[args[arg]].type; is_tag_type(type); )
+          auto type = mir.locals[args[arg]].type;
+
+          while (is_tag_type(type))
           {
             auto tagtype = type_cast<TagType>(type);
 
@@ -906,6 +908,12 @@ namespace
 
             type = tagtype->fields[0];
           }
+
+          if (is_array_type(type) && rhs == "[]")
+            target.type = Lifetime::depend;
+
+          if (is_array_type(type) && rhs == "data")
+            target.type = Lifetime::depend;
 
           apply(ctx, mir, target, dst, callee, args, loc);
         }

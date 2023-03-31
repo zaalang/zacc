@@ -10,6 +10,7 @@
 #include "semantic.h"
 #include "diag.h"
 #include "query.h"
+#include "visitor.h"
 #include "interp.h"
 #include "numeric.h"
 #include "sema.h"
@@ -74,17 +75,17 @@ namespace
   //|///////////////////// detect_captures //////////////////////////////////
   std::vector<Decl*> detect_captures(SemanticContext &ctx, LambdaDecl *lambda, Sema &sema)
   {
-    struct Visitor
+    struct VarVisitor : public Visitor
     {
       std::vector<Ident*> unknowns;
       std::vector<std::vector<Ident*>> knowns;
 
-      Visitor()
+      VarVisitor()
       {
         knowns.push_back({});
       }
 
-      void visit(Ident *name)
+      virtual void visit(Ident *name) override
       {
         if (std::none_of(knowns.begin(), knowns.end(), [&](auto &known) { return std::find(known.begin(), known.end(), name) != known.end(); }))
         {
@@ -93,202 +94,29 @@ namespace
         }
       }
 
-      void visit(Expr *expr)
+      virtual void visit(VarDecl *vardecl) override
       {
-        switch (expr->kind())
-        {
-          case Expr::ArrayLiteral:
-            for(auto &element : expr_cast<ArrayLiteralExpr>(expr)->elements)
-              visit(element);
-            break;
-
-          case Expr::CompoundLiteral:
-            for(auto &field : expr_cast<CompoundLiteralExpr>(expr)->fields)
-              visit(field);
-            break;
-
-          case Expr::ExprRef:
-            visit(expr_cast<ExprRefExpr>(expr)->expr);
-            break;
-
-          case Expr::Paren:
-            visit(expr_cast<ParenExpr>(expr)->subexpr);
-            break;
-
-          case Expr::UnaryOp:
-            visit(expr_cast<UnaryOpExpr>(expr)->subexpr);
-            break;
-
-          case Expr::BinaryOp:
-            visit(expr_cast<BinaryOpExpr>(expr)->lhs);
-            visit(expr_cast<BinaryOpExpr>(expr)->rhs);
-            break;
-
-          case Expr::TernaryOp:
-            visit(expr_cast<TernaryOpExpr>(expr)->cond);
-            visit(expr_cast<TernaryOpExpr>(expr)->lhs);
-            visit(expr_cast<TernaryOpExpr>(expr)->rhs);
-            break;
-
-          case Expr::Call:
-            if (expr_cast<CallExpr>(expr)->base)
-              visit(expr_cast<CallExpr>(expr)->base);
-            for(auto &parm: expr_cast<CallExpr>(expr)->parms)
-              visit(parm);
-            for(auto &[name, parm] : expr_cast<CallExpr>(expr)->namedparms)
-              visit(parm);
-            if (auto decl = expr_cast<CallExpr>(expr)->callee; decl->kind() == Decl::DeclRef)
-              if (!expr_cast<CallExpr>(expr)->base)
-                visit(decl_cast<DeclRefDecl>(decl)->name);
-            break;
-
-          case Expr::Sizeof:
-            if (expr_cast<SizeofExpr>(expr)->expr)
-              visit(expr_cast<SizeofExpr>(expr)->expr);
-            break;
-
-          case Expr::Cast:
-            if (expr_cast<CastExpr>(expr)->expr)
-              visit(expr_cast<CastExpr>(expr)->expr);
-            break;
-
-          case Expr::New:
-            visit(expr_cast<NewExpr>(expr)->address);
-            for(auto &parm: expr_cast<NewExpr>(expr)->parms)
-              visit(parm);
-            for(auto &[name, parm] : expr_cast<NewExpr>(expr)->namedparms)
-              visit(parm);
-            break;
-
-          case Expr::DeclRef:
-            if (expr_cast<DeclRefExpr>(expr)->base)
-              visit(expr_cast<DeclRefExpr>(expr)->base);
-            if (auto decl = expr_cast<DeclRefExpr>(expr)->decl; decl->kind() == Decl::DeclRef)
-              if (!expr_cast<DeclRefExpr>(expr)->base)
-                visit(decl_cast<DeclRefDecl>(decl)->name);
-            break;
-
-          default:
-            break;
-        }
-
+        knowns.back().push_back(vardecl->name);
       }
 
-      void visit(Stmt *stmt)
+      virtual void visit(Stmt *stmt) override
       {
-        switch (stmt->kind())
-        {
-          case Stmt::Null:
-            break;
+        if (stmt->kind() == Stmt::Compound)
+          knowns.push_back({});
 
-          case Stmt::Declaration:
-            if (auto decl = stmt_cast<DeclStmt>(stmt)->decl; is_var_decl(decl))
-              knowns.back().push_back(decl_cast<VarDecl>(decl)->name);
-            break;
+        Visitor::visit(stmt);
 
-          case Stmt::Expression:
-            if (stmt_cast<ExprStmt>(stmt)->expr)
-              visit(stmt_cast<ExprStmt>(stmt)->expr);
-            break;
-
-          case Stmt::If:
-            if (stmt_cast<IfStmt>(stmt)->cond)
-              visit(stmt_cast<IfStmt>(stmt)->cond);
-            for(auto &init : stmt_cast<IfStmt>(stmt)->inits)
-              visit(init);
-            if (stmt_cast<IfStmt>(stmt)->stmts[0])
-              visit(stmt_cast<IfStmt>(stmt)->stmts[0]);
-            if (stmt_cast<IfStmt>(stmt)->stmts[1])
-              visit(stmt_cast<IfStmt>(stmt)->stmts[1]);
-            break;
-
-          case Stmt::For:
-            if (stmt_cast<ForStmt>(stmt)->cond)
-              visit(stmt_cast<ForStmt>(stmt)->cond);
-            for(auto &init : stmt_cast<ForStmt>(stmt)->inits)
-              visit(init);
-            for(auto &iter : stmt_cast<ForStmt>(stmt)->iters)
-              visit(iter);
-            visit(stmt_cast<ForStmt>(stmt)->stmt);
-            break;
-
-          case Stmt::Rof:
-            if (stmt_cast<RofStmt>(stmt)->cond)
-              visit(stmt_cast<RofStmt>(stmt)->cond);
-            for(auto &init : stmt_cast<RofStmt>(stmt)->inits)
-              visit(init);
-            for(auto &iter : stmt_cast<RofStmt>(stmt)->iters)
-              visit(iter);
-            visit(stmt_cast<RofStmt>(stmt)->stmt);
-            break;
-
-          case Stmt::While:
-            if (stmt_cast<WhileStmt>(stmt)->cond)
-              visit(stmt_cast<WhileStmt>(stmt)->cond);
-            for(auto &init : stmt_cast<WhileStmt>(stmt)->inits)
-              visit(init);
-            for(auto &iter : stmt_cast<WhileStmt>(stmt)->iters)
-              visit(iter);
-            visit(stmt_cast<WhileStmt>(stmt)->stmt);
-            break;
-
-          case Stmt::Switch:
-            if (stmt_cast<SwitchStmt>(stmt)->cond)
-              visit(stmt_cast<SwitchStmt>(stmt)->cond);
-            for(auto &init : stmt_cast<SwitchStmt>(stmt)->inits)
-              visit(init);
-            for(auto &decl : stmt_cast<SwitchStmt>(stmt)->decls)
-              if (decl->kind() == Decl::Case)
-                visit(decl_cast<CaseDecl>(decl)->body);
-            break;
-
-          case Stmt::Goto:
-            break;
-
-          case Stmt::Try:
-            visit(stmt_cast<TryStmt>(stmt)->body);
-            visit(stmt_cast<TryStmt>(stmt)->handler);
-            break;
-
-          case Stmt::Throw:
-            if (stmt_cast<ThrowStmt>(stmt)->expr)
-              visit(stmt_cast<ThrowStmt>(stmt)->expr);
-            break;
-
-          case Stmt::Break:
-            break;
-
-          case Stmt::Continue:
-            break;
-
-          case Stmt::Injection:
-            break;
-
-          case Stmt::Return:
-            if (stmt_cast<ReturnStmt>(stmt)->expr)
-              visit(stmt_cast<ReturnStmt>(stmt)->expr);
-            break;
-
-          case Stmt::Compound:
-            knowns.push_back({});
-            for(auto &stmt : stmt_cast<CompoundStmt>(stmt)->stmts)
-              visit(stmt);
-            knowns.pop_back();
-            break;
-
-          default:
-            assert(false);
-        }
+        if (stmt->kind() == Stmt::Compound)
+          knowns.pop_back();
       }
+
+      using Visitor::visit;
     };
 
-    Visitor visitor;
+    VarVisitor visitor;
     std::vector<Decl*> captures;
 
-    for(auto &parm : decl_cast<FunctionDecl>(lambda->fn)->parms)
-      visitor.knowns.back().push_back(decl_cast<ParmVarDecl>(parm)->name);
-
-    visitor.visit(decl_cast<FunctionDecl>(lambda->fn)->body);
+    visitor.visit(lambda->fn);
 
     for(auto &name : visitor.unknowns)
     {
@@ -751,20 +579,6 @@ namespace
   void semantic_decl(SemanticContext &ctx, TypeNameDecl *declref, Sema &sema)
   {
     semantic_type(ctx, declref->type, sema);
-  }
-
-  //|///////////////////// declname /////////////////////////////////////////
-  void semantic_decl(SemanticContext &ctx, DeclNameDecl *declref, Sema &sema)
-  {
-    for(auto &arg : declref->args)
-    {
-      semantic_type(ctx, arg, sema);
-    }
-
-    for(auto &[name, arg] : declref->namedargs)
-    {
-      semantic_type(ctx, arg, sema);
-    }
   }
 
   //|///////////////////// typeof ///////////////////////////////////////////
@@ -1686,10 +1500,6 @@ namespace
 
       case Decl::TypeName:
         semantic_decl(ctx, decl_cast<TypeNameDecl>(decl), sema);
-        break;
-
-      case Decl::DeclName:
-        semantic_decl(ctx, decl_cast<DeclNameDecl>(decl), sema);
         break;
 
       case Decl::TypeOf:

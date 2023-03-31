@@ -2315,7 +2315,12 @@ namespace
 
         if (match && reqires->requirestype)
         {
-          if (!deduce_type(ctx, scope, sig, reqires->requirestype, mir.locals[0]))
+          auto returntype = mir.locals[0];
+
+          if (is_reference_type(returntype.defn))
+            returntype = resolve_as_reference(ctx, returntype);
+
+          if (!deduce_type(ctx, scope, sig, reqires->requirestype, returntype))
             match = false;
         }
       }
@@ -3918,6 +3923,8 @@ namespace
       }
 
       refn = fx;
+
+      break;
     }
 
     return refn;
@@ -4146,36 +4153,32 @@ namespace
     {
       FindContext tx(ctx, declref.decl->name, QueryFlags::All | querymask);
 
-      if (tx.name->sv().substr(0, 1) == "~")
+      if ((tx.name->sv().substr(0, 1) == "~" && scoped->decls[scoped->decls.size() - 2]->kind() == Decl::DeclRef && decl_cast<DeclRefDecl>(scoped->decls[scoped->decls.size() - 2])->name == tx.name->sv().substr(1)) || tx.name->sv() == "~this")
       {
-        auto j = find_if(stack.back().typeargs.begin(), stack.back().typeargs.end(), [&](auto &k) {
-          return k.first->kind() == Decl::TypeArg && decl_cast<TypeArgDecl>(k.first)->name == tx.name->sv().substr(1);
-        });
-
-        if (j != stack.back().typeargs.end())
+        if (auto owner = get_if<Decl*>(&declref.scope.owner); owner && *owner)
         {
-          if (is_tag_type(j->second))
+          auto type = resolve_type(ctx, declref.scope, *owner);
+
+          if (is_tag_type(type))
           {
-            for(auto &decl : type_cast<TagType>(j->second)->decls)
+            for(auto &decl : type_cast<TagType>(type)->decls)
             {
               if (decl->kind() == Decl::Function && (decl->flags & FunctionDecl::Destructor))
-                callee = find_callee(ctx, j->second, decl_cast<FunctionDecl>(decl)->name, parms, namedparms);
+                tx.decls.push_back(decl);
             }
 
-            if (is_enum_type(j->second))
-              callee.fx = find_builtin(ctx, Builtin::Builtin_Destructor, j->second);
+            if (is_enum_type(type))
+              tx.decls.push_back(find_builtin(ctx, Builtin::Builtin_Destructor, type).fn);
           }
 
-          else if (is_array_type(j->second))
-            callee.fx = find_builtin(ctx, Builtin::Array_Destructor, j->second);
+          else if (is_array_type(type))
+            tx.decls.push_back(find_builtin(ctx, Builtin::Array_Destructor, type).fn);
 
-          else if (is_tuple_type(j->second))
-            callee.fx = find_builtin(ctx, Builtin::Tuple_Destructor, j->second);
+          else if (is_tuple_type(type))
+            tx.decls.push_back(find_builtin(ctx, Builtin::Tuple_Destructor, type).fn);
 
-          else if (is_builtin_type(j->second) || is_pointer_type(j->second) || is_reference_type(j->second))
-            callee.fx = find_builtin(ctx, Builtin::Builtin_Destructor, j->second);
-
-          return callee;
+          else if (is_builtin_type(type) || is_pointer_type(type) || is_reference_type(type))
+            tx.decls.push_back(find_builtin(ctx, Builtin::Builtin_Destructor, type).fn);
         }
       }
 
@@ -5347,7 +5350,7 @@ namespace
       type = type_cast<TagType>(type)->fields[0];
 
     result.type = MIR::Local(ctx.usizetype, MIR::Local::Const | MIR::Local::Literal);
-    result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, type_cast<TupleType>(type)->fields.size()), loc);
+    result.value = ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, type_cast<CompoundType>(type)->fields.size()), loc);
 
     return true;
   }
@@ -5977,19 +5980,19 @@ namespace
       base.value = MIR::RValue::local(MIR::RValue::Val, arg, loc);
     }
 
-    if (!is_tuple_type(base.type.type))
+    if (!is_compound_type(base.type.type))
     {
-      ctx.diag.error("tuple type required", ctx.stack.back(), loc);
+      ctx.diag.error("compound type required", ctx.stack.back(), loc);
       return false;
     }
 
-    auto pack = type_cast<TupleType>(base.type.type);
+    auto pack = type_cast<CompoundType>(base.type.type);
 
     for(size_t index = 0; index < pack->fields.size(); ++index)
     {
       MIR::Fragment value = base;
 
-      auto field = find_field(ctx, type_cast<TupleType>(value.type.type), index);
+      auto field = find_field(ctx, type_cast<CompoundType>(value.type.type), index);
 
       if (!lower_field(ctx, value, value, field, loc))
         return false;
@@ -7189,11 +7192,13 @@ namespace
     if (!lower_expr(ctx, result, exprref->expr))
       return;
 
-    if (result.type.flags & MIR::Local::Const)
-      ctx.diag.error("invalid mut reference type", ctx.stack.back(), exprref->expr->loc());
-
     if (exprref->qualifiers & ExprRefExpr::Mut)
+    {
+      if (result.type.flags & MIR::Local::Const)
+        ctx.diag.error("invalid mut reference type", ctx.stack.back(), exprref->expr->loc());
+
       result.type.flags |= MIR::Local::MutRef;
+    }
 
     if (exprref->qualifiers & ExprRefExpr::Move)
     {
@@ -10909,9 +10914,9 @@ namespace
             base.value = MIR::RValue::local(MIR::RValue::Val, arg, var->value->loc());
           }
 
-          if (is_tuple_type(base.type.type))
+          if (is_compound_type(base.type.type))
           {
-            iterations = min(iterations, type_cast<TupleType>(base.type.type)->fields.size());
+            iterations = min(iterations, type_cast<CompoundType>(base.type.type)->fields.size());
 
             ranges.push_back({ var, base });
 
@@ -10948,9 +10953,9 @@ namespace
       {
         MIR::Fragment value = get<1>(range);
 
-        if (is_tuple_type(value.type.type))
+        if (is_compound_type(value.type.type))
         {
-          auto field = find_field(ctx, type_cast<TupleType>(value.type.type), index);
+          auto field = find_field(ctx, type_cast<CompoundType>(value.type.type), index);
 
           if (!lower_field(ctx, value, value, field, get<0>(range)->loc()))
             return;

@@ -37,6 +37,9 @@ class Diag
     void warn(std::string_view msg, Scope const &scope, SourceLocation loc);
     void error(std::string_view msg, Scope const &scope, SourceLocation loc);
 
+    void note(std::string_view msg);
+    void note(std::string_view msg, Scope const &scope, SourceLocation loc);
+
     void errored();
 
     bool has_errored() const { return m_errored; } 

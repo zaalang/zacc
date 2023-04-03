@@ -1247,6 +1247,13 @@ namespace
         continue;
       }
 
+      if (sx->goalpost == decls[0])
+      {
+        decls.clear();
+
+        continue;
+      }
+
       break;
     }
 
@@ -1727,7 +1734,7 @@ namespace
     {
       type = resolve_as_value(ctx, j->second.type).type;
     }
-    else if (vardecl->kind() == Decl::ParmVar && !(vardecl->flags & VarDecl::Literal))
+    else if (vardecl->kind() == Decl::ParmVar)
     {
       type = resolve_type_as_value(ctx, scope, decl_cast<ParmVarDecl>(vardecl));
     }
@@ -1768,12 +1775,6 @@ namespace
   {
     vector<Scope> stack;
     seed_stack(stack, scope);
-
-    // For typeof's in a requires clause parameter block, don't allow self references
-    if (is_fn_scope(stack.back()) && (
-          (decl_cast<FunctionDecl>(get<Decl*>(stack.back().owner))->flags & FunctionDecl::DeclType) == FunctionDecl::RequiresDecl ||
-          (decl_cast<FunctionDecl>(get<Decl*>(stack.back().owner))->flags & FunctionDecl::DeclType) == FunctionDecl::MatchDecl))
-      stack.pop_back();
 
     if (typedecl->expr->kind() == Expr::DeclRef && expr_cast<DeclRefExpr>(typedecl->expr)->decl->kind() == Decl::DeclRef)
     {
@@ -1845,37 +1846,37 @@ namespace
     cttx.stack = std::move(stack);
     cttx.translationunit = decl_cast<TranslationUnitDecl>(get<Decl*>(cttx.stack[0].owner));
     cttx.module = decl_cast<ModuleDecl>(get<Decl*>(cttx.stack[1].owner));
+    cttx.site = std::visit([&](auto &v) { return v->loc(); }, cttx.stack.back().owner);
     cttx.symbols = ctx.symbols;
 
     cttx.add_local();
     cttx.errorarg = cttx.add_local();
     cttx.push_barrier();
 
-    for(auto &sx : cttx.stack)
+    for(auto sx = cttx.stack.rbegin(); sx != cttx.stack.rend(); ++sx)
     {
-      if (is_fn_scope(sx))
+      if (!is_fn_scope(*sx))
+        continue;
+
+      auto fn = decl_cast<FunctionDecl>(get<Decl*>(sx->owner));
+
+      for(auto &parm : FnSig(fn).parameters())
       {
-        auto fn = decl_cast<FunctionDecl>(get<Decl*>(sx.owner));
+        if (scope.goalpost == parm)
+          break;
 
-        for(auto &parm : FnSig(fn).parameters())
+        lower_decl(cttx, decl_cast<ParmVarDecl>(parm));
+      }
+
+      if (fn == ctx.mir.fx.fn)
+      {
+        for(auto &[var, arg] : ctx.locals)
         {
-          if (scope.goalpost == parm)
-            break;
-
-          cttx.stack.back().goalpost = parm;
-
-          lower_decl(cttx, decl_cast<ParmVarDecl>(parm));
+          cttx.locals[var] = cttx.mir.add_local(ctx.mir.locals[arg]);
         }
       }
-    }
 
-    for(auto &[var, value] : cttx.symbols)
-    {
-      auto arg = cttx.add_local();
-
-      commit_type(cttx, arg, value.type.type, value.type.flags);
-
-      cttx.locals[var] = arg;
+      break;
     }
 
     MIR::Fragment result;
@@ -2181,7 +2182,7 @@ namespace
             field = ctx.typetable.find_or_create<ConstType>(field);
           }
 
-          if (lhs->klass() == Type::QualArg && j != scope.typeargs.end())
+          if (lhs->klass() == Type::QualArg && j != scope.typeargs.end() && j->second->klass() == Type::Tuple)
           {
             auto index = &field - &fields.front();
 
@@ -2335,11 +2336,11 @@ namespace
   }
 
   //|///////////////////// match_arguments //////////////////////////////////
-  bool match_arguments(LowerContext &ctx, Scope const &scope, Scope &sig, MatchExpr *match)
+  bool match_arguments(LowerContext &ctx, Scope const &scope, Scope &sig, FunctionDecl *fn)
   {
     Diag diag(ctx.diag.leader());
 
-    auto fx = FnSig(decl_cast<FunctionDecl>(match->decl), sig.typeargs);
+    auto fx = FnSig(fn, sig.typeargs);
 
     auto &mir = lower(fx, ctx.typetable, diag);
 
@@ -2351,7 +2352,7 @@ namespace
     {
       if (is_typearg_type(remove_qualifiers_type(decl_cast<ParmVarDecl>(parm)->type)))
       {
-        if (!deduce_type(ctx, scope, sig, decl_cast<ParmVarDecl>(parm), mir.locals[arg]))
+        if (!deduce_type(ctx, scope, sig, decl_cast<ParmVarDecl>(parm)->type, mir.locals[arg]))
           return false;
       }
 
@@ -3157,6 +3158,8 @@ namespace
         {
           for(i = 0, k = 0; i < fn->parms.size(); ++i)
           {
+            fx.goalpost = fn->parms[i];
+
             auto parm = decl_cast<ParmVarDecl>(fn->parms[i]);
 
             if (is_pack_type(parm->type))
@@ -3227,13 +3230,13 @@ namespace
               pack.flags |= MIR::Local::RValue;
               pack.flags |= MIR::Local::Reference;
 
-  #if PACK_REFS
+#if PACK_REFS
               if (auto arg = remove_const_type(remove_reference_type(type_cast<PackType>(parm->type)->type)); is_typearg_type(arg))
               {
                 if (auto j = fx.find_type(type_cast<TypeArgType>(arg)->decl); j != fx.typeargs.end())
                   fnscope.set_type(j->first, j->second);
               }
-  #endif
+#endif
 
               if (deduce_type(ctx, fnscope, fx, parm, pack))
                 continue;
@@ -3274,6 +3277,8 @@ namespace
           }
         }
 
+        fx.goalpost = nullptr;
+
         if (viable)
         {
           k += count_if(namedparms.begin(), namedparms.end(), [&](auto &k) { auto name = k.first->sv(); return name.back() == '?'; });
@@ -3313,9 +3318,17 @@ namespace
 
         if (viable)
         {
+          if ((fn->flags & FunctionDecl::Defaulted) && (fn->builtin == Builtin::Default_Copytructor || fn->builtin == Builtin::Default_Assignment || fn->builtin == Builtin::Default_Equality || fn->builtin == Builtin::Default_Compare))
+          {
+            viable &= match_arguments(ctx, scope, fx, fn);
+
+            if (!viable)
+              candidates.push_back(std::make_tuple(fn, MatchExprFailed));
+          }
+
           if (fn->match)
           {
-            viable &= match_arguments(ctx, scope, fx, expr_cast<MatchExpr>(fn->match));
+            viable &= match_arguments(ctx, scope, fx, decl_cast<FunctionDecl>(expr_cast<MatchExpr>(fn->match)->decl));
 
             for(size_t i = 0, k = 0; i < fn->parms.size(); ++i)
             {
@@ -3399,6 +3412,7 @@ namespace
                   cttx.translationunit = ctx.translationunit;
                   cttx.module = ctx.module;
                   cttx.symbols = ctx.symbols;
+                  cttx.site = fn->loc();
                   cttx.site_override = ctx.site;
 
                   lower_expression(cttx, expr_cast<UnaryOpExpr>(value)->subexpr);
@@ -4354,8 +4368,6 @@ namespace
     if (fx.fn->returntype)
     {
       Scope scope(fx.fn, fx.typeargs);
-
-      scope.goalpost = fx.fn->body;
 
       returntype = MIR::Local(resolve_type(ctx, scope, fx.fn->returntype), MIR::Local::LValue);
 
@@ -6223,6 +6235,8 @@ namespace
 
     for(size_t i = 0, k = 0; i < callee.fn->parms.size(); ++i)
     {
+      scope.goalpost = callee.fn->parms[i];
+
       auto parm = decl_cast<ParmVarDecl>(callee.fn->parms[i]);
       auto parmtype = resolve_type_as_reference(ctx, scope, parm);
 
@@ -8107,31 +8121,33 @@ namespace
     cttx.translationunit = decl_cast<TranslationUnitDecl>(get<Decl*>(cttx.stack[0].owner));
     cttx.module = decl_cast<ModuleDecl>(get<Decl*>(cttx.stack[1].owner));
     cttx.symbols = ctx.symbols;
+    cttx.site = ctx.site;
 
     cttx.add_local();
     cttx.errorarg = cttx.add_local();
     cttx.push_barrier();
 
-    for(auto &sx : cttx.stack)
+    for(auto sx = cttx.stack.rbegin(); sx != cttx.stack.rend(); ++sx)
     {
-      if (is_fn_scope(sx))
-      {
-        auto fn = decl_cast<FunctionDecl>(get<Decl*>(sx.owner));
+      if (!is_fn_scope(*sx))
+        continue;
 
-        for(auto &parm : FnSig(fn).parameters())
+      auto fn = decl_cast<FunctionDecl>(get<Decl*>(sx->owner));
+
+      for(auto &parm : FnSig(fn).parameters())
+      {
+        lower_decl(cttx, decl_cast<ParmVarDecl>(parm));
+      }
+
+      if (fn == ctx.mir.fx.fn)
+      {
+        for(auto &[var, arg] : ctx.locals)
         {
-          lower_decl(cttx, decl_cast<ParmVarDecl>(parm));
+          cttx.locals[var] = cttx.mir.add_local(ctx.mir.locals[arg]);
         }
       }
-    }
 
-    for(auto &[var, value] : cttx.symbols)
-    {
-      auto arg = cttx.add_local();
-
-      commit_type(cttx, arg, value.type.type, value.type.flags);
-
-      cttx.locals[var] = arg;
+      break;
     }
 
     lower_expr(cttx, result, call->expr);
@@ -8562,13 +8578,18 @@ namespace
     cttx.translationunit = decl_cast<TranslationUnitDecl>(get<Decl*>(cttx.stack[0].owner));
     cttx.module = decl_cast<ModuleDecl>(get<Decl*>(cttx.stack[1].owner));
     cttx.symbols = ctx.symbols;
+    cttx.site = fx.fn->loc();
 
     cttx.add_local();
 
     for(auto &parm : fx.parameters())
     {
+      cttx.stack.back().goalpost = parm;
+
       lower_decl(cttx, decl_cast<ParmVarDecl>(parm));
     }
+
+    cttx.stack.back().goalpost = nullptr;
 
     if (cttx.diag.has_errored())
       ctx.diag << cttx.diag;
@@ -9083,7 +9104,7 @@ namespace
               return;
           }
 
-          lower_new(ctx, result, address, type, parms, namedparms, decl->loc());
+          lower_new(ctx, result, address, type, parms, namedparms, fn->loc());
         }
       }
 
@@ -9236,7 +9257,7 @@ namespace
         if (allocator)
           namedparms.emplace(Ident::kw_opt_allocator, allocator);
 
-        if (!lower_new(ctx, result, address, type, parms, namedparms, decl->loc()))
+        if (!lower_new(ctx, result, address, type, parms, namedparms, fn->loc()))
           return;
       }
     }
@@ -9511,7 +9532,7 @@ namespace
 
     if (is_union_type(thistype))
     {
-      ctx.diag.error("non-trivial union operator cannot be defaulted", ctx.stack.back(), ctx.mir.fx.fn->loc());
+      ctx.diag.error("non-trivial union operator cannot be defaulted", fn, fn->loc());
     }
   }
 
@@ -9571,7 +9592,7 @@ namespace
 
     if (is_union_type(thistype))
     {
-      ctx.diag.error("non-trivial union operator cannot be defaulted", ctx.stack.back(), ctx.mir.fx.fn->loc());
+      ctx.diag.error("non-trivial union operator cannot be defaulted", fn, fn->loc());
     }
   }
 
@@ -10066,7 +10087,7 @@ namespace
   {
     auto sm = ctx.push_barrier();
 
-    switch(ctx.mir.fx.fn->builtin)
+    switch (ctx.mir.fx.fn->builtin)
     {
       case Builtin::Default_Constructor:
         lower_default_constructor(ctx);
@@ -10181,7 +10202,7 @@ namespace
         break;
 
       default:
-        ctx.diag.error("invalid defaulted function", ctx.stack.back(), ctx.mir.fx.fn->loc());
+        ctx.diag.error("invalid defaulted function", ctx.mir.fx.fn, ctx.mir.fx.fn->loc());
     }
 
     ctx.retire_barrier(sm);
@@ -11690,7 +11711,6 @@ namespace
     auto fn = fx.fn;
 
     ctx.add_local();
-    ctx.stack.back().goalpost = fn->body;
 
     if (fn->returntype)
     {
@@ -11710,8 +11730,12 @@ namespace
 
     for(auto &parm : fx.parameters())
     {
+      ctx.stack.back().goalpost = parm;
+
       lower_decl(ctx, decl_cast<ParmVarDecl>(parm));
     }
+
+    ctx.stack.back().goalpost = nullptr;
 
     ctx.mir.args_end = ctx.mir.locals.size();
 
@@ -11811,15 +11835,12 @@ namespace
     if (ctx.mir.locals[id].type == type)
       return true;
 
-    if ((ctx.mir.fx.fn->flags & FunctionDecl::DeclType) != FunctionDecl::MatchDecl)
+    if (id < ctx.mir.args_end && (ctx.mir.fx.fn->flags & FunctionDecl::DeclType) != FunctionDecl::MatchDecl)
     {
-      if (id < ctx.mir.args_end)
-      {
-        if (is_null_type(ctx.mir.locals[id].type))
-          return true;
+      if (is_null_type(ctx.mir.locals[id].type))
+        return true;
 
-        return false;
-      }
+      return false;
     }
 
 #if 0
@@ -11885,6 +11906,8 @@ namespace
 
               for(auto const &[parm, arg] : zip(callee.parameters(), args))
               {
+                scope.goalpost = parm;
+
                 if (!deduce_type(ctx, callee.fn, scope, decl_cast<ParmVarDecl>(parm), ctx.mir.locals[arg]))
                 {
                   ctx.diag.error("type mismatch", ctx.mir.fx.fn, loc);
@@ -12037,6 +12060,8 @@ namespace
 
               for(auto const &[parm, arg] : zip(callee.parameters(), args))
               {
+                scope.goalpost = parm;
+
                 if (!is_resolved_type(mir.locals[arg].type))
                 {
                   auto parmtype = resolve_type_as_value(ctx, scope, decl_cast<ParmVarDecl>(parm));
@@ -12118,6 +12143,7 @@ MIR const &lower(FnSig const &fx, TypeTable &typetable, Diag &diag)
   ctx.mir.fx = fx;
   ctx.translationunit = decl_cast<TranslationUnitDecl>(get<Decl*>(ctx.stack[0].owner));
   ctx.module = decl_cast<ModuleDecl>(get<Decl*>(ctx.stack[1].owner));
+  ctx.site = fx.fn->loc();
 
   lower_function(ctx, fx);
 
@@ -12143,6 +12169,7 @@ MIR lower(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fragment> co
 
   ctx.translationunit = decl_cast<TranslationUnitDecl>(get<Decl*>(ctx.stack[0].owner));
   ctx.module = decl_cast<ModuleDecl>(get<Decl*>(ctx.stack[1].owner));
+  ctx.site = std::visit([&](auto &v) { return v->loc(); }, ctx.stack.back().owner);
   ctx.is_expression = true;
   ctx.symbols = symbols;
 

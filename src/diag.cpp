@@ -164,6 +164,22 @@ void Diag::error(string_view msg, Scope const &scope, SourceLocation loc)
   m_errored = true;
 }
 
+//|///////////////////// note ///////////////////////////////////////////////
+void Diag::note(string_view msg)
+{
+  *this << normal() << "note: " << msg << '\n';
+}
+
+//|///////////////////// note ///////////////////////////////////////////////
+void Diag::note(string_view msg, Scope const &scope, SourceLocation loc)
+{
+  auto file = module_file(scope);
+
+  *this << white() << file << ':' << loc << ": " << normal() << "note: " << msg << '\n';
+
+  show_source(file, loc);
+}
+
 //|///////////////////// Diag::errored //////////////////////////////////////
 void Diag::errored()
 {

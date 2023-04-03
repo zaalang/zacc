@@ -1223,7 +1223,12 @@ namespace
   //|///////////////////// goto_statement ///////////////////////////////////
   Stmt *copier_stmt(CopierContext &ctx, GotoStmt *gotoo)
   {
-    return new GotoStmt(gotoo->loc());
+    auto result = new GotoStmt(gotoo->loc());
+
+    if (gotoo->label)
+      result->label = copier_expr(ctx, gotoo->label);
+
+    return result;
   }
 
   //|///////////////////// try_statement ////////////////////////////////////

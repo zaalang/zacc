@@ -104,9 +104,10 @@ namespace
 
   struct FunctionContext
   {
-    MIR mir;
-
+    Diag diag;
     FunctionDecl *fn;
+
+    MIR mir;
 
     struct Local
     {
@@ -143,9 +144,18 @@ namespace
     llvm::DIFile *difile;
     vector<llvm::DIScope*> discopes;
 
-    FunctionContext(FnSig const &sig)
+    Diag &outdiag;
+
+    FunctionContext(FnSig const &sig, Diag &diag)
+      : diag(diag.leader()),
+        outdiag(diag)
     {
       fn = sig.fn;
+    }
+
+    ~FunctionContext()
+    {
+      outdiag << diag;
     }
   };
 
@@ -875,8 +885,8 @@ namespace
     }
 
     {
-      ctx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
-      ctx.diag << "  literal type: 'bool' required type: '" << *type << "'\n";
+      fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
+      fx.diag << "  literal type: 'bool' required type: '" << *type << "'\n";
       return nullptr;
     }
   }
@@ -888,8 +898,8 @@ namespace
     {
       if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
       {
-        ctx.diag.error("literal value out of range for required type", fx.fn, literal->loc());
-        ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
+        fx.diag.error("literal value out of range for required type", fx.fn, literal->loc());
+        fx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
         return nullptr;
       }
 
@@ -897,8 +907,8 @@ namespace
     }
 
     {
-      ctx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
-      ctx.diag << "  literal type: '#char' required type: '" << *type << "'\n";
+      fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
+      fx.diag << "  literal type: '#char' required type: '" << *type << "'\n";
       return nullptr;
     }
   }
@@ -915,8 +925,8 @@ namespace
     {
       if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
       {
-        ctx.diag.error("literal value out of range for required type", fx.fn, literal->loc());
-        ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
+        fx.diag.error("literal value out of range for required type", fx.fn, literal->loc());
+        fx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
         return nullptr;
       }
 
@@ -927,8 +937,8 @@ namespace
     {
       if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), Numeric::float_cast<double>(literal->value())))
       {
-        ctx.diag.error("literal value out of range for required type", fx.fn, literal->loc());
-        ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
+        fx.diag.error("literal value out of range for required type", fx.fn, literal->loc());
+        fx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
         return nullptr;
       }
 
@@ -936,8 +946,8 @@ namespace
     }
 
     {
-      ctx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
-      ctx.diag << "  literal type: '#int' required type: '" << *type << "'\n";
+      fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
+      fx.diag << "  literal type: '#int' required type: '" << *type << "'\n";
       return nullptr;
     }
   }
@@ -949,8 +959,8 @@ namespace
     {
       if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), Numeric::int_cast<double>(literal->value())))
       {
-        ctx.diag.error("literal value out of range for required type", fx.fn, literal->loc());
-        ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
+        fx.diag.error("literal value out of range for required type", fx.fn, literal->loc());
+        fx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
         return nullptr;
       }
 
@@ -961,8 +971,8 @@ namespace
     {
       if (!is_literal_valid(type_cast<BuiltinType>(type)->kind(), literal->value()))
       {
-        ctx.diag.error("literal value out of range for required type", fx.fn, literal->loc());
-        ctx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
+        fx.diag.error("literal value out of range for required type", fx.fn, literal->loc());
+        fx.diag << "  literal value: '" << literal->value() << "' required type: '" << *type << "'\n";
         return nullptr;
       }
 
@@ -970,8 +980,8 @@ namespace
     }
 
     {
-      ctx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
-      ctx.diag << "  literal type: '#float' required type: '" << *type << "'\n";
+      fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
+      fx.diag << "  literal type: '#float' required type: '" << *type << "'\n";
       return nullptr;
     }
   }
@@ -990,8 +1000,8 @@ namespace
     }
 
     {
-      ctx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
-      ctx.diag << "  literal type: 'null' required type: '" << *type << "'\n";
+      fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
+      fx.diag << "  literal type: 'null' required type: '" << *type << "'\n";
       return nullptr;
     }
   }
@@ -1033,8 +1043,8 @@ namespace
     }
 
     {
-      ctx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
-      ctx.diag << "  literal type: '#string' required type: '" << *type << "'\n";
+      fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
+      fx.diag << "  literal type: '#string' required type: '" << *type << "'\n";
       return nullptr;
     }
   }
@@ -1067,8 +1077,8 @@ namespace
     }
 
     {
-      ctx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
-      ctx.diag << "  literal type: '#array' required type: '" << *type << "'\n";
+      fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
+      fx.diag << "  literal type: '#array' required type: '" << *type << "'\n";
       return nullptr;
     }
   }
@@ -1111,8 +1121,8 @@ namespace
     }
 
     {
-      ctx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
-      ctx.diag << "  literal type: '#struct' required type: '" << *type << "'\n";
+      fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
+      fx.diag << "  literal type: '#struct' required type: '" << *type << "'\n";
       return nullptr;
     }
   }
@@ -1201,7 +1211,7 @@ namespace
 
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
-      ctx.diag.error("unresolved literal type", fx.fn, literal->loc());
+      fx.diag.error("unresolved literal type", fx.fn, literal->loc());
       return;
     }
 
@@ -1244,7 +1254,7 @@ namespace
   {
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
-      ctx.diag.error("unresolved literal type", fx.fn, literal->loc());
+      fx.diag.error("unresolved literal type", fx.fn, literal->loc());
       return;
     }
 
@@ -1259,7 +1269,7 @@ namespace
   {
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
-      ctx.diag.error("unresolved literal type", fx.fn, literal->loc());
+      fx.diag.error("unresolved literal type", fx.fn, literal->loc());
       return;
     }
 
@@ -1274,7 +1284,7 @@ namespace
   {
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
-      ctx.diag.error("unresolved literal type", fx.fn, literal->loc());
+      fx.diag.error("unresolved literal type", fx.fn, literal->loc());
       return;
     }
 
@@ -1289,7 +1299,7 @@ namespace
   {
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
-      ctx.diag.error("unresolved literal type", fx.fn, literal->loc());
+      fx.diag.error("unresolved literal type", fx.fn, literal->loc());
       return;
     }
 
@@ -1304,7 +1314,7 @@ namespace
   {
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
-      ctx.diag.error("unresolved literal type", fx.fn, literal->loc());
+      fx.diag.error("unresolved literal type", fx.fn, literal->loc());
       return;
     }
 
@@ -1319,7 +1329,7 @@ namespace
   {
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
-      ctx.diag.error("unresolved literal type", fx.fn, literal->loc());
+      fx.diag.error("unresolved literal type", fx.fn, literal->loc());
       return;
     }
 
@@ -1334,7 +1344,7 @@ namespace
   {
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
-      ctx.diag.error("unresolved literal type", fx.fn, literal->loc());
+      fx.diag.error("unresolved literal type", fx.fn, literal->loc());
       return;
     }
 
@@ -1349,7 +1359,7 @@ namespace
   {
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
-      ctx.diag.error("unresolved literal type", fx.fn, literal->loc());
+      fx.diag.error("unresolved literal type", fx.fn, literal->loc());
       return;
     }
 
@@ -1366,7 +1376,7 @@ namespace
   {
     if (!is_concrete_type(fx.mir.locals[dst].type))
     {
-      ctx.diag.error("unresolved literal type", fx.fn, literal->loc());
+      fx.diag.error("unresolved literal type", fx.fn, literal->loc());
       return;
     }
 
@@ -1709,8 +1719,8 @@ namespace
     }
     else
     {
-      ctx.diag.error("invalid unary arithmetic arguments", fx.fn, loc);
-      ctx.diag << "  operand type: '" << *fx.mir.locals[args[0]].type << "'\n";
+      fx.diag.error("invalid unary arithmetic arguments", fx.fn, loc);
+      fx.diag << "  operand type: '" << *fx.mir.locals[args[0]].type << "'\n";
     }
   }
 
@@ -1803,7 +1813,7 @@ namespace
       auto elemtype = llvm_type(ctx, remove_pointference_type(fx.mir.locals[args[0]].type), true);
 
       if (is_zerosized_type(remove_pointference_type(fx.mir.locals[args[0]].type)))
-        ctx.diag.error("zero sized type", fx.fn, loc);
+        fx.diag.error("zero sized type", fx.fn, loc);
 
       switch (callee.fn->builtin)
       {
@@ -1823,8 +1833,8 @@ namespace
     }
     else
     {
-      ctx.diag.error("invalid unary arithmetic assign arguments", fx.fn, loc);
-      ctx.diag << "  operand type: '" << *fx.mir.locals[args[0]].type << "'\n";
+      fx.diag.error("invalid unary arithmetic assign arguments", fx.fn, loc);
+      fx.diag << "  operand type: '" << *fx.mir.locals[args[0]].type << "'\n";
     }
 
     store(ctx, fx, dst, fx.locals[args[0]].value);
@@ -2130,7 +2140,7 @@ namespace
       auto elemtype = llvm_type(ctx, remove_pointer_type(fx.mir.locals[args[0]].type), true);
 
       if (is_zerosized_type(remove_pointer_type(fx.mir.locals[args[0]].type)))
-        ctx.diag.error("zero sized type", fx.fn, loc);
+        fx.diag.error("zero sized type", fx.fn, loc);
 
       switch (callee.fn->builtin)
       {
@@ -2170,8 +2180,8 @@ namespace
     }
     else
     {
-      ctx.diag.error("invalid binary arithmetic arguments", fx.fn, loc);
-      ctx.diag << "  lhs type: '" << *fx.mir.locals[args[0]].type << "' rhs type: '" << *fx.mir.locals[args[1]].type << "'\n";
+      fx.diag.error("invalid binary arithmetic arguments", fx.fn, loc);
+      fx.diag << "  lhs type: '" << *fx.mir.locals[args[0]].type << "' rhs type: '" << *fx.mir.locals[args[1]].type << "'\n";
     }
   }
 
@@ -2186,7 +2196,7 @@ namespace
     auto size = sizeof_type(remove_pointer_type(fx.mir.locals[args[0]].type));
 
     if (size == 0)
-      ctx.diag.error("zero sized type", fx.fn, loc);
+      fx.diag.error("zero sized type", fx.fn, loc);
 
     auto i = ctx.builder.CreatePointerCast(lhs, ctx.builder.getInt64Ty());
     auto j = ctx.builder.CreatePointerCast(rhs, ctx.builder.getInt64Ty());
@@ -2290,8 +2300,8 @@ namespace
     }
     else
     {
-      ctx.diag.error("invalid binary arithmetic arguments", fx.fn, loc);
-      ctx.diag << "  lhs type: '" << *fx.mir.locals[args[0]].type << "' rhs type: '" << *fx.mir.locals[args[1]].type << "'\n";
+      fx.diag.error("invalid binary arithmetic arguments", fx.fn, loc);
+      fx.diag << "  lhs type: '" << *fx.mir.locals[args[0]].type << "' rhs type: '" << *fx.mir.locals[args[1]].type << "'\n";
     }
   }
 
@@ -2559,7 +2569,7 @@ namespace
       auto elemtype = llvm_type(ctx, remove_pointer_type(fx.mir.locals[args[0]].type), true);
 
       if (is_zerosized_type(remove_pointer_type(fx.mir.locals[args[0]].type)))
-        ctx.diag.error("zero sized type", fx.fn, loc);
+        fx.diag.error("zero sized type", fx.fn, loc);
 
       switch (callee.fn->builtin)
       {
@@ -2579,8 +2589,8 @@ namespace
     }
     else
     {
-      ctx.diag.error("invalid binary arithmetic assign arguments", fx.fn, loc);
-      ctx.diag << "  lhs type: '" << *fx.mir.locals[args[0]].type << "' rhs type: '" << *fx.mir.locals[args[1]].type << "'\n";
+      fx.diag.error("invalid binary arithmetic assign arguments", fx.fn, loc);
+      fx.diag << "  lhs type: '" << *fx.mir.locals[args[0]].type << "' rhs type: '" << *fx.mir.locals[args[1]].type << "'\n";
     }
 
     store(ctx, fx, dst, fx.locals[args[0]].value);
@@ -2838,8 +2848,8 @@ namespace
     }
     else
     {
-      ctx.diag.error("invalid binary compare arguments", fx.fn, loc);
-      ctx.diag << "  lhs type: '" << *fx.mir.locals[args[0]].type << "' rhs type: '" << *fx.mir.locals[args[1]].type << "'\n";
+      fx.diag.error("invalid binary compare arguments", fx.fn, loc);
+      fx.diag << "  lhs type: '" << *fx.mir.locals[args[0]].type << "' rhs type: '" << *fx.mir.locals[args[1]].type << "'\n";
     }
   }
 
@@ -2919,8 +2929,8 @@ namespace
     }
     else
     {
-      ctx.diag.error("invalid compare arguments", fx.fn, loc);
-      ctx.diag << "  lhs type: '" << *fx.mir.locals[args[0]].type << "' rhs type: '" << *fx.mir.locals[args[1]].type << "'\n";
+      fx.diag.error("invalid compare arguments", fx.fn, loc);
+      fx.diag << "  lhs type: '" << *fx.mir.locals[args[0]].type << "' rhs type: '" << *fx.mir.locals[args[1]].type << "'\n";
     }
   }
 
@@ -3209,8 +3219,8 @@ namespace
     }
     else
     {
-      ctx.diag.error("invalid classify arguments", fx.fn, loc);
-      ctx.diag << "  operand type: '" << *fx.mir.locals[args[0]].type << "'\n";
+      fx.diag.error("invalid classify arguments", fx.fn, loc);
+      fx.diag << "  operand type: '" << *fx.mir.locals[args[0]].type << "'\n";
     }
   }
 
@@ -3278,8 +3288,8 @@ namespace
     }
     else
     {
-      ctx.diag.error("invalid signbit arguments", fx.fn, loc);
-      ctx.diag << "  operand type: '" << *fx.mir.locals[args[0]].type << "'\n";
+      fx.diag.error("invalid signbit arguments", fx.fn, loc);
+      fx.diag << "  operand type: '" << *fx.mir.locals[args[0]].type << "'\n";
     }
   }
 
@@ -3334,8 +3344,8 @@ namespace
     }
     else
     {
-      ctx.diag.error("invalid frexp arguments", fx.fn, loc);
-      ctx.diag << "  operand type: '" << *fx.mir.locals[args[0]].type << "'\n";
+      fx.diag.error("invalid frexp arguments", fx.fn, loc);
+      fx.diag << "  operand type: '" << *fx.mir.locals[args[0]].type << "'\n";
     }
   }
 
@@ -3378,8 +3388,8 @@ namespace
     }
     else
     {
-      ctx.diag.error("invalid ldexp arguments", fx.fn, loc);
-      ctx.diag << "  operand type: '" << *fx.mir.locals[args[0]].type << "'\n";
+      fx.diag.error("invalid ldexp arguments", fx.fn, loc);
+      fx.diag << "  operand type: '" << *fx.mir.locals[args[0]].type << "'\n";
     }
   }
 
@@ -3614,8 +3624,8 @@ namespace
     }
     else
     {
-      ctx.diag.error("invalid atomic arithmetic arguments", fx.fn, loc);
-      ctx.diag << "  operand type: '" << *fx.mir.locals[args[0]].type << "'\n";
+      fx.diag.error("invalid atomic arithmetic arguments", fx.fn, loc);
+      fx.diag << "  operand type: '" << *fx.mir.locals[args[0]].type << "'\n";
     }
   }
 
@@ -3705,7 +3715,7 @@ namespace
           if (constraint.isIndirect)
           {
             if (!is_pointference_type(rhs.type))
-              ctx.diag.error("inline asm non-pointer indirect constraint", fx.fn, loc);
+              fx.diag.error("inline asm non-pointer indirect constraint", fx.fn, loc);
 
             attrbuilder.clear();
             attrbuilder.addTypeAttr(llvm::Attribute::ElementType, llvm_type(ctx, remove_pointference_type(rhs.type), true));
@@ -3721,7 +3731,7 @@ namespace
     }
 
     if (arg != parmtypes.size())
-      ctx.diag.error("inline asm parameter count mismatch", fx.fn, loc);
+      fx.diag.error("inline asm parameter count mismatch", fx.fn, loc);
 
     auto asmcall = ctx.builder.CreateCall(asmfn, parms);
 
@@ -4019,7 +4029,7 @@ namespace
         case Builtin::StringAppend:
         case Builtin::StringCreate:
         case Builtin::ArrayCreate:
-          ctx.diag.error("function not callable in runtime context", fx.fn, loc);
+          fx.diag.error("function not callable in runtime context", fx.fn, loc);
           break;
 
         default:
@@ -4228,8 +4238,8 @@ namespace
     }
     else
     {
-      ctx.diag.error("invalid static cast", fx.fn, loc);
-      ctx.diag << "  src type: '" << *fx.mir.locals[arg].type << "' dst type: '" << *fx.mir.locals[dst].type << "'\n";
+      fx.diag.error("invalid static cast", fx.fn, loc);
+      fx.diag << "  src type: '" << *fx.mir.locals[arg].type << "' dst type: '" << *fx.mir.locals[dst].type << "'\n";
     }
   }
 
@@ -4287,7 +4297,7 @@ namespace
     }
     else
     {
-      ctx.diag.error("invalid type on conditional");
+      fx.diag.error("invalid type on conditional");
       return;
     }
   }
@@ -4474,7 +4484,7 @@ namespace
 
       codegen_statement(ctx, fx, statement);
 
-      if (ctx.diag.has_errored())
+      if (fx.diag.has_errored())
         return;
     }
 
@@ -4500,21 +4510,21 @@ namespace
     if (ctx.functions.find(sig) != ctx.functions.end())
       return;
 
-    FunctionContext fx(sig);
+    FunctionContext fx(sig, ctx.diag);
 
     auto name = get_mangled_name(fx.fn);
 
-    fx.mir = lower(sig, ctx.typetable, ctx.diag, 0);
+    fx.mir = lower(sig, ctx.typetable, fx.diag, 0);
 
     if (ctx.genopts.dump_mir)
       dump_mir(fx.mir);
 
-    if (ctx.diag.has_errored())
+    if (fx.diag.has_errored())
       return;
 
     if (!is_concrete_type(fx.mir.locals[0].type))
     {
-      ctx.diag.error("unresolved return type", fx.fn, fx.fn->loc());
+      fx.diag.error("unresolved return type", fx.fn, fx.fn->loc());
       return;
     }
 
@@ -4552,7 +4562,7 @@ namespace
 
         if (!is_concrete_type(fx.mir.locals[1].type))
         {
-          ctx.diag.error("unresolved exception type", fx.fn, fx.fn->loc());
+          fx.diag.error("unresolved exception type", fx.fn, fx.fn->loc());
           return;
         }
 
@@ -4574,7 +4584,7 @@ namespace
 
       if (!is_concrete_type(fx.mir.locals[i].type))
       {
-        ctx.diag.error("unresolved parameter type", fx.fn, fx.fn->loc());
+        fx.diag.error("unresolved parameter type", fx.fn, fx.fn->loc());
         return;
       }
 
@@ -4619,10 +4629,10 @@ namespace
       if (auto func = ctx.module.getFunction(name); func && func != fnprot)
       {
         if (fnprot->getType() != func->getType())
-          ctx.diag.error("incompatible extern declaration", fx.fn, fx.fn->loc());
+          fx.diag.error("incompatible extern declaration", fx.fn, fx.fn->loc());
 
         if (fx.fn->body && func->size() != 0)
-          ctx.diag.error("function already defined", fx.fn, fx.fn->loc());
+          fx.diag.error("function already defined", fx.fn, fx.fn->loc());
 
         fnprot->removeFromParent();
         fnprot = func;
@@ -4697,10 +4707,10 @@ namespace
 
     if (!fx.fn->body && !(fx.fn->flags & FunctionDecl::Defaulted))
     {
-      ctx.diag.error("missing function body", fx.fn, fx.fn->loc());
+      fx.diag.error("missing function body", fx.fn, fx.fn->loc());
     }
 
-    if (ctx.diag.has_errored())
+    if (fx.diag.has_errored())
       return;
 
     // determine local usage
@@ -4780,9 +4790,8 @@ namespace
           {
             if (!is_concrete_type(fx.mir.locals[arg].type))
             {
-              ctx.diag.error("unresolved parameter type", fx.fn, loc);
-              ctx.diag << "  parameter " << &arg - &args.front() + 1 << " type: '" << *fx.mir.locals[arg].type << "'\n";
-              return;
+              fx.diag.error("unresolved parameter type", fx.fn, loc);
+              fx.diag << "  parameter " << &arg - &args.front() + 1 << " type: '" << *fx.mir.locals[arg].type << "'\n";
             }
 
             if (is_passarg_pointer(ctx, callee, fx.mir.locals[arg]))
@@ -4988,7 +4997,7 @@ namespace
     {
       codegen_block(ctx, fx, block);
 
-      if (ctx.diag.has_errored())
+      if (fx.diag.has_errored())
         return;
     }
 

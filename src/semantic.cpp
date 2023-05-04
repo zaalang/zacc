@@ -761,6 +761,21 @@ namespace
         for(auto &parm : fn->parms)
           params.push_back(decl_cast<ParmVarDecl>(parm)->type);
 
+        if (fn->parms.size() != 0)
+        {
+          if (auto basetype = remove_qualifiers_type(params[0]); basetype->klass() == Type::TypeRef)
+          {
+            if (auto typeref = type_cast<TypeRefType>(basetype); typeref->decl->kind() == Decl::DeclRef)
+            {
+              if (decl_cast<DeclRefDecl>(typeref->decl)->name == Ident::kw_this)
+              {
+                field->flags |= VarDecl::SelfImplicit;
+                typeref->decl = sema.make_declref(Ident::kw_void, typeref->decl->loc());
+              }
+            }
+          }
+        }
+
         auto throwtype = Builtin::type(Builtin::Type_Void);
 
         if (fn->throws)

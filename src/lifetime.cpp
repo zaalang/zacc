@@ -1001,8 +1001,23 @@ namespace
 
     if (mir.locals[dst].flags & MIR::Local::MoveRef)
     {
-      if (ctx.state(dst) != State::ok)
-        ctx.diag.error("potentially invalid variable access", mir.fx.fn, loc);
+      switch (ctx.state(dst))
+      {
+        case State::ok:
+          break;
+
+        case State::dangling:
+          ctx.diag.error("potentially dangling variable access", mir.fx.fn, loc);
+          break;
+
+        case State::consumed:
+          ctx.diag.error("potentially consumed variable access", mir.fx.fn, loc);
+          break;
+
+        case State::poisoned:
+          ctx.diag.error("potentially poisoned variable access", mir.fx.fn, loc);
+          break;
+      }
 
       for(auto dep : ctx.threads[0].locals[dst].depends_upon)
         consume(ctx, mir, dst, dep);
@@ -1479,7 +1494,7 @@ namespace
             break;
         }
 
-        if (!is_rvalue_reference(ctx, mir.locals[arg]))
+        if ((mir.fx.fn->flags & FunctionDecl::DeclType) == 0 && !is_rvalue_reference(ctx, mir.locals[arg]))
         {
           if (ctx.threads[0].locals[arg + mir.locals.size()].consumed && !has_consume(ctx, notations, parm))
             ctx.diag.warn("missing consume annotation", mir.fx.fn, parm->loc());

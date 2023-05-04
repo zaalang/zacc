@@ -1013,6 +1013,12 @@ bool equals(Expr *lhs, Expr *rhs)
     case Expr::StringLiteral:
       return expr_cast<StringLiteralExpr>(lhs)->value() == expr_cast<StringLiteralExpr>(rhs)->value();
 
+    case Expr::PointerLiteral:
+      return true;
+
+    case Expr::FunctionPointer:
+      return expr_cast<FunctionPointerExpr>(lhs)->value() == expr_cast<FunctionPointerExpr>(rhs)->value();
+
     case Expr::ArrayLiteral:
 
       if (expr_cast<ArrayLiteralExpr>(lhs)->elements.size() != expr_cast<ArrayLiteralExpr>(rhs)->elements.size())

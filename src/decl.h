@@ -167,6 +167,7 @@ class FunctionDecl : public Decl
       Defaulted = 0x40,
       Deleted = 0x80,
       Static = 0x100,
+      Override = 0x200,
 
       NoReturn = 0x1000,
       Inhibited = 0x2000,
@@ -417,6 +418,7 @@ class VarDecl : public Decl
       ThreadLocal = 0x100,
       CacheAligned = 0x200,
       PageAligned = 0x400,
+      SelfImplicit = 0x1000,
     };
 
   public:

@@ -242,6 +242,7 @@ inline TypeLitType *TypeTable::find_or_create<TypeLitType>(Expr *expr)
     case Expr::CharLiteral:
     case Expr::FloatLiteral:
     case Expr::PointerLiteral:
+    case Expr::FunctionPointer:
     case Expr::ArrayLiteral:
     case Expr::CompoundLiteral:
 
@@ -271,6 +272,10 @@ inline TypeLitType *TypeTable::find_or_create<TypeLitType>(Expr *expr)
 
         case Expr::PointerLiteral:
           other_literal_types.push_back(make_type<TypeLitType>(make_expr<PointerLiteralExpr>(expr->loc())));
+          break;
+
+        case Expr::FunctionPointer:
+          other_literal_types.push_back(make_type<TypeLitType>(make_expr<FunctionPointerExpr>(expr_cast<FunctionPointerExpr>(expr)->value(), expr->loc())));
           break;
 
         case Expr::ArrayLiteral: {

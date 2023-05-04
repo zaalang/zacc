@@ -386,6 +386,8 @@ namespace
     switch (auto tok = ctx.tok; tok.type)
     {
       case Token::identifier:
+      case Token::kw_move:
+      case Token::kw_vtable:
          ctx.consume_token();
 
         return Ident::from(tok.text);
@@ -413,7 +415,6 @@ namespace
       case Token::kw_await:
       case Token::kw_void:
       case Token::kw_null:
-      case Token::kw_move:
       case Token::kw_new:
       case Token::kw_nil:
       case Token::kw_var:
@@ -1021,27 +1022,6 @@ namespace
         return decls.back();
     }
 
-    if (ctx.tok.text == "typename")
-    {
-      if (auto nexttok = ctx.token(1); nexttok == Token::identifier || nexttok == Token::kw_const || nexttok == Token::kw_void || nexttok == Token::kw_null || nexttok == Token::l_paren || nexttok == Token::dollar)
-      {
-        ctx.consume_token();
-
-        auto type = parse_type(ctx, sema);
-
-        if (!type)
-        {
-          ctx.diag.error("expected type", ctx.text, ctx.tok.loc);
-          return nullptr;
-        }
-
-        decls.push_back(sema.make_typename(type, loc));
-
-        if (!ctx.try_consume_token(Token::coloncolon))
-          return decls.back();
-      }
-    }
-
     while (true)
     {
       auto loc = ctx.tok.loc;
@@ -1217,11 +1197,6 @@ namespace
 
     auto outer_const = ctx.try_consume_token(Token::kw_const);
 
-    if (ctx.tok == Token::identifier && ctx.tok.text == "typename")
-    {
-      ctx.consume_token(Token::identifier);
-    }
-
     if (ctx.try_consume_token(Token::l_paren))
     {
       auto fields = parse_typearg_list(ctx, sema);
@@ -1368,11 +1343,6 @@ namespace
 
 //      return sema.make_typelit(expr);
 //    }
-
-    if (ctx.tok == Token::identifier && ctx.tok.text == "typename")
-    {
-      return parse_type(ctx, sema);
-    }
 
     auto tok = ctx.tok;
     auto lexcursor = ctx.lexcursor;
@@ -3314,6 +3284,12 @@ namespace
       }
     }
 
+    if (ctx.tok == Token::identifier && ctx.tok.text == "override")
+    {
+      fn->flags |= FunctionDecl::Override;
+      ctx.consume_token();
+    }
+
     if (ctx.try_consume_token(Token::arrow))
     {
       fn->returntype = parse_type(ctx, sema);
@@ -3718,6 +3694,7 @@ namespace
           case Token::kw_typeof:
           case Token::l_paren:
           case Token::identifier:
+          case Token::coloncolon:
           case Token::dollar:
             if (strct->name == tok.text || tok.text == "this")
             {
@@ -4003,6 +3980,8 @@ namespace
             break;
 
           case Token::identifier:
+          case Token::coloncolon:
+          case Token::kw_move:
           case Token::dollar:
             if (unnion->name == tok.text || tok.text == "this")
             {
@@ -4450,6 +4429,7 @@ namespace
             break;
 
           case Token::identifier:
+          case Token::kw_move:
           case Token::dollar:
             if (enumm->name == tok.text || tok.text == "this")
             {
@@ -4805,9 +4785,6 @@ namespace
           case Token::kw_null:
           case Token::kw_typeof:
           case Token::l_paren:
-            decl = parse_field_declaration(ctx, sema);
-            break;
-
           case Token::identifier:
           case Token::dollar:
             if (tok == Token::dollar)

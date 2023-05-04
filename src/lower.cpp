@@ -2552,16 +2552,9 @@ namespace
         {
           size_t k = 0;
 
-          for(auto field : type_cast<TupleType>(lhs)->fields)
+          for(size_t i = 0; i < type_cast<TupleType>(lhs)->fields.size(); ++i)
           {
-            DeduceContext ttx;
-
-            ttx.allow_const_downcast = true;
-            ttx.allow_object_downcast = false;
-            ttx.allow_pointer_downcast = true;
-
-            if (is_fn_scope(fx) && (decl_cast<FunctionDecl>(get<Decl*>(fx.owner))->flags & FunctionDecl::Builtin) && decl_cast<FunctionDecl>(get<Decl*>(fx.owner))->builtin == Builtin::CallOp)
-              ttx.allow_object_downcast = true;
+            auto field = type_cast<TupleType>(lhs)->fields[i];
 
             if (field->klass() == Type::Unpack)
             {
@@ -2578,6 +2571,18 @@ namespace
 
             if (k == type_cast<TupleType>(rhs)->fields.size())
               return false;
+
+            DeduceContext ttx;
+
+            ttx.allow_const_downcast = true;
+            ttx.allow_object_downcast = false;
+            ttx.allow_pointer_downcast = true;
+
+            if (i < type_cast<TupleType>(lhs)->defns.size() && is_reference_type(type_cast<TupleType>(lhs)->defns[i]))
+            {
+              ttx.allow_object_downcast = true;
+              ttx.pointerdepth += 1;
+            }
 
             if (!deduce_type(ctx, ttx, scope, fx, field, type_cast<TupleType>(rhs)->fields[k]))
               return false;
@@ -5161,6 +5166,27 @@ namespace
         parms.push_back(value);
       }
 
+      if (var->flags & VarDecl::SelfImplicit)
+      {
+        for(auto sx = ctx.stack.rbegin(); sx != ctx.stack.rend(); ++sx)
+        {
+          if (!is_tag_scope(*sx))
+            continue;
+
+          parms[0].type.type = resolve_type(ctx, *sx, get<Decl*>(sx->owner));
+
+          if (is_pointer_type(type_cast<TupleType>(fntype->paramtuple)->fields[0]))
+          {
+            if (is_const_pointer(type_cast<TupleType>(fntype->paramtuple)->fields[0]))
+              parms[0].type = ctx.typetable.find_or_create<ConstType>(parms[0].type.type);
+
+            parms[0].type = ctx.typetable.find_or_create<PointerType>(parms[0].type.type);
+          }
+
+          break;
+        }
+      }
+
       FindContext tx(ctx, var->name);
 
       find_overloads(ctx, tx, ctx.stack, parms, namedparms, callee.candidates, callee.overloads);
@@ -5179,6 +5205,14 @@ namespace
         return false;
 
       }), callee.overloads.end());
+
+      if (callee.overloads.size() != 1)
+      {
+        auto override = find_if(callee.overloads.begin(), callee.overloads.end(), [&](auto &fx) { return (fx.fn->flags & FunctionDecl::Override); });
+
+        if (override != callee.overloads.end())
+          callee.overloads.erase(override + 1, callee.overloads.end());
+      }
 
       if (callee.overloads.size() != 1)
       {
@@ -11277,10 +11311,7 @@ namespace
         for(auto value : labels)
         {
           if (std::find_if(ctx.mir.blocks[block_cond].terminator.targets.begin(), ctx.mir.blocks[block_cond].terminator.targets.end(), [&](auto &target) { return get<0>(target) == value; }) != ctx.mir.blocks[block_cond].terminator.targets.end())
-          {
             ctx.diag.error("duplicate label in switch", ctx.stack.back(), decl->loc());
-            cout << value << " " << *condition.type.type << endl;
-          }
 
           ctx.mir.blocks[block_cond].terminator.targets.emplace_back(value, ctx.currentblockid);
         }

@@ -209,7 +209,7 @@ void Diag::show_source(SourceText const &src, SourceLocation loc)
 {
   auto beg = src.head();
 
-  for(int i = 1; i < loc.lineno; ++i)
+  for (int i = 1; i < loc.lineno; ++i)
     beg = find(beg, src.tail(), '\n') + 1;
 
   auto end = find(beg, src.tail(), '\n');
@@ -219,7 +219,7 @@ void Diag::show_source(SourceText const &src, SourceLocation loc)
 
   *this << cyan() << "  " << string_view(beg, end - beg) << '\n';
 
-  for(int i = 1; i < loc.charpos; ++i)
+  for (int i = 1; i < loc.charpos; ++i)
     *this << ' ';
 
   *this << green() << "  ^" << '\n';

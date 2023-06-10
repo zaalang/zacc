@@ -545,7 +545,7 @@ namespace
     auto elemsize = sizeof_type(elemtype);
     auto arraylen = array_len(type_cast<ArrayType>(type));
 
-    for(auto &element : value->elements)
+    for (auto &element : value->elements)
     {
       if (!store(ctx, address, remove_const_type(elemtype), element))
         return false;
@@ -553,7 +553,7 @@ namespace
       address = (void*)((size_t)address + elemsize);
     }
 
-    for(size_t i = value->elements.size(); i < arraylen; ++i)
+    for (size_t i = value->elements.size(); i < arraylen; ++i)
     {
       memcpy(address, alloc, elemsize);
 
@@ -584,7 +584,7 @@ namespace
     if (dsttype->fields.size() != value->fields.size())
       return false;
 
-    for(size_t i = 0; i < value->fields.size(); ++i)
+    for (size_t i = 0; i < value->fields.size(); ++i)
     {
       auto alignment = alignof_field(dsttype, i);
 
@@ -749,7 +749,7 @@ namespace
 
       auto elements = vector<Expr*>(arraylen);
 
-      for(size_t i = 0; i < elements.size(); ++i)
+      for (size_t i = 0; i < elements.size(); ++i)
       {
         elements[i] = make_expr(ctx, (void*)((size_t)span.data + i * elemsize), elemtype, loc);
       }
@@ -767,7 +767,7 @@ namespace
 
       auto elements = vector<Expr*>(arraylen);
 
-      for(size_t i = 0; i < elements.size(); ++i)
+      for (size_t i = 0; i < elements.size(); ++i)
       {
         elements[i] = make_expr(ctx, (void*)((size_t)alloc + i * elemsize), elemtype, loc);
       }
@@ -799,7 +799,7 @@ namespace
 
       auto fields = vector<Expr*>(fieldslen);
 
-      for(size_t i = 0; i < fields.size(); ++i)
+      for (size_t i = 0; i < fields.size(); ++i)
       {
         auto alignment = alignof_field(compoundtype, i);
 
@@ -1101,7 +1101,7 @@ namespace
     auto rhs = fx.locals[arg].type;
     auto src = fx.locals[arg].alloc;
 
-    for(auto &field : fields)
+    for (auto &field : fields)
     {
       if (field.op == MIR::RValue::Val)
       {
@@ -2393,7 +2393,7 @@ namespace
       parms.push_back(fx.locals[fx.errorarg]);
     }
 
-    for(size_t index = 0; index < paramtuple->fields.size(); ++index)
+    for (size_t index = 0; index < paramtuple->fields.size(); ++index)
     {
       auto argtype = remove_const_type(remove_reference_type(paramtuple->fields[index]));
 
@@ -2652,6 +2652,42 @@ namespace
       ctx.diag << "  operand type: '" << *fx.locals[args[0]].type << "'\n";
       return false;
     }
+
+    return true;
+  }
+
+  //|///////////////////// byteswap /////////////////////////////////////////
+  bool eval_builtin_byteswap(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto lhs = load_int(ctx, fx, args[0]);
+    auto width = 8*sizeof_type(fx.locals[args[0]].type);
+
+    auto result = Numeric::int_literal(1, 0);
+
+    for (size_t i = 0; i < width; i += 8)
+      result.value |= ((lhs.value >> i) & 0xff) << (width - 8 - i);
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
+
+    return true;
+  }
+
+  //|///////////////////// bitreverse ///////////////////////////////////////
+  bool eval_builtin_bitreverse(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto lhs = load_int(ctx, fx, args[0]);
+    auto width = 8*sizeof_type(fx.locals[args[0]].type);
+
+    auto result = Numeric::int_literal(1, 0);
+
+    for (size_t i = 0; i < width; i += 1)
+      result.value |= ((lhs.value >> i) & 0x1) << (width - 1 - i);
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
 
     return true;
   }
@@ -3091,7 +3127,7 @@ namespace
 
     Decl *result = nullptr;
 
-    for(auto sx = parent_scope(declid); sx; sx = parent_scope(std::move(sx)))
+    for (auto sx = parent_scope(declid); sx; sx = parent_scope(std::move(sx)))
     {
       if (is_decl_scope(sx))
       {
@@ -3146,7 +3182,7 @@ namespace
     size_t size = 0;
     Numeric::Int *data = (Numeric::Int*)ctx.allocate(results.size() * sizeof(Numeric::Int), alignof(uintptr_t));
 
-    for(size_t i = 0; i < results.size(); ++i)
+    for (size_t i = 0; i < results.size(); ++i)
     {
       if (filter == 0 || filter == results[i]->kind())
         data[size++] = Numeric::int_literal(0, reinterpret_cast<uintptr_t>(results[i]));
@@ -3232,7 +3268,7 @@ namespace
 
       data = (Numeric::Int*)ctx.allocate(tagtype->decls.size() * sizeof(Numeric::Int), alignof(uintptr_t));
 
-      for(size_t i = 0; i < tagtype->decls.size(); ++i)
+      for (size_t i = 0; i < tagtype->decls.size(); ++i)
       {
         if (filter == 0 || filter == tagtype->decls[i]->kind())
           data[size++] = Numeric::int_literal(0, reinterpret_cast<uintptr_t>(tagtype->decls[i]));
@@ -3300,7 +3336,7 @@ namespace
           {
             vector<Type*> fields;
 
-            for(auto &parm : decl_cast<FunctionDecl>(declid)->parms)
+            for (auto &parm : decl_cast<FunctionDecl>(declid)->parms)
               fields.push_back(decl_cast<ParmVarDecl>(parm)->type);
 
             result = ctx.typetable.find_or_create<TupleType>(vector<Type*>(fields), vector<Type*>(fields));
@@ -3351,7 +3387,7 @@ namespace
     auto &[callee, args, loc] = call;
 
     std::string config;
-    for(auto &cfg : get_unit(ctx.dx)->cfgs)
+    for (auto &cfg : get_unit(ctx.dx)->cfgs)
       config += cfg + '\0';
 
     if (!config.empty())
@@ -3381,7 +3417,7 @@ namespace
 
     auto path = std::string();
 
-    for(auto &cfg : get_unit(ctx.dx)->cfgs)
+    for (auto &cfg : get_unit(ctx.dx)->cfgs)
       if (cfg.substr(0, 16) == "zaa.build.outdir")
         path = cfg.substr(17);
 
@@ -3506,7 +3542,7 @@ namespace
 
     fd_result result = {};
 
-    for(size_t i = 0; i < n.value; ++i)
+    for (size_t i = 0; i < n.value; ++i)
     {
       auto cnt = fread(iovs[i].data, 1, iovs[i].len, (FILE*)fd.value);
 
@@ -3557,7 +3593,7 @@ namespace
 
     fd_result result = {};
 
-    for(size_t i = 0; i < n.value; ++i)
+    for (size_t i = 0; i < n.value; ++i)
     {
       if (fd.value == 1 || fd.value == 2)
       {
@@ -3889,6 +3925,12 @@ namespace
         case Builtin::signbit:
           return eval_builtin_signbit(ctx, fx, dst, call);
 
+        case Builtin::byteswap:
+          return eval_builtin_byteswap(ctx, fx, dst, call);
+
+        case Builtin::bitreverse:
+          return eval_builtin_bitreverse(ctx, fx, dst, call);
+
         case Builtin::frexp:
           return eval_builtin_frexp(ctx, fx, dst, call);
 
@@ -4073,7 +4115,7 @@ namespace
         frame.push_back(fx.locals[fx.errorarg]);
       }
 
-      for(size_t i = 0; i < args.size(); ++i)
+      for (size_t i = 0; i < args.size(); ++i)
       {
         frame.push_back(fx.locals[args[i]]);
       }
@@ -4172,7 +4214,7 @@ namespace
 
     vector<Expr*> substitutions;
 
-    for(auto &arg : args)
+    for (auto &arg : args)
     {
       auto value = make_expr(ctx, fx.locals[arg].alloc, fx.locals[arg].type, loc);
 
@@ -4187,7 +4229,7 @@ namespace
 
     Sema sema;
 
-    for(auto &decl : expr->decls)
+    for (auto &decl : expr->decls)
     {
       auto fragment = copier(decl, substitutions, ctx.diag);
 
@@ -4293,7 +4335,7 @@ namespace
 
     fx.locals.resize(mir.locals.size());
 
-    for(size_t i = mir.args_end, end = mir.locals.size(); i != end; ++i)
+    for (size_t i = mir.args_end, end = mir.locals.size(); i != end; ++i)
     {
       if (is_unresolved_type(mir.locals[i].type))
         continue;
@@ -4301,17 +4343,17 @@ namespace
       fx.locals[i] = alloc(ctx, mir.locals[i]);
     }
 
-    for(auto &[arg, value] : mir.statics)
+    for (auto &[arg, value] : mir.statics)
     {
       eval_assign_constant(ctx, fx, arg, value.get<MIR::RValue::Constant>());
     }
 
-    for(size_t block = 0; block < mir.blocks.size(); )
+    for (size_t block = 0; block < mir.blocks.size(); )
     {
       if (auto &terminator = mir.blocks[block].terminator; terminator.kind == MIR::Terminator::Catch)
         fx.errorarg = terminator.value;
 
-      for(auto &statement : mir.blocks[block].statements)
+      for (auto &statement : mir.blocks[block].statements)
       {
         switch (statement.kind)
         {
@@ -4358,7 +4400,7 @@ namespace
 
             block = terminator.blockid;
 
-            for(auto &[k, v] : terminator.targets)
+            for (auto &[k, v] : terminator.targets)
             {
               if (cond.sign * cond.value == k)
                 block = v;
@@ -4410,7 +4452,7 @@ namespace
     size_t k = 0;
     vector<MIR::local_t> args;
 
-    for(auto &parm : callee.parameters())
+    for (auto &parm : callee.parameters())
     {
       auto arg = fx.locals.size();
 

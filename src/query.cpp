@@ -26,7 +26,7 @@ ostream &operator <<(ostream &os, Scope const &scope)
     os << '[';
 
     int i = 0;
-    for(auto &[k, v] : scope.typeargs)
+    for (auto &[k, v] : scope.typeargs)
       os << (!i++ ? "" : ", ") << *k << ": " << *v;
 
     os << ']';
@@ -103,7 +103,7 @@ bool is_module_scope(Scope const &scope)
 //|///////////////////// parent_scope /////////////////////////////////////
 Scope parent_scope(Scope scope)
 {
-  switch(scope.owner.index())
+  switch (scope.owner.index())
   {
     case 0:
       scope.typeargs.erase(remove_if(scope.typeargs.begin(), scope.typeargs.end(), [&](auto &arg) {
@@ -151,7 +151,7 @@ Scope child_scope(Scope scope, variant<Decl*, Stmt*> const &owner, vector<pair<D
   child.owner = owner;
   child.typeargs = std::move(scope.typeargs);
 
-  for(auto &[decl, type] : typeargs)
+  for (auto &[decl, type] : typeargs)
     child.set_type(decl, type);
 
   return child;
@@ -260,7 +260,7 @@ void find_decl(Decl *decl, Ident *name, long flags, vector<Decl*> &results)
               break;
 
             case Decl::TuplePattern:
-              for(auto &binding : decl_cast<TuplePatternDecl>(pattern)->bindings)
+              for (auto &binding : decl_cast<TuplePatternDecl>(pattern)->bindings)
                 find_decl(binding, name, flags, results);
               break;
 
@@ -316,7 +316,7 @@ void find_decl(Decl *decl, Ident *name, long flags, vector<Decl*> &results)
     case Decl::Import:
       if (decl_cast<ImportDecl>(decl)->alias == name && (flags & Imports))
         results.push_back(decl);
-      for(auto &usein : decl_cast<ImportDecl>(decl)->usings)
+      for (auto &usein : decl_cast<ImportDecl>(decl)->usings)
         find_decl(usein, name, flags, results);
       break;
 
@@ -346,12 +346,12 @@ void find_decls(Scope const &scope, Ident *name, long flags, vector<Decl*> &resu
     switch ((*owner)->kind())
     {
       case Decl::TranslationUnit:
-        for(auto &decl : decl_cast<TranslationUnitDecl>(*owner)->decls)
+        for (auto &decl : decl_cast<TranslationUnitDecl>(*owner)->decls)
           find_decl(decl, name, flags, results);
         break;
 
       case Decl::Module:
-        for(auto &decl : decl_cast<ModuleDecl>(*owner)->decls)
+        for (auto &decl : decl_cast<ModuleDecl>(*owner)->decls)
           find_decl(decl, name, flags, results);
         break;
 
@@ -361,14 +361,14 @@ void find_decls(Scope const &scope, Ident *name, long flags, vector<Decl*> &resu
       case Decl::Lambda:
       case Decl::Concept:
       case Decl::Enum:
-        for(auto &decl : decl_cast<TagDecl>(*owner)->args)
+        for (auto &decl : decl_cast<TagDecl>(*owner)->args)
           find_decl(decl, name, flags, results);
-        for(auto &decl : decl_cast<TagDecl>(*owner)->decls)
+        for (auto &decl : decl_cast<TagDecl>(*owner)->decls)
           find_decl(decl, name, flags, results);
         break;
 
       case Decl::TypeAlias:
-        for(auto &decl : decl_cast<TypeAliasDecl>(*owner)->args)
+        for (auto &decl : decl_cast<TypeAliasDecl>(*owner)->args)
           find_decl(decl, name, flags, results);
         break;
 
@@ -377,9 +377,14 @@ void find_decls(Scope const &scope, Ident *name, long flags, vector<Decl*> &resu
         break;
 
       case Decl::Function:
-        for(auto &decl : decl_cast<FunctionDecl>(*owner)->args)
+        for (auto &decl : decl_cast<FunctionDecl>(*owner)->args)
           find_decl(decl, name, flags, results);
-        for(auto &decl : decl_cast<FunctionDecl>(*owner)->parms)
+        for (auto &decl : decl_cast<FunctionDecl>(*owner)->parms)
+          find_decl(decl, name, flags, results);
+        break;
+
+      case Decl::Requires:
+        for (auto &decl : decl_cast<FunctionDecl>(decl_cast<RequiresDecl>(*owner)->fn)->args)
           find_decl(decl, name, flags, results);
         break;
 
@@ -389,14 +394,13 @@ void find_decls(Scope const &scope, Ident *name, long flags, vector<Decl*> &resu
         break;
 
       case Decl::If:
-        for(auto &decl : decl_cast<IfDecl>(*owner)->decls)
+        for (auto &decl : decl_cast<IfDecl>(*owner)->decls)
           find_decl(decl, name, flags, results);
         break;
 
       case Decl::TypeArg:
       case Decl::DeclRef:
       case Decl::DeclScoped:
-      case Decl::Requires:
       case Decl::Run:
         break;
 
@@ -412,7 +416,7 @@ void find_decls(Scope const &scope, Ident *name, long flags, vector<Decl*> &resu
     switch ((*owner)->kind())
     {
       case Stmt::If:
-        for(auto init : stmt_cast<IfStmt>(*owner)->inits)
+        for (auto init : stmt_cast<IfStmt>(*owner)->inits)
         {
           if (init == scope.goalpost)
             break;
@@ -423,7 +427,7 @@ void find_decls(Scope const &scope, Ident *name, long flags, vector<Decl*> &resu
         break;
 
       case Stmt::For:
-        for(auto init : stmt_cast<ForStmt>(*owner)->inits)
+        for (auto init : stmt_cast<ForStmt>(*owner)->inits)
         {
           if (init == scope.goalpost)
             break;
@@ -434,7 +438,7 @@ void find_decls(Scope const &scope, Ident *name, long flags, vector<Decl*> &resu
         break;
 
       case Stmt::Rof:
-        for(auto init : stmt_cast<RofStmt>(*owner)->inits)
+        for (auto init : stmt_cast<RofStmt>(*owner)->inits)
         {
           if (init == scope.goalpost)
             break;
@@ -445,7 +449,7 @@ void find_decls(Scope const &scope, Ident *name, long flags, vector<Decl*> &resu
         break;
 
       case Stmt::While:
-        for(auto init : stmt_cast<WhileStmt>(*owner)->inits)
+        for (auto init : stmt_cast<WhileStmt>(*owner)->inits)
         {
           if (init == scope.goalpost)
             break;
@@ -456,7 +460,7 @@ void find_decls(Scope const &scope, Ident *name, long flags, vector<Decl*> &resu
         break;
 
       case Stmt::Switch:
-        for(auto init : stmt_cast<SwitchStmt>(*owner)->inits)
+        for (auto init : stmt_cast<SwitchStmt>(*owner)->inits)
         {
           if (init == scope.goalpost)
             break;
@@ -470,7 +474,7 @@ void find_decls(Scope const &scope, Ident *name, long flags, vector<Decl*> &resu
         break;
 
       case Stmt::Compound:
-        for(auto stmt : stmt_cast<CompoundStmt>(*owner)->stmts)
+        for (auto stmt : stmt_cast<CompoundStmt>(*owner)->stmts)
         {
           if (stmt == scope.goalpost)
             pastthepost = true;

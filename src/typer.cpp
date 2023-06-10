@@ -62,7 +62,7 @@ namespace
   {
     Scope sx(decl, parent.typeargs);
 
-    for(size_t i = 0; i < declargs.size(); ++i)
+    for (size_t i = 0; i < declargs.size(); ++i)
     {
       auto arg = decl_cast<TypeArgDecl>(declargs[i]);
 
@@ -70,7 +70,7 @@ namespace
       {
         vector<Type*> fields;
 
-        for( ; k < args.size(); ++k)
+        for ( ; k < args.size(); ++k)
         {
           fields.push_back(args[k]);
         }
@@ -129,7 +129,7 @@ namespace
         k |= IllSpecified;
     }
 
-    for(auto &[decl, arg] : sx.typeargs)
+    for (auto &[decl, arg] : sx.typeargs)
     {
       if (arg->klass() == Type::Unpack)
         k |= IllSpecified;
@@ -147,7 +147,7 @@ namespace
   //|///////////////////// decl_scope ///////////////////////////////////////
   Scope decl_scope(TyperContext &ctx, Scope const &scope, Decl *decl, size_t &k, vector<Type*> const &args, map<Ident*, Type*> const &namedargs, Sema &sema)
   {
-    switch(decl->kind())
+    switch (decl->kind())
     {
       case Decl::Module:
         return Scope(decl);
@@ -182,12 +182,31 @@ namespace
     return child_scope(scope, decl);
   }
 
+  //|///////////////////// base_scope ///////////////////////////////////////
+  Scope base_scope(TyperContext &ctx, Scope const &scope, Sema &sema)
+  {
+    Scope sx;
+
+    if (is_tag_scope(scope))
+    {
+      if (auto tagdecl = decl_cast<TagDecl>(get<Decl*>(scope.owner)); tagdecl->basetype)
+      {
+        resolve_type(ctx, scope, tagdecl->basetype, sema);
+
+        if (is_tag_type(tagdecl->basetype))
+          return Scope(type_cast<TagType>(tagdecl->basetype)->decl, type_cast<TagType>(tagdecl->basetype)->args);
+      }
+    }
+
+    return sx;
+  }
+
   //|///////////////////// diag_args ////////////////////////////////////////
   void diag_args(TyperContext &ctx, DeclRefDecl *declref, Decl *decl, Sema &sema)
   {
     vector<Decl*> *declargs = nullptr;
 
-    switch(decl->kind())
+    switch (decl->kind())
     {
       case Decl::Module:
       case Decl::Import:
@@ -219,7 +238,7 @@ namespace
     {
       size_t k = 0;
 
-      for(size_t i = 0; i < declargs->size(); ++i)
+      for (size_t i = 0; i < declargs->size(); ++i)
       {
         auto arg = decl_cast<TypeArgDecl>((*declargs)[i]);
 
@@ -257,7 +276,7 @@ namespace
         return;
       }
 
-      for(auto &arg : declref->namedargs)
+      for (auto &arg : declref->namedargs)
       {
         auto j = find_if(declargs->begin(), declargs->end(), [&](auto &k) { return decl_cast<TypeArgDecl>(k)->name == arg.first; });
 
@@ -277,7 +296,7 @@ namespace
   {
     find_decls(scope, name, queryflags, results);
 
-    for(size_t i = 0; i < results.size(); ++i)
+    for (size_t i = 0; i < results.size(); ++i)
     {
       auto decl = results[i];
 
@@ -303,7 +322,7 @@ namespace
         if (!(decl_cast<UsingDecl>(decl)->flags & UsingDecl::Resolved))
           resolve_decl(ctx, parent_scope(decl), decl, sema);
 
-        switch(auto usein = decl_cast<UsingDecl>(decl); usein->decl->kind())
+        switch (auto usein = decl_cast<UsingDecl>(decl); usein->decl->kind())
         {
           case Decl::Module:
             find_decls(usein->decl, name, queryflags | QueryFlags::Public, results);
@@ -335,6 +354,7 @@ namespace
 
           case Decl::TypeArg:
           case Decl::EnumConstant:
+          case Decl::TypeOf:
             break;
 
           default:
@@ -347,7 +367,7 @@ namespace
       }
     }
 
-    for(size_t i = 0; i < results.size(); ++i)
+    for (size_t i = 0; i < results.size(); ++i)
     {
       if (results[i]->kind() == Decl::Import)
       {
@@ -387,7 +407,7 @@ namespace
 
       case Type::Tuple:
 
-        for(auto &field : type_cast<TupleType>(type)->fields)
+        for (auto &field : type_cast<TupleType>(type)->fields)
           if (is_dependant_type(ctx, field))
             return true;
 
@@ -395,7 +415,7 @@ namespace
 
       case Type::Tag:
 
-        for(auto &[decl, arg] : type_cast<TagType>(type)->args)
+        for (auto &[decl, arg] : type_cast<TagType>(type)->args)
           if (is_dependant_type(ctx, arg))
             return true;
 
@@ -458,14 +478,14 @@ namespace
 
       case Type::Tuple: {
         auto fields = type_cast<TupleType>(type)->fields;
-        for(auto &field : fields)
+        for (auto &field : fields)
           field = substitute_type(ctx, typeargs, field, sema);
         return sema.make_tuple(fields);
       }
 
       case Type::Tag: {
         auto args = type_cast<TagType>(type)->args;
-        for(auto &[decl, type] : args)
+        for (auto &[decl, type] : args)
           type = substitute_type(ctx, typeargs, type, sema);
         return sema.make_tagtype(type_cast<TagType>(type)->decl, args);
       }
@@ -537,7 +557,7 @@ namespace
       case Type::Tuple: {
         auto fields = type_cast<TupleType>(type)->fields;
 
-        for(auto &field : fields)
+        for (auto &field : fields)
           field = substitute_defaulted(ctx, scope, field, sema);
 
         if (fields != type_cast<TupleType>(type)->fields)
@@ -550,7 +570,7 @@ namespace
 
         vector<pair<Decl*, Type*>> newargs;
 
-        for(auto &[arg, type] : tagtype->args)
+        for (auto &[arg, type] : tagtype->args)
         {
           if (is_typearg_type(type))
           {
@@ -576,7 +596,7 @@ namespace
         {
           Scope tx(tagtype->decl, tagtype->args);
 
-          for(auto &[arg, type] : newargs)
+          for (auto &[arg, type] : newargs)
             tx.set_type(arg, type);
 
           type = sema.make_tagtype(tagtype->decl, std::move(tx.typeargs));
@@ -636,12 +656,12 @@ namespace
   //|///////////////////// resolve_decl /////////////////////////////////////
   void resolve_decl(TyperContext &ctx, Scope const &scope, DeclRefDecl *declref, Sema &sema)
   {
-    for(auto &arg : declref->args)
+    for (auto &arg : declref->args)
     {
       resolve_type(ctx, scope, arg, sema);
     }
 
-    for(auto &[name, arg] : declref->namedargs)
+    for (auto &[name, arg] : declref->namedargs)
     {
       resolve_type(ctx, scope, arg, sema);
     }
@@ -650,7 +670,7 @@ namespace
   //|///////////////////// resolve_decl /////////////////////////////////////
   void resolve_decl(TyperContext &ctx, Scope const &scope, DeclScopedDecl *declref, Sema &sema)
   {
-    for(auto &decl : declref->decls)
+    for (auto &decl : declref->decls)
     {
       resolve_decl(ctx, scope, decl, sema);
     }
@@ -691,7 +711,7 @@ namespace
       if (auto owner = get_if<Decl*>(&usein->owner); owner && (*owner)->kind() == Decl::Import)
         querymask |= QueryFlags::Public;
 
-      for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
+      for (auto sx = scope; sx; sx = parent_scope(std::move(sx)))
       {
         find_decls(ctx, sx, declref->name, QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Functions | QueryFlags::Usings | querymask, decls, sema);
 
@@ -748,7 +768,7 @@ namespace
           return;
         }
 
-        for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
+        for (auto sx = scope; sx; sx = parent_scope(std::move(sx)))
         {
           find_decls(ctx, sx, declref->name, QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Usings | querymask, decls, sema);
 
@@ -783,7 +803,7 @@ namespace
         decls.clear();
       }
 
-      for(size_t i = 1; i + 1 < scoped->decls.size(); ++i)
+      for (size_t i = 1; i + 1 < scoped->decls.size(); ++i)
       {
         auto declref = decl_cast<DeclRefDecl>(scoped->decls[i]);
 
@@ -842,7 +862,7 @@ namespace
 
     if (decls.size() != 0)
     {
-      switch(auto decl = decls[0]; decl->kind())
+      switch (auto decl = decls[0]; decl->kind())
       {
         case Decl::Module:
           usein->decl = decl;
@@ -886,7 +906,7 @@ namespace
     if (init->name == Ident::kw_this)
       return;
 
-    for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
+    for (auto sx = scope; sx; sx = parent_scope(std::move(sx)))
     {
       find_decls(ctx, sx, init->name, QueryFlags::Fields, decls, sema);
 
@@ -911,7 +931,7 @@ namespace
   //|///////////////////// resolve_decl /////////////////////////////////////
   void resolve_decl(TyperContext &ctx, Scope const &scope, Decl *&decl, Sema &sema)
   {
-    switch(decl->kind())
+    switch (decl->kind())
     {
       case Decl::DeclRef:
         resolve_decl(ctx, scope, decl_cast<DeclRefDecl>(decl), sema);
@@ -947,7 +967,7 @@ namespace
   {
     size_t k = 0;
 
-    switch(decl->kind())
+    switch (decl->kind())
     {
       case Decl::TypeArg:
         typeref->decl = decl;
@@ -971,6 +991,13 @@ namespace
         typeref->decl = decl;
         typeref->args = scope.typeargs;
         break;
+
+      case Decl::Function:
+      case Decl::ParmVar:
+      case Decl::StmtVar:
+      case Decl::VoidVar:
+        dst = sema.make_typelit(sema.make_declref_expression(typeref->decl, declref->loc()));
+        return;
 
       default:
         ctx.diag.error("invalid type", scope, declref->loc());
@@ -1008,7 +1035,7 @@ namespace
   {
     Scope tx(tagdecl, typeref->args);
 
-    for(auto sx = get<Decl*>(tx.owner); sx; sx = parent_decl(sx))
+    for (auto sx = get<Decl*>(tx.owner); sx; sx = parent_decl(sx))
     {
       vector<Decl*> *declargs = nullptr;
 
@@ -1033,7 +1060,7 @@ namespace
 
       if (declargs)
       {
-        for(auto &arg : *declargs)
+        for (auto &arg : *declargs)
         {
           auto j = lower_bound(tx.typeargs.begin(), tx.typeargs.end(), arg, [](auto &lhs, auto &rhs) { return lhs.first < rhs; });
 
@@ -1063,7 +1090,7 @@ namespace
 
     resolve_expr(ctx, scope, typedecl->expr, sema);
 
-    switch(typedecl->expr->kind())
+    switch (typedecl->expr->kind())
     {
       case Expr::BoolLiteral:
         dst = type(Builtin::Type_Bool);
@@ -1121,7 +1148,7 @@ namespace
 
     resolve_decl(ctx, scope, declref, sema);
 
-    for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
+    for (auto sx = scope; sx; sx = parent_scope(std::move(sx)))
     {
       find_decls(ctx, sx, declref->name, QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Enums | QueryFlags::Usings, decls, sema);
 
@@ -1133,7 +1160,7 @@ namespace
 
     if (decls.empty())
     {
-      for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
+      for (auto sx = scope; sx; sx = parent_scope(std::move(sx)))
       {
         find_decls(ctx, sx, declref->name, QueryFlags::Functions | QueryFlags::Parameters | QueryFlags::Variables | QueryFlags::Usings, decls, sema);
 
@@ -1142,14 +1169,6 @@ namespace
 
         break;
       }
-
-      if (decls.size() == 1)
-      {
-        dst = sema.make_typelit(sema.make_declref_expression(declref, declref->loc()));
-        return;
-      }
-
-      decls.clear();
     }
 
     if (any_of(decls.begin(), decls.end(), [](auto k) { return k->kind() == Decl::Run; }))
@@ -1170,16 +1189,16 @@ namespace
       else
         ctx.diag.error("ambiguous type reference", scope, declref->loc());
 
-      for(auto &decl : decls)
+      for (auto &decl : decls)
         ctx.diag << "  type: '" << *decl << "'\n";
 
       return;
     }
 
-    if ((decls[0]->flags & TypeAliasDecl::Implicit) && !declref->argless)
+    if (decls[0]->kind() == Decl::TypeAlias && (decls[0]->flags & TypeAliasDecl::Implicit) && !declref->argless)
       decls[0] = get<Decl*>(decls[0]->owner);
 
-    resolve_type(ctx, parent_scope(decls[0]), decls[0], declref, typeref, dst, sema);
+    resolve_type(ctx, scope, decls[0], declref, typeref, dst, sema);
   }
 
   //|///////////////////// resolve_typeref //////////////////////////////////
@@ -1200,7 +1219,7 @@ namespace
 
     if (auto declref = decl_cast<DeclRefDecl>(scoped->decls[0]); declref->name != Ident::op_scope)
     {
-      for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
+      for (auto sx = scope; sx; sx = parent_scope(std::move(sx)))
       {
         find_decls(ctx, sx, declref->name, QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Usings | queryflags, decls, sema);
 
@@ -1218,7 +1237,7 @@ namespace
 
         size_t k = 0;
 
-        if ((decls[0]->flags & TypeAliasDecl::Implicit) && !declref->argless)
+        if (decls[0]->kind() == Decl::TypeAlias && (decls[0]->flags & TypeAliasDecl::Implicit) && !declref->argless)
           decls[0] = get<Decl*>(decls[0]->owner);
 
         declscope = decl_scope(ctx, outer_scope(sx, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
@@ -1244,7 +1263,7 @@ namespace
       decls.clear();
     }
 
-    for(size_t i = 1; i + 1 < scoped->decls.size(); ++i)
+    for (size_t i = 1; i + 1 < scoped->decls.size(); ++i)
     {
       auto declref = decl_cast<DeclRefDecl>(scoped->decls[i]);
 
@@ -1285,19 +1304,22 @@ namespace
 
     if (auto declref = decl_cast<DeclRefDecl>(scoped->decls.back()))
     {
-      find_decls(ctx, declscope, declref->name, QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Enums | QueryFlags::Usings | queryflags, decls, sema);
-
-      if (decls.empty())
+      for (; declscope; declscope = base_scope(ctx, declscope, sema))
       {
-        find_decls(ctx, declscope, declref->name, QueryFlags::Functions | QueryFlags::Usings | queryflags, decls, sema);
+        find_decls(ctx, declscope, declref->name, QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Enums | QueryFlags::Usings | queryflags, decls, sema);
 
-        if (decls.size() == 1 && is_fn_decl(decls[0]))
+        if (decls.empty())
         {
-          dst = sema.make_typelit(sema.make_call_expression(scoped, scoped->loc()));
-          return;
+          find_decls(ctx, declscope, declref->name, QueryFlags::Functions | QueryFlags::Usings | queryflags, decls, sema);
         }
 
-        decls.clear();
+        if (auto decl = get<Decl*>(declscope.owner); is_tag_decl(decl) && !(decl->flags & TagDecl::PublicBase))
+          break;
+
+        if (decls.empty())
+          continue;
+
+        break;
       }
 
       if (any_of(decls.begin(), decls.end(), [](auto k) { return k->kind() == Decl::Run; }))
@@ -1318,7 +1340,7 @@ namespace
         else
           ctx.diag.error("ambiguous type reference", scope, declref->loc());
 
-        for(auto &decl : decls)
+        for (auto &decl : decls)
           ctx.diag << "  type: '" << *decl << "'\n";
 
         return;
@@ -1331,12 +1353,12 @@ namespace
   //|///////////////////// resolve_typeref //////////////////////////////////
   void resolve_type(TyperContext &ctx, Scope const &scope, TypeRefType *typeref, Type *&dst, Sema &sema)
   {
-    for(auto &[decl, type] : typeref->args)
+    for (auto &[decl, type] : typeref->args)
     {
       resolve_type(ctx, scope, type, sema);
     }
 
-    switch(typeref->decl->kind())
+    switch (typeref->decl->kind())
     {
       case Decl::DeclRef:
         resolve_type(ctx, scope, decl_cast<DeclRefDecl>(typeref->decl), typeref, dst, sema);
@@ -1414,7 +1436,7 @@ namespace
         break;
 
       case Type::Tuple:
-        for(auto &field : type_cast<TupleType>(type)->fields)
+        for (auto &field : type_cast<TupleType>(type)->fields)
           resolve_type(ctx, scope, field, sema);
         break;
 
@@ -1458,7 +1480,7 @@ namespace
   //|///////////////////// arrayliteral /////////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, ArrayLiteralExpr *arrayliteral, Sema &sema)
   {
-    for(auto &element : arrayliteral->elements)
+    for (auto &element : arrayliteral->elements)
     {
       resolve_expr(ctx, scope, element, sema);
     }
@@ -1469,7 +1491,7 @@ namespace
   //|///////////////////// compoundliteral //////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, CompoundLiteralExpr *compoundliteral, Sema &sema)
   {
-    for(auto &field: compoundliteral->fields)
+    for (auto &field: compoundliteral->fields)
     {
       resolve_expr(ctx, scope, field, sema);
     }
@@ -1511,12 +1533,12 @@ namespace
   //|///////////////////// call_expression //////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, CallExpr *call, Sema &sema)
   {
-    for(auto &parm : call->parms)
+    for (auto &parm : call->parms)
     {
       resolve_expr(ctx, scope, parm, sema);
     }
 
-    for(auto &[name, parm] : call->namedparms)
+    for (auto &[name, parm] : call->namedparms)
     {
       resolve_expr(ctx, scope, parm, sema);
     }
@@ -1597,12 +1619,12 @@ namespace
 
     resolve_expr(ctx, scope, call->address, sema);
 
-    for(auto &parm : call->parms)
+    for (auto &parm : call->parms)
     {
       resolve_expr(ctx, scope, parm, sema);
     }
 
-    for(auto &[name, parm] : call->namedparms)
+    for (auto &[name, parm] : call->namedparms)
     {
       resolve_expr(ctx, scope, parm, sema);
     }
@@ -1651,7 +1673,7 @@ namespace
   //|///////////////////// fragment_expression //////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, FragmentExpr *fragment, Sema &sema)
   {
-    for(auto &arg : fragment->args)
+    for (auto &arg : fragment->args)
     {
       resolve_expr(ctx, scope, arg, sema);
     }
@@ -1819,7 +1841,7 @@ namespace
   //|///////////////////// declscoped ///////////////////////////////////////
   void typer_decl(TyperContext &ctx, DeclScopedDecl *scoped, Sema &sema)
   {
-    for(auto &decl : scoped->decls)
+    for (auto &decl : scoped->decls)
     {
       resolve_decl(ctx, ctx.stack.back(), decl, sema);
     }
@@ -1830,7 +1852,7 @@ namespace
   {
     ctx.stack.emplace_back(typealias);
 
-    for(auto &arg : typealias->args)
+    for (auto &arg : typealias->args)
     {
       typer_decl(ctx, arg, sema);
     }
@@ -1843,7 +1865,7 @@ namespace
   //|///////////////////// tagdecl //////////////////////////////////////////
   void typer_decl(TyperContext &ctx, TagDecl *tagdecl, Sema &sema)
   {
-    for(auto &arg : tagdecl->args)
+    for (auto &arg : tagdecl->args)
     {
       typer_decl(ctx, arg, sema);
     }
@@ -1853,7 +1875,7 @@ namespace
       resolve_type(ctx, ctx.stack.back(), tagdecl->basetype, sema);
     }
 
-    for(auto &decl : tagdecl->decls)
+    for (auto &decl : tagdecl->decls)
     {
       typer_decl(ctx, decl, sema);
     }
@@ -1957,12 +1979,12 @@ namespace
   //|///////////////////// initialiser //////////////////////////////////////
   void typer_decl(TyperContext &ctx, InitialiserDecl *init, Sema &sema)
   {
-    for(auto &parm : init->parms)
+    for (auto &parm : init->parms)
     {
       resolve_expr(ctx, ctx.stack.back(), parm, sema);
     }
 
-    for(auto &[name, parm] : init->namedparms)
+    for (auto &[name, parm] : init->namedparms)
     {
       resolve_expr(ctx, ctx.stack.back(), parm, sema);
     }
@@ -2007,7 +2029,7 @@ namespace
   //|///////////////////// import ///////////////////////////////////////////
   void typer_decl(TyperContext &ctx, ImportDecl *imprt, Sema &sema)
   {
-    for(auto &usein : imprt->usings)
+    for (auto &usein : imprt->usings)
     {
       resolve_decl(ctx, imprt->decl, usein, sema);
     }
@@ -2024,12 +2046,12 @@ namespace
   {
     ctx.stack.emplace_back(fn);
 
-    for(auto &arg : fn->args)
+    for (auto &arg : fn->args)
     {
       typer_decl(ctx, arg, sema);
     }
 
-    for(auto &parm : fn->parms)
+    for (auto &parm : fn->parms)
     {
       typer_decl(ctx, parm, sema);
     }
@@ -2059,7 +2081,7 @@ namespace
       resolve_expr(ctx, ctx.stack.back(), fn->where, sema);
     }
 
-    for(auto &init : fn->inits)
+    for (auto &init : fn->inits)
     {
       typer_decl(ctx, init, sema);
     }
@@ -2085,7 +2107,7 @@ namespace
 
     if ((ifd->flags & IfDecl::ResolvedTrue) || !(ifd->flags & IfDecl::ResolvedFalse))
     {
-      for(auto &decl: ifd->decls)
+      for (auto &decl: ifd->decls)
       {
         typer_decl(ctx, decl, sema);
       }
@@ -2103,7 +2125,7 @@ namespace
   //|///////////////////// typer_decl ///////////////////////////////////////
   void typer_decl(TyperContext &ctx, Decl *decl, Sema &sema)
   {
-    switch(decl->kind())
+    switch (decl->kind())
     {
       case Decl::VoidVar:
         typer_decl(ctx, decl_cast<VoidVarDecl>(decl), sema);
@@ -2243,7 +2265,7 @@ namespace
   {
     ctx.stack.emplace_back(ifs);
 
-    for(auto &init : ifs->inits)
+    for (auto &init : ifs->inits)
     {
       ctx.stack.back().goalpost = init;
 
@@ -2272,7 +2294,7 @@ namespace
   {
     ctx.stack.emplace_back(fors);
 
-    for(auto &init : fors->inits)
+    for (auto &init : fors->inits)
     {
       ctx.stack.back().goalpost = init;
 
@@ -2288,7 +2310,7 @@ namespace
 
     typer_statement(ctx, fors->stmt, sema);
 
-    for(auto &iter : fors->iters)
+    for (auto &iter : fors->iters)
     {
       typer_statement(ctx, iter, sema);
     }
@@ -2301,7 +2323,7 @@ namespace
   {
     ctx.stack.emplace_back(rofs);
 
-    for(auto &init : rofs->inits)
+    for (auto &init : rofs->inits)
     {
       ctx.stack.back().goalpost = init;
 
@@ -2317,7 +2339,7 @@ namespace
 
     typer_statement(ctx, rofs->stmt, sema);
 
-    for(auto &iter : rofs->iters)
+    for (auto &iter : rofs->iters)
     {
       typer_statement(ctx, iter, sema);
     }
@@ -2330,14 +2352,14 @@ namespace
   {
     ctx.stack.emplace_back(wile);
 
-    for(auto &init : wile->inits)
+    for (auto &init : wile->inits)
     {
       ctx.stack.back().goalpost = init;
 
       typer_statement(ctx, init, sema);
     }
 
-    for(auto &iter : wile->iters)
+    for (auto &iter : wile->iters)
     {
       typer_statement(ctx, iter, sema);
     }
@@ -2356,7 +2378,7 @@ namespace
   {
     ctx.stack.emplace_back(swtch);
 
-    for(auto &init : swtch->inits)
+    for (auto &init : swtch->inits)
     {
       ctx.stack.back().goalpost = init;
 
@@ -2367,7 +2389,7 @@ namespace
 
     resolve_expr(ctx, ctx.stack.back(), swtch->cond, sema);
 
-    for(auto &decl : swtch->decls)
+    for (auto &decl : swtch->decls)
     {
       typer_decl(ctx, decl, sema);
     }
@@ -2415,7 +2437,7 @@ namespace
   {
     ctx.stack.emplace_back(compound);
 
-    for(auto &stmt : compound->stmts)
+    for (auto &stmt : compound->stmts)
     {
       ctx.stack.back().goalpost = stmt;
 
@@ -2428,7 +2450,7 @@ namespace
   //|///////////////////// typer_statement //////////////////////////////////
   void typer_statement(TyperContext &ctx, Stmt *stmt, Sema &sema)
   {
-    switch(stmt->kind())
+    switch (stmt->kind())
     {
       case Stmt::Null:
         break;
@@ -2497,7 +2519,7 @@ namespace
   //|///////////////////// index_decl ///////////////////////////////////////
   void index_decl(TyperContext &ctx, ModuleDecl *module, Decl *decl, Sema &sema)
   {
-    switch(decl->kind())
+    switch (decl->kind())
     {
       case Decl::TypeAlias:
         module->index[decl_cast<TypeAliasDecl>(decl)->name].push_back(decl);
@@ -2513,13 +2535,13 @@ namespace
 
       case Decl::Import:
         module->index[decl_cast<ImportDecl>(decl)->alias].push_back(decl);
-        for(auto &usein : decl_cast<ImportDecl>(decl)->usings)
+        for (auto &usein : decl_cast<ImportDecl>(decl)->usings)
           index_decl(ctx, module, usein, sema);
         break;
 
       case Decl::Using:
 
-        switch(auto usein = decl_cast<UsingDecl>(decl); usein->decl->kind())
+        switch (auto usein = decl_cast<UsingDecl>(decl); usein->decl->kind())
         {
           case Decl::Module:
           case Decl::Struct:
@@ -2552,7 +2574,7 @@ namespace
         if (auto ifd = decl_cast<IfDecl>(decl))
         {
           if (ifd->flags & IfDecl::ResolvedTrue)
-            for(auto &decl : ifd->decls)
+            for (auto &decl : ifd->decls)
               index_decl(ctx, module, decl, sema);
 
           if (auto elseif = ifd->elseif)
@@ -2577,12 +2599,12 @@ namespace
 
     ctx.stack.emplace_back(module);
 
-    for(auto &decl : module->decls)
+    for (auto &decl : module->decls)
     {
       typer_decl(ctx, decl, sema);
     }
 
-    for(auto &decl : module->decls)
+    for (auto &decl : module->decls)
     {
       index_decl(ctx, module, decl, sema);
     }
@@ -2605,7 +2627,7 @@ void typer(AST *ast, Sema &sema, Diag &diag)
 
   ctx.stack.emplace_back(root);
 
-  for(auto &decl : root->decls)
+  for (auto &decl : root->decls)
   {
     switch (decl->kind())
     {

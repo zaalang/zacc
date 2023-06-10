@@ -25,7 +25,7 @@ namespace
 
     friend ostream &operator <<(ostream &os, spaces const &indent)
     {
-      for(int i = 0; i < indent.n; ++i)
+      for (int i = 0; i < indent.n; ++i)
         os << ' ';
 
       return os;
@@ -37,7 +37,7 @@ namespace
   [[maybe_unused]]
   void rebase(MIR::RValue &rvalue, MIR::local_t base, size_t offset)
   {
-    switch(rvalue.kind())
+    switch (rvalue.kind())
     {
       case MIR::RValue::Empty:
       case MIR::RValue::Constant:
@@ -50,7 +50,7 @@ namespace
 
       case MIR::RValue::Call:
         if (auto &[callee, args, loc] = rvalue.get<MIR::RValue::Call>(); true)
-          for(auto &arg : args)
+          for (auto &arg : args)
             if (arg >= base)
               arg += offset;
         break;
@@ -80,7 +80,7 @@ namespace
     if (terminator.blockid >= base)
       terminator.blockid += offset;
 
-    for(auto &target : terminator.targets)
+    for (auto &target : terminator.targets)
       if (get<1>(target) >= base)
         get<1>(target) += offset;
   }
@@ -151,7 +151,7 @@ std::ostream &operator <<(std::ostream &os, MIR::RValue::VariableData const &var
 {
   auto &[op, arg, fields, loc] = variable;
 
-  switch(op)
+  switch (op)
   {
     case MIR::RValue::Val:
       os << '_' << arg;
@@ -170,9 +170,9 @@ std::ostream &operator <<(std::ostream &os, MIR::RValue::VariableData const &var
       break;
   }
 
-  for(auto &field : fields)
+  for (auto &field : fields)
   {
-    switch(field.op)
+    switch (field.op)
     {
       case MIR::RValue::Val:
         os << "->" << field.index;
@@ -209,7 +209,7 @@ std::ostream &operator <<(std::ostream &os, MIR::RValue::CallData const &call)
     os << '<';
 
     int i = 0;
-    for(auto &[decl, type] : callee.typeargs)
+    for (auto &[decl, type] : callee.typeargs)
     {
       if (decl->kind() == Decl::ParmVar && !(decl_cast<ParmVarDecl>(decl)->flags & VarDecl::Literal))
         continue;
@@ -223,7 +223,7 @@ std::ostream &operator <<(std::ostream &os, MIR::RValue::CallData const &call)
 
   os << '(';
 
-  for(auto &arg : args)
+  for (auto &arg : args)
   {
     os << '_' << arg;
 
@@ -255,7 +255,7 @@ std::ostream &operator <<(std::ostream &os, MIR::RValue::InjectionData const &in
 
   os << '(';
 
-  for(auto &arg : args)
+  for (auto &arg : args)
   {
     os << '_' << arg;
 
@@ -271,7 +271,7 @@ std::ostream &operator <<(std::ostream &os, MIR::RValue::InjectionData const &in
 //|///////////////////// print //////////////////////////////////////////////
 std::ostream &operator <<(std::ostream &os, MIR::RValue const &rvalue)
 {
-  switch(rvalue.kind())
+  switch (rvalue.kind())
   {
     case MIR::RValue::Empty:
       os << "void";
@@ -349,7 +349,7 @@ std::ostream &operator <<(std::ostream &os, MIR::Terminator const &terminator)
 
     case MIR::Terminator::Switch:
       os << "switch(_" << terminator.value << ") -> [";
-      for(auto &[k, b] : terminator.targets)
+      for (auto &[k, b] : terminator.targets)
         os << k << ": bb" << b << ", ";
       os << "otherwise: bb" << terminator.blockid << "]";
       break;
@@ -390,7 +390,7 @@ FnSig::FnSig(FunctionDecl *fn, vector<pair<Decl*, Type*>> typeargs, Type *throwt
 {
   hash = std::hash<Decl*>()(fn);
 
-  for(auto &arg : this->typeargs)
+  for (auto &arg : this->typeargs)
   {
     hash ^= std::hash<Decl*>()(arg.first);
   }
@@ -416,7 +416,7 @@ void FnSig::set_type(Decl *in, Type *out)
 //|///////////////////// is_concrete_call ///////////////////////////////////
 bool is_concrete_call(FnSig const &fx)
 {
-  for(auto &[decl, type] : fx.typeargs)
+  for (auto &[decl, type] : fx.typeargs)
   {
     if (decl->kind() == Decl::ParmVar && (decl_cast<ParmVarDecl>(decl)->flags & VarDecl::Literal))
       continue;
@@ -443,7 +443,7 @@ bool is_concrete_call(FnSig const &fx)
 //|///////////////////// RValue loc /////////////////////////////////////////
 SourceLocation MIR::RValue::loc() const
 {
-  switch(kind())
+  switch (kind())
   {
     case MIR::RValue::Constant:
       return std::visit([&](auto &v) { return static_cast<Expr*>(v); }, get<MIR::RValue::Constant>())->loc();
@@ -468,7 +468,7 @@ SourceLocation MIR::RValue::loc() const
 //|///////////////////// RValue literal /////////////////////////////////////
 MIR::RValue::ConstantData MIR::RValue::literal(Expr *expr)
 {
-  switch(expr->kind())
+  switch (expr->kind())
   {
     case Expr::VoidLiteral:
       return expr_cast<VoidLiteralExpr>(expr);
@@ -535,7 +535,7 @@ void MIR::Block::dump(int indent, size_t idx) const
 {
   cout << spaces(indent) << "bb" << idx << ": {\n";
 
-  for(auto &statement : statements)
+  for (auto &statement : statements)
   {
     statement.dump(indent + 2, &statement - &statements.front());
   }
@@ -589,7 +589,7 @@ void MIR::dump() const
     cout << '<';
 
     int i = 0;
-    for(auto &[decl, type] : fx.typeargs)
+    for (auto &[decl, type] : fx.typeargs)
     {
       if (decl->kind() == Decl::ParmVar)
         continue;
@@ -605,7 +605,7 @@ void MIR::dump() const
   {
     cout << '(';
 
-    for(size_t i = args_beg, end = args_end; i != end; ++i)
+    for (size_t i = args_beg, end = args_end; i != end; ++i)
     {
       cout << locals[i] << " _" << i << (i + 1 != end ? ", " : "");
     }
@@ -624,7 +624,7 @@ void MIR::dump() const
       locals[1].dump(2, 1);
     }
 
-    for(size_t i = args_end, end = locals.size(); i != end; ++i)
+    for (size_t i = args_end, end = locals.size(); i != end; ++i)
     {
       locals[i].dump(2, i);
     }
@@ -632,7 +632,7 @@ void MIR::dump() const
 
   cout << '\n';
 
-  for(auto &block : blocks)
+  for (auto &block : blocks)
   {
     block.dump(2, &block - &blocks.front());
   }
@@ -647,12 +647,12 @@ MIR::Block &insert_blocks(MIR &mir, MIR::block_t position, size_t count)
 {
   auto j = mir.blocks.insert(mir.blocks.begin() + position, count, MIR::Block());
 
-  for(auto &block : mir.blocks)
+  for (auto &block : mir.blocks)
   {
     rebase(block.terminator, position, count);
   }
 
-  for(auto i = position; i < position + count; ++i)
+  for (auto i = position; i < position + count; ++i)
   {
     mir.blocks[i].terminator = MIR::Terminator::gotoer(i + 1);
   }

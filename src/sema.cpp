@@ -70,7 +70,7 @@ ModuleDecl *Sema::module_declaration(Ident *name, string_view file)
   {
     string base = basename(file);
 
-    for(auto &includepath : m_include_paths)
+    for (auto &includepath : m_include_paths)
     {
       if (auto test = includepath + '/' + string(file); access(test.c_str(), F_OK) == 0)
       {
@@ -703,7 +703,7 @@ ModuleDecl *Sema::lookup_module(Ident *name)
 {
   auto unit = decl_cast<TranslationUnitDecl>(ast->root);
 
-  for(auto &decl : unit->decls)
+  for (auto &decl : unit->decls)
   {
     if (is_module_decl(decl) && decl_cast<ModuleDecl>(decl)->name == name)
       return decl_cast<ModuleDecl>(decl);

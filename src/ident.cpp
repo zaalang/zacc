@@ -17,7 +17,7 @@ using namespace std;
 //|///////////////////// print //////////////////////////////////////////////
 std::ostream &operator <<(std::ostream &os, Ident const &ident)
 {
-  switch(ident.kind())
+  switch (ident.kind())
   {
     case Ident::String:
       os << ident.sv();

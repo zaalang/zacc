@@ -243,7 +243,7 @@ namespace
 
     Token::Type type;
 
-    switch(*ptr)
+    switch (*ptr)
     {
       case '#':
         ptr += 1;
@@ -610,7 +610,7 @@ namespace
     auto type = Token::identifier;
     auto identifier = string_view(beg, ptr - beg);
 
-    switch(identifier[0])
+    switch (identifier[0])
     {
       case 'a':
         if (identifier == "alignof")
@@ -911,7 +911,7 @@ auto lex(SourceText const &src, LexCursor cursor, Token &tok) -> LexCursor
 //|///////////////////// dump_token /////////////////////////////////////////
 void dump_token(Token const &tok)
 {
-  switch(tok.type)
+  switch (tok.type)
   {
     case Token::unknown:
       cout << "unknown\n";

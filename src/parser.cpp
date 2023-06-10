@@ -43,7 +43,7 @@ namespace
       auto token = tok;
       auto cursor = lexcursor;
 
-      for( ; token != Token::eof && i > 0; --i)
+      for ( ; token != Token::eof && i > 0; --i)
         cursor = lex(text, cursor, token);
 
       return token;
@@ -296,6 +296,7 @@ namespace
   Decl *parse_struct_declaration(ParseContext &ctx, Sema &sema);
   Decl *parse_union_declaration(ParseContext &ctx, Sema &sema);
   Decl *parse_vtable_declaration(ParseContext &ctx, Sema &sema);
+  Decl *parse_concept_declaration(ParseContext &ctx, Sema &sema);
   Stmt *parse_statement(ParseContext &ctx, Sema &sema);
   Stmt *parse_compound_statement(ParseContext &ctx, Sema &sema);
   Stmt *parse_declaration_statement(ParseContext &ctx, Sema &sema);
@@ -322,7 +323,7 @@ namespace
       {
         auto beg = ctx.tok.text.data();
 
-        for(int indent = 0; ctx.tok != Token::eof; )
+        for (int indent = 0; ctx.tok != Token::eof; )
         {
           if (ctx.tok == Token::l_paren)
             indent += 1;
@@ -562,9 +563,24 @@ namespace
 
       var->flags = flags & VarDecl::Literal;
 
-      if (ctx.tok != Token::l_paren)
+      var->type = sema.make_reference(sema.make_qualarg(sema.make_typearg(sema.make_typearg(Ident::kw_var, ctx.tok.loc))));
+
+      auto name = Ident::make_index_ident(bindings.size());
+
+      switch (ctx.tok.type)
       {
-        var->name = parse_ident(ctx, IdentUsage::VarName, sema);
+        case Token::period:
+          ctx.try_consume_token(Token::period);
+          var->name = parse_ident(ctx, IdentUsage::VarName, sema);
+          name = var->name;
+          break;
+
+        case Token::identifier:
+          var->name = parse_ident(ctx, IdentUsage::VarName, sema);
+          break;
+
+        default:
+          break;
       }
 
       if (ctx.try_consume_token(Token::l_paren))
@@ -577,10 +593,6 @@ namespace
           break;
         }
       }
-
-      var->type = sema.make_reference(sema.make_qualarg(sema.make_typearg(sema.make_typearg(Ident::kw_var, ctx.tok.loc))));
-
-      auto name = Ident::make_index_ident(bindings.size());
 
       if (ctx.try_consume_token(Token::colon))
       {
@@ -1351,7 +1363,7 @@ namespace
     auto comma = false;
 
     auto skip_bracketed = [&]() {
-      for(int indent = 0; tok != Token::eof; )
+      for (int indent = 0; tok != Token::eof; )
       {
         if (tok == Token::l_paren)
           indent += 1;
@@ -1412,8 +1424,23 @@ namespace
 
         case Token::l_paren:
           comma = false;
-          if (lex(ctx.text, lexcursor, tok); tok == Token::r_paren)
-            comma = true;
+          switch (lex(ctx.text, lexcursor, tok); tok.type)
+          {
+            case Token::r_paren:
+              comma = true;
+              break;
+
+            case Token::char_constant:
+            case Token::numeric_constant:
+            case Token::string_literal:
+            case Token::kw_true:
+            case Token::kw_false:
+              maybe = true;
+              break;
+
+            default:
+              break;
+          }
 
           tok.type = Token::l_paren;
 
@@ -1424,7 +1451,7 @@ namespace
           break;
 
         case Token::l_square:
-          for(int indent = 0; tok != Token::eof; )
+          for (int indent = 0; tok != Token::eof; )
           {
             if (tok == Token::l_paren)
               skip_bracketed();
@@ -1511,7 +1538,7 @@ namespace
 
     auto expr = parse_expression(ctx, sema);
 
-    if (!expr || ctx.try_consume_token(Token::comma))
+    if (!expr || ctx.try_consume_token(Token::comma) || (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Unpack && expr_cast<UnaryOpExpr>(expr)->subexpr->kind() != Expr::Paren))
     {
       vector<Expr*> fields;
 
@@ -2955,7 +2982,7 @@ namespace
       auto tok = ctx.tok;
       auto lexcursor = ctx.lexcursor;
 
-      for(int indent = 0; tok != Token::eof; )
+      for (int indent = 0; tok != Token::eof; )
       {
         if (tok == Token::l_paren)
           indent += 1;
@@ -2985,8 +3012,6 @@ namespace
 
     if (ctx.tok == Token::arrow || ctx.tok == Token::l_brace)
     {
-      reqires->flags |= RequiresDecl::Expression;
-
       if (ctx.try_consume_token(Token::arrow))
       {
         reqires->requirestype = parse_type(ctx, sema);
@@ -3000,11 +3025,15 @@ namespace
 
       if (ctx.tok != Token::l_brace)
       {
-        ctx.diag.error("expected requires body", ctx.text, ctx.tok.loc);
-        goto resume;
+        reqires->flags |= RequiresDecl::Match;
       }
 
-      fn->body = parse_compound_statement(ctx, sema);
+      if (ctx.tok == Token::l_brace)
+      {
+        reqires->flags |= RequiresDecl::Expression;
+
+        fn->body = parse_compound_statement(ctx, sema);
+      }
     }
     else
     {
@@ -3028,77 +3057,6 @@ namespace
     reqires->fn = fn;
 
     return reqires;
-
-    resume:
-      ctx.consume_til_resumable();
-      return nullptr;
-  }
-
-  //|///////////////////// parse_concept_declaration ////////////////////////
-  Decl *parse_concept_declaration(ParseContext &ctx, Sema &sema)
-  {
-    auto koncept = sema.concept_declaration(ctx.tok.loc);
-
-    if (ctx.try_consume_token(Token::kw_pub))
-      koncept->flags |= FunctionDecl::Public;
-
-    ctx.consume_token(Token::kw_concept);
-
-    koncept->name = parse_ident(ctx, IdentUsage::TagName, sema);
-
-    if (ctx.try_consume_token(Token::less))
-    {
-      koncept->args = parse_args_list(ctx, sema);
-
-      if (!ctx.try_consume_token(Token::greater))
-      {
-        ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
-        goto resume;
-      }
-    }
-
-    if (!ctx.try_consume_token(Token::semi))
-    {
-      if (!ctx.try_consume_token(Token::l_brace))
-      {
-        ctx.diag.error("expected brace", ctx.text, ctx.tok.loc);
-        goto resume;
-      }
-
-      Decl *decl = nullptr;
-
-      while (ctx.tok != Token::r_brace && ctx.tok != Token::eof)
-      {
-        switch (ctx.tok.type)
-        {
-          case Token::semi:
-            ctx.diag.warn("extra semi", ctx.text, ctx.tok.loc);
-            ctx.consume_token(Token::semi);
-            continue;
-
-          case Token::kw_requires:
-            decl = parse_requires_declaration(ctx, sema);
-            break;
-
-          default:
-            ctx.diag.error("expected concept declaration", ctx.text, ctx.tok.loc);
-            goto resume;
-        }
-
-        if (!decl)
-          break;
-
-        koncept->decls.push_back(decl);
-      }
-    }
-
-    if (!ctx.try_consume_token(Token::r_brace))
-    {
-      ctx.diag.error("expected brace", ctx.text, ctx.tok.loc);
-      goto resume;
-    }
-
-    return koncept;
 
     resume:
       ctx.consume_til_resumable();
@@ -3701,12 +3659,12 @@ namespace
               auto tok = ctx.tok;
               auto lexcursor = ctx.lexcursor;
 
-              for(size_t i = nexttok; tok != Token::eof && i > 0; --i)
+              for (size_t i = nexttok; tok != Token::eof && i > 0; --i)
                 lexcursor = lex(ctx.text, lexcursor, tok);
 
               if (tok == Token::less)
               {
-                for(int indent = 0; tok != Token::eof; )
+                for (int indent = 0; tok != Token::eof; )
                 {
                   if (tok == Token::less)
                     indent += 1;
@@ -4305,6 +4263,93 @@ namespace
       return nullptr;
   }
 
+  //|///////////////////// parse_concept_declaration ////////////////////////
+  Decl *parse_concept_declaration(ParseContext &ctx, Sema &sema)
+  {
+    auto koncept = sema.concept_declaration(ctx.tok.loc);
+
+    if (ctx.try_consume_token(Token::kw_pub))
+      koncept->flags |= FunctionDecl::Public;
+
+    ctx.consume_token(Token::kw_concept);
+
+    koncept->name = parse_ident(ctx, IdentUsage::TagName, sema);
+
+    if (ctx.try_consume_token(Token::less))
+    {
+      koncept->args = parse_args_list(ctx, sema);
+
+      if (!ctx.try_consume_token(Token::greater))
+      {
+        ctx.diag.error("expected greater", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
+    }
+
+    if (!ctx.try_consume_token(Token::semi))
+    {
+      if (!ctx.try_consume_token(Token::l_brace))
+      {
+        ctx.diag.error("expected brace", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
+
+      Decl *decl = nullptr;
+
+      while (ctx.tok != Token::r_brace && ctx.tok != Token::eof)
+      {
+        auto tok = ctx.tok;
+        auto nexttok = 1;
+
+        if (tok == Token::kw_pub)
+        {
+          tok = ctx.token(nexttok++);
+        }
+
+        switch (tok.type)
+        {
+          case Token::semi:
+            ctx.diag.warn("extra semi", ctx.text, tok.loc);
+            ctx.consume_token(Token::semi);
+            continue;
+
+          case Token::kw_const:
+            decl = parse_const_declaration(ctx, sema);
+            break;
+
+          case Token::kw_using:
+            decl = parse_using_or_alias_declaration(ctx, sema);
+            break;
+
+          case Token::kw_requires:
+            decl = parse_requires_declaration(ctx, sema);
+            break;
+
+          default:
+            ctx.diag.error("expected concept declaration", ctx.text, tok.loc);
+            goto resume;
+        }
+
+        if (!decl)
+          break;
+
+        koncept->decls.push_back(decl);
+      }
+    }
+
+    if (!ctx.try_consume_token(Token::r_brace))
+    {
+      ctx.diag.error("expected brace", ctx.text, ctx.tok.loc);
+      goto resume;
+    }
+
+    return koncept;
+
+    resume:
+      ctx.consume_til_resumable();
+      return nullptr;
+  }
+
   //|///////////////////// parse_constant_declaration ///////////////////////
   Decl *parse_constant_declaration(ParseContext &ctx, Sema &sema)
   {
@@ -4528,7 +4573,6 @@ namespace
       ctx.consume_til_resumable();
       return nullptr;
   }
-
 
   //|///////////////////// parse_case_declaration ///////////////////////////
   Decl *parse_case_declaration(ParseContext &ctx, Sema &sema)
@@ -4789,7 +4833,7 @@ namespace
           case Token::dollar:
             if (tok == Token::dollar)
             {
-              for(int indent = 0; tok != Token::eof; )
+              for (int indent = 0; tok != Token::eof; )
               {
                 if (tok == Token::l_paren)
                   indent += 1;

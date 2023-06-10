@@ -49,7 +49,7 @@ namespace
 
     friend ostream &operator <<(ostream &os, spaces const &indent)
     {
-      for(int i = 0; i < indent.n; ++i)
+      for (int i = 0; i < indent.n; ++i)
         os << ' ';
 
       return os;
@@ -471,7 +471,7 @@ std::ostream &operator <<(std::ostream &os, Type const &type)
         os << '(';
 
         int i = 0;
-        for(auto &field : tuple.fields)
+        for (auto &field : tuple.fields)
           os << (!i++ ? "" : ", ") << *field;
 
         os << ')';
@@ -488,7 +488,7 @@ std::ostream &operator <<(std::ostream &os, Type const &type)
           os << '<';
 
           int i = 0;
-          for(auto &[decl, type] : tag.args)
+          for (auto &[decl, type] : tag.args)
             os << (!i++ ? "" : ", ") << *decl << ": " << *type;
 
           os << '>';
@@ -996,8 +996,11 @@ bool equals(Expr *lhs, Expr *rhs)
   if (lhs->kind() != rhs->kind())
     return false;
 
-  switch(lhs->kind())
+  switch (lhs->kind())
   {
+    case Expr::VoidLiteral:
+      return true;
+
     case Expr::BoolLiteral:
       return expr_cast<BoolLiteralExpr>(lhs)->value() == expr_cast<BoolLiteralExpr>(rhs)->value();
 
@@ -1027,7 +1030,7 @@ bool equals(Expr *lhs, Expr *rhs)
       if (!equals(type_cast<TypeLitType>(expr_cast<ArrayLiteralExpr>(lhs)->size)->value, type_cast<TypeLitType>(expr_cast<ArrayLiteralExpr>(rhs)->size)->value))
         return false;
 
-      for(size_t i = 0; i < expr_cast<ArrayLiteralExpr>(lhs)->elements.size(); ++i)
+      for (size_t i = 0; i < expr_cast<ArrayLiteralExpr>(lhs)->elements.size(); ++i)
       {
         if (!equals(expr_cast<ArrayLiteralExpr>(lhs)->elements[i], expr_cast<ArrayLiteralExpr>(rhs)->elements[i]))
           return false;
@@ -1040,7 +1043,7 @@ bool equals(Expr *lhs, Expr *rhs)
       if (expr_cast<CompoundLiteralExpr>(lhs)->fields.size() != expr_cast<CompoundLiteralExpr>(rhs)->fields.size())
         return false;
 
-      for(size_t i = 0; i < expr_cast<CompoundLiteralExpr>(lhs)->fields.size(); ++i)
+      for (size_t i = 0; i < expr_cast<CompoundLiteralExpr>(lhs)->fields.size(); ++i)
       {
         if (!equals(expr_cast<CompoundLiteralExpr>(lhs)->fields[i], expr_cast<CompoundLiteralExpr>(rhs)->fields[i]))
           return false;
@@ -1161,7 +1164,7 @@ void TagType::resolve(vector<Type*> &&resolved_fields)
     flags |= Type::TrivialDestroy;
   }
 
-  for(auto &decl : decls)
+  for (auto &decl : decls)
   {
     if (decl->kind() == Decl::FieldVar)
     {
@@ -1296,7 +1299,7 @@ size_t sizeof_type(TagType const *type)
 
     auto tagsize = sizeof_type(type->fields[0]);
 
-    for(size_t i = 1; i < type->fields.size(); ++i)
+    for (size_t i = 1; i < type->fields.size(); ++i)
     {
       size = max(size, sizeof_type(type->fields[i]));
       align = max(align, alignof_type(type->fields[i]));
@@ -1307,7 +1310,7 @@ size_t sizeof_type(TagType const *type)
   }
   else
   {
-    for(auto &field : type->fields)
+    for (auto &field : type->fields)
     {
       if (!(type->flags & Type::Packed))
       {
@@ -1331,7 +1334,7 @@ size_t sizeof_type(TupleType const *type)
   size_t size = 0;
   size_t align = 1;
 
-  for(auto &field : type->fields)
+  for (auto &field : type->fields)
   {
     auto alignment = alignof_type(field);
 
@@ -1442,7 +1445,7 @@ size_t alignof_type(TagType const *type)
 
   if (!(type->flags & Type::Packed))
   {
-    for(auto &field : type->fields)
+    for (auto &field : type->fields)
     {
       align = max(align, alignof_type(field));
     }
@@ -1456,7 +1459,7 @@ size_t alignof_type(TupleType const *type)
 {
   size_t align = 1;
 
-  for(auto &field : type->fields)
+  for (auto &field : type->fields)
   {
     align = max(align, alignof_type(field));
   }
@@ -1585,7 +1588,7 @@ size_t offsetof_field(CompoundType const *type, size_t index)
   }
   else
   {
-    for(auto &field : type->fields)
+    for (auto &field : type->fields)
     {
       if (!(type->flags & Type::Packed))
       {

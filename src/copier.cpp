@@ -161,7 +161,7 @@ namespace
 
       case Type::Tuple: {
         auto fields = type_cast<TupleType>(type)->fields;
-        for(auto &field : fields)
+        for (auto &field : fields)
           field = copier_type(ctx, field);
         return new TupleType(fields);
       }
@@ -194,7 +194,7 @@ namespace
   {
     std::vector<Expr*> elements;
 
-    for(auto &element : arrayliteral->elements)
+    for (auto &element : arrayliteral->elements)
     {
       elements.push_back(copier_expr(ctx, element));
     }
@@ -207,7 +207,7 @@ namespace
   {
     std::vector<Expr*> fields;
 
-    for(auto &field: compoundliteral->fields)
+    for (auto &field: compoundliteral->fields)
     {
       fields.push_back(copier_expr(ctx, field));
     }
@@ -250,10 +250,10 @@ namespace
   {
     auto result = new CallExpr(copier_decl(ctx, call->callee), call->loc());
 
-    for(auto &parm : call->parms)
+    for (auto &parm : call->parms)
       result->parms.push_back(copier_expr(ctx, parm));
 
-    for(auto &[name, parm] : call->namedparms)
+    for (auto &[name, parm] : call->namedparms)
       result->namedparms.emplace(name, copier_expr(ctx, parm));
 
     if (call->base)
@@ -329,10 +329,10 @@ namespace
   {
     auto result = new NewExpr(copier_type(ctx, call->type), copier_expr(ctx, call->address), call->loc());
 
-    for(auto &parm : call->parms)
+    for (auto &parm : call->parms)
       result->parms.push_back(copier_expr(ctx, parm));
 
-    for(auto &[name, parm] : call->namedparms)
+    for (auto &[name, parm] : call->namedparms)
       result->namedparms.emplace(name, copier_expr(ctx, parm));
 
     return result;
@@ -381,11 +381,11 @@ namespace
   Expr *copier_expr(CopierContext &ctx, FragmentExpr *fragment)
   {
     vector<Expr*> args;
-    for(auto &arg : fragment->args)
+    for (auto &arg : fragment->args)
       args.push_back(arg);
 
     vector<Decl*> decls;
-    for(auto &decl : fragment->decls)
+    for (auto &decl : fragment->decls)
       decls.push_back(copier_decl(ctx, decl));
 
     return new FragmentExpr(std::move(args), std::move(decls), fragment->loc());
@@ -493,7 +493,7 @@ namespace
 
     result->flags = pattern->flags;
 
-    for(auto &binding : pattern->bindings)
+    for (auto &binding : pattern->bindings)
       result->bindings.push_back(copier_decl(ctx, binding));
 
     return result;
@@ -624,10 +624,10 @@ namespace
     result->flags = declref->flags;
     result->name = copier_name(ctx, declref->name);
 
-    for(auto &arg : declref->args)
+    for (auto &arg : declref->args)
       result->args.push_back(copier_type(ctx, arg));
 
-    for(auto &[name, arg] : declref->namedargs)
+    for (auto &[name, arg] : declref->namedargs)
       result->namedargs.emplace(name, copier_type(ctx, arg));
 
     result->argless = declref->argless;
@@ -642,7 +642,7 @@ namespace
 
     result->flags = declref->flags;
 
-    for(auto &decl : declref->decls)
+    for (auto &decl : declref->decls)
       result->decls.push_back(copier_decl(ctx, decl));
 
     if (result->decls[0]->kind() == Decl::DeclRef && decl_cast<DeclRefDecl>(result->decls[0])->argless)
@@ -694,7 +694,7 @@ namespace
     result->flags = typealias->flags;
     result->name = copier_name(ctx, typealias->name);
 
-    for(auto &arg : typealias->args)
+    for (auto &arg : typealias->args)
       result->args.push_back(copier_decl(ctx, arg));
 
     result->type = copier_type(ctx, typealias->type);
@@ -710,13 +710,13 @@ namespace
     result->flags = tagdecl->flags;
     result->name = copier_name(ctx, tagdecl->name);
 
-    for(auto &arg : tagdecl->args)
+    for (auto &arg : tagdecl->args)
       result->args.push_back(copier_decl(ctx, arg));
 
     if (tagdecl->basetype)
       result->basetype = copier_type(ctx, tagdecl->basetype);
 
-    for(auto &decl : tagdecl->decls)
+    for (auto &decl : tagdecl->decls)
       result->decls.push_back(copier_decl(ctx, decl));
   }
 
@@ -782,11 +782,11 @@ namespace
 
     copier_decl(ctx, result, decl_cast<TagDecl>(lambda));
 
-    for(auto &decl : lambda->decls)
+    for (auto &decl : lambda->decls)
       if (decl == lambda->fn)
         result->fn = result->decls[&decl - &lambda->decls[0]];
 
-    for(auto &capture : lambda->captures)
+    for (auto &capture : lambda->captures)
       result->captures.push_back(copier_decl(ctx, capture));
 
     return result;
@@ -839,10 +839,10 @@ namespace
     result->flags = init->flags;
     result->name = copier_name(ctx, init->name);
 
-    for(auto &parm : init->parms)
+    for (auto &parm : init->parms)
       result->parms.push_back(copier_expr(ctx, parm));
 
-    for(auto &[name, parm] : init->namedparms)
+    for (auto &[name, parm] : init->namedparms)
       result->namedparms.emplace(name, copier_expr(ctx, parm));
 
     return result;
@@ -876,7 +876,7 @@ namespace
     result->decl = imprt->decl;
     result->alias = imprt->alias;
 
-    for(auto &usein : imprt->usings)
+    for (auto &usein : imprt->usings)
       result->usings.push_back(copier_decl(ctx, usein));
 
     return result;
@@ -902,10 +902,10 @@ namespace
     result->name = copier_name(ctx, fn->name);
     result->builtin = fn->builtin;
 
-    for(auto &arg : fn->args)
+    for (auto &arg : fn->args)
       result->args.push_back(copier_decl(ctx, arg));
 
-    for(auto &parm : fn->parms)
+    for (auto &parm : fn->parms)
       result->parms.push_back(copier_decl(ctx, parm));
 
     if (fn->throws)
@@ -920,7 +920,7 @@ namespace
     if (fn->where)
       result->where = copier_expr(ctx, fn->where);
 
-    for(auto &init : fn->inits)
+    for (auto &init : fn->inits)
       result->inits.push_back(copier_decl(ctx, init));
 
     if (fn->body)
@@ -948,7 +948,7 @@ namespace
     result->flags = ifd->flags;
     result->cond = copier_expr(ctx, ifd->cond);
 
-    for(auto &decl : ifd->decls)
+    for (auto &decl : ifd->decls)
       result->decls.push_back(copier_decl(ctx, decl));
 
     if (ifd->elseif)
@@ -960,7 +960,7 @@ namespace
   //|///////////////////// copier_decl ///////////////////////////////////////
   Decl *copier_decl(CopierContext &ctx, Decl *decl)
   {
-    switch(decl->kind())
+    switch (decl->kind())
     {
       case Decl::IdentPattern:
         decl = copier_decl(ctx, decl_cast<IdentPatternDecl>(decl));
@@ -1131,7 +1131,7 @@ namespace
 
     result->flags = ifs->flags;
 
-    for(auto &init : ifs->inits)
+    for (auto &init : ifs->inits)
       result->inits.push_back(copier_stmt(ctx, init));
 
     result->cond = copier_expr(ctx, ifs->cond);
@@ -1152,7 +1152,7 @@ namespace
 
     result->flags = fors->flags;
 
-    for(auto &init : fors->inits)
+    for (auto &init : fors->inits)
       result->inits.push_back(copier_stmt(ctx, init));
 
     if (fors->cond)
@@ -1160,7 +1160,7 @@ namespace
 
     result->stmt = copier_stmt(ctx, fors->stmt);
 
-    for(auto &iter : fors->iters)
+    for (auto &iter : fors->iters)
       result->iters.push_back(copier_stmt(ctx, iter));
 
     return result;
@@ -1173,7 +1173,7 @@ namespace
 
     result->flags = rofs->flags;
 
-    for(auto &init : rofs->inits)
+    for (auto &init : rofs->inits)
       result->inits.push_back(copier_stmt(ctx, init));
 
     if (rofs->cond)
@@ -1181,7 +1181,7 @@ namespace
 
     result->stmt = copier_stmt(ctx, rofs->stmt);
 
-    for(auto &iter : rofs->iters)
+    for (auto &iter : rofs->iters)
       result->iters.push_back(copier_stmt(ctx, iter));
 
     return result;
@@ -1192,10 +1192,10 @@ namespace
   {
     auto result = new WhileStmt(wile->loc());
 
-    for(auto &init : wile->inits)
+    for (auto &init : wile->inits)
       result->inits.push_back(copier_stmt(ctx, init));
 
-    for(auto &iter : wile->iters)
+    for (auto &iter : wile->iters)
       result->iters.push_back(copier_stmt(ctx, iter));
 
     result->cond = copier_expr(ctx, wile->cond);
@@ -1209,12 +1209,12 @@ namespace
   {
     auto result = new SwitchStmt(swtch->loc());
 
-    for(auto &init : swtch->inits)
+    for (auto &init : swtch->inits)
       result->inits.push_back(copier_stmt(ctx, init));
 
     result->cond = copier_expr(ctx, swtch->cond);
 
-    for(auto &decl : swtch->decls)
+    for (auto &decl : swtch->decls)
       result->decls.push_back(copier_decl(ctx, decl));
 
     return result;
@@ -1281,7 +1281,7 @@ namespace
   {
     auto result = new CompoundStmt(compound->loc());
 
-    for(auto &stmt : compound->stmts)
+    for (auto &stmt : compound->stmts)
       result->stmts.push_back(copier_stmt(ctx, stmt));
 
     result->endloc = compound->endloc;
@@ -1292,7 +1292,7 @@ namespace
   //|///////////////////// copier_stmt //////////////////////////////////////
   Stmt *copier_stmt(CopierContext &ctx, Stmt *stmt)
   {
-    switch(stmt->kind())
+    switch (stmt->kind())
     {
       case Stmt::Null:
         stmt = new NullStmt(stmt->loc());

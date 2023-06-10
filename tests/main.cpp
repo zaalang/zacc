@@ -37,7 +37,7 @@ void compile_tests()
 
   auto fn = fstream("output", ios_base::in | ios_base::out | ios_base::trunc);
 
-  for(auto &entry : std::filesystem::recursive_directory_iterator(COMPILE_TESTS_PATH))
+  for (auto &entry : std::filesystem::recursive_directory_iterator(COMPILE_TESTS_PATH))
   {
     if (!entry.is_regular_file() || entry.path().extension() != ".zaa")
       continue;
@@ -79,7 +79,7 @@ void compile_tests()
     else
       cout << "[\033[01;31mFAIL\033[0m] " << entry.path().filename() << endl;
 
-    for(auto &line : output)
+    for (auto &line : output)
     {
       cout << "  " << line << '\n';
     }

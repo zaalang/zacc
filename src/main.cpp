@@ -40,7 +40,7 @@ int main(int argc, char *argv[])
 
   string input = "";
 
-  for(int i = 0, j = 0; i < argc; ++i)
+  for (int i = 0, j = 0; i < argc; ++i)
   {    
     if (argv[i][0] == '-')
     {
@@ -67,7 +67,7 @@ int main(int argc, char *argv[])
     Sema sema;
     GenOpts opts;
 
-    for(int i = 0; i < argc; ++i)
+    for (int i = 0; i < argc; ++i)
     {
       if (strncmp(argv[i], "-I", 2) == 0)
         sema.add_include_path(argv[i][2] != 0 ? argv[i] + 2 : argv[++i]);
@@ -163,7 +163,7 @@ int main(int argc, char *argv[])
 
     string outfile = filename(toolchain, basename(input), opts.outputtype);
 
-    for(int i = 0; i < argc; ++i)
+    for (int i = 0; i < argc; ++i)
     {
       if (strncmp(argv[i], "-o", 2) == 0)
         outfile = filename(toolchain, string_view(argv[i][2] != 0 ? argv[i] + 2 : argv[++i]), opts.outputtype);
@@ -216,7 +216,7 @@ int main(int argc, char *argv[])
 
       vector<string> libraries;
 
-      for(int i = 0; i < argc; ++i)
+      for (int i = 0; i < argc; ++i)
       {
         if (strncmp(argv[i], "-L", 2) == 0)
           toolchain.add_library_path(argv[i][2] != 0 ? argv[i] + 2 : argv[++i]);

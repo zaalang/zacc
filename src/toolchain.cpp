@@ -57,7 +57,7 @@ ToolChain::ToolChain(string const &triple)
 
     if (string paths = string(getenv("PATH")) + ';'; !paths.empty())
     {
-      for(size_t i = 0, j = paths.find_first_of(';'); j != string::npos; i = j + 1, j = paths.find_first_of(';', j + 1))
+      for (size_t i = 0, j = paths.find_first_of(';'); j != string::npos; i = j + 1, j = paths.find_first_of(';', j + 1))
       {
         auto libdir = paths.substr(i, j-i) + "\\..\\" + m_arch + "-" + m_vendor + "-mingw32" + "\\lib";
 
@@ -77,7 +77,7 @@ ToolChain::ToolChain(string const &triple)
 
     if (string paths = "/usr/lib;"; !paths.empty())
     {
-      for(size_t i = 0, j = paths.find_first_of(';'); j != string::npos; i = j + 1, j = paths.find_first_of(';', j + 1))
+      for (size_t i = 0, j = paths.find_first_of(';'); j != string::npos; i = j + 1, j = paths.find_first_of(';', j + 1))
       {
         auto libdir = paths.substr(i, j-i) + "/gcc/" + triple;
 
@@ -118,7 +118,7 @@ ToolChain::ToolChain(string const &triple)
 
     if (string paths = "/usr/lib;"; !paths.empty())
     {
-      for(size_t i = 0, j = paths.find_first_of(';'); j != string::npos; i = j + 1, j = paths.find_first_of(';', j + 1))
+      for (size_t i = 0, j = paths.find_first_of(';'); j != string::npos; i = j + 1, j = paths.find_first_of(';', j + 1))
       {
         auto libdir = paths.substr(i, j-i) + "/gcc/" + triple;
 
@@ -164,10 +164,10 @@ int ToolChain::ld(string_view input, string_view output, vector<string> librarie
     cmd += " " + string(input);
     cmd += " -o " + string(output);
 
-    for(auto &librarypath : m_library_paths)
+    for (auto &librarypath : m_library_paths)
       cmd += " -L" + librarypath;
 
-    for(auto &library : libraries)
+    for (auto &library : libraries)
       cmd += " -l" + library;
   }
 
@@ -181,10 +181,10 @@ int ToolChain::ld(string_view input, string_view output, vector<string> librarie
     cmd += " " + string(input);
     cmd += " -o " + string(output);
 
-    for(auto &librarypath : m_library_paths)
+    for (auto &librarypath : m_library_paths)
       cmd += " -L" + librarypath;
 
-    for(auto &library : libraries)
+    for (auto &library : libraries)
       cmd += " -l" + library;
   }
 
@@ -216,10 +216,10 @@ int ToolChain::ld(string_view input, string_view output, vector<string> librarie
     cmd += " " + string(input);
     cmd += " -o " + string(output);
 
-    for(auto &librarypath : m_library_paths)
+    for (auto &librarypath : m_library_paths)
       cmd += " -L" + librarypath;
 
-    for(auto &library : libraries)
+    for (auto &library : libraries)
       cmd += " -l" + library;
   }
 
@@ -231,7 +231,7 @@ string filename(ToolChain const &tc, string_view path, ToolChain::FileType type)
 {
   auto suffix = string_view();
 
-  switch(type)
+  switch (type)
   {
     case ToolChain::Object:
       suffix = (tc.os() == "windows") ? ".obj" : ".o";
@@ -255,7 +255,7 @@ string filename(ToolChain const &tc, string_view path, ToolChain::FileType type)
 
 string filename(ToolChain const &tc, string_view path, GenOpts::OutputType type)
 {
-  switch(type)
+  switch (type)
   {
     case GenOpts::OutputType::EmitAsm:
       return filename(tc, path, ToolChain::Assembly);

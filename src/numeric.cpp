@@ -28,7 +28,7 @@ namespace Numeric
 
     auto digit = [](char ch) { return ch - '0'; };
 
-    for(auto ch : str.substr(2))
+    for (auto ch : str.substr(2))
     {
       if (ch == '_')
         continue;
@@ -51,7 +51,7 @@ namespace Numeric
 
     auto digit = [](char ch) { return ch - '0'; };
 
-    for(auto ch : str.substr(2))
+    for (auto ch : str.substr(2))
     {
       if (ch == '_')
         continue;
@@ -74,7 +74,7 @@ namespace Numeric
 
     auto digit = [](char ch) { return ch - ((ch <= '9') ? '0' : (ch <= 'F') ? '7' : 'W'); };
 
-    for(auto ch : str.substr(2))
+    for (auto ch : str.substr(2))
     {
       if (ch == '_')
         continue;
@@ -97,7 +97,7 @@ namespace Numeric
 
     auto digit = [](char ch) { return ch - '0'; };
 
-    for(auto ch : str)
+    for (auto ch : str)
     {
       if (ch == '_')
         continue;
@@ -163,7 +163,7 @@ namespace Numeric
     uint32_t value = 0;
     uint32_t state = 0;
 
-    for(auto ch : str.substr(1, str.length() - 2))
+    for (auto ch : str.substr(1, str.length() - 2))
     {
       uint32_t byte = uint8_t(ch);
       uint32_t type = utf8d[byte];
@@ -175,7 +175,7 @@ namespace Numeric
 
     if (str.length() >= 4 && str.substr(1).front() == '\\')
     {
-      switch(str.substr(2).front())
+      switch (str.substr(2).front())
       {
         case 'a':
           value = '\a';
@@ -245,7 +245,7 @@ namespace Numeric
     char buffer[256];
 
     size_t i = 0;
-    for(auto ch : str)
+    for (auto ch : str)
     {
       if (ch == '_')
         continue;
@@ -267,7 +267,7 @@ namespace Numeric
     char buffer[256];
 
     size_t i = 0;
-    for(auto ch : str)
+    for (auto ch : str)
     {
       if (ch == '_')
         continue;
@@ -309,7 +309,7 @@ namespace Numeric
 
     if (str.substr(0, 2) == "0x")
     {
-      for(auto ch : str)
+      for (auto ch : str)
       {
         if (ch == '.' || ch == 'p' || ch == 'P')
           return false;
@@ -320,7 +320,7 @@ namespace Numeric
 
     if (str.front() >= '0' && str.front() <= '9')
     {
-      for(auto ch : str)
+      for (auto ch : str)
       {
         if (ch == '.' || ch == 'e' || ch == 'E' || ch == 'p' || ch == 'P')
           return false;

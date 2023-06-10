@@ -416,7 +416,7 @@ namespace
 
     vector<llvm::Type*> elements;
 
-    for(auto &field: type->fields)
+    for (auto &field: type->fields)
     {
       elements.push_back(llvm_type(ctx, field, true));
     }
@@ -434,7 +434,7 @@ namespace
 
     vector<llvm::Type*> elements;
 
-    for(auto &field: type->fields)
+    for (auto &field: type->fields)
     {
       elements.push_back(llvm_type(ctx, field, true));
     }
@@ -463,7 +463,7 @@ namespace
     auto max_align = size_t(0);
     auto max_align_type = ctx.voidtype;
 
-    for(size_t i = 1; i < type->fields.size(); ++i)
+    for (size_t i = 1; i < type->fields.size(); ++i)
     {
       auto alignment = alignof_type(type->fields[i]);
 
@@ -815,7 +815,7 @@ namespace
 
       vector<llvm::Metadata*> elements;
 
-      for(size_t index = 0; index < type->fields.size(); ++index)
+      for (size_t index = 0; index < type->fields.size(); ++index)
       {
         auto vardecl = decl_cast<FieldVarDecl>(type->fieldvars[index]);
 
@@ -836,7 +836,7 @@ namespace
 
       vector<llvm::Metadata*> elements;
 
-      for(size_t index = 0; index < type->fields.size(); ++index)
+      for (size_t index = 0; index < type->fields.size(); ++index)
       {
         auto name = to_string(index);
         auto field = ctx.di.createMemberType(ctx.diunit, name, ctx.difile, 0, sizeof_field(type, index) * 8, alignof_field(type, index) * 8, offsetof_field(type, index) * 8, llvm::DINode::FlagZero, llvm_ditype(ctx, type->fields[index]));
@@ -1061,7 +1061,7 @@ namespace
 
       if (arraylen != 0)
       {
-        for(auto &element : literal->elements)
+        for (auto &element : literal->elements)
         {
           elements.push_back(llvm_constant(ctx, fx, remove_const_type(elemtype), element));
         }
@@ -1069,7 +1069,7 @@ namespace
         if (any_of(elements.begin(), elements.end(), [](auto &k) { return !k; }))
           return nullptr;
 
-        for(size_t i = elements.size(); i < arraylen; ++i)
+        for (size_t i = elements.size(); i < arraylen; ++i)
           elements.push_back(elements.back());
       }
 
@@ -1109,7 +1109,7 @@ namespace
 
       assert(fields.size() == literal->fields.size());
 
-      for(size_t i = 0; i < fields.size(); ++i)
+      for (size_t i = 0; i < fields.size(); ++i)
       {
         elements.push_back(llvm_constant(ctx, fx, remove_const_type(fields[i]), literal->fields[i]));
       }
@@ -1403,7 +1403,7 @@ namespace
     auto basetype = llvm_type(ctx, rhs.type, rhs.flags, true);
     auto index = vector<llvm::Value*>{ ctx.builder.getInt32(0) };
 
-    for(auto &field : fields)
+    for (auto &field : fields)
     {
       if (field.op == MIR::RValue::Val)
       {
@@ -3113,7 +3113,7 @@ namespace
       }
     }
 
-    for(size_t index = 0; index < paramtuple->fields.size(); ++index)
+    for (size_t index = 0; index < paramtuple->fields.size(); ++index)
     {
       auto argtype = remove_const_type(remove_reference_type(paramtuple->fields[index]));
 
@@ -3291,6 +3291,30 @@ namespace
       fx.diag.error("invalid signbit arguments", fx.fn, loc);
       fx.diag << "  operand type: '" << *fx.mir.locals[args[0]].type << "'\n";
     }
+  }
+
+  //|///////////////////// byteswap /////////////////////////////////////////
+  void codegen_builtin_byteswap(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto lhs = load(ctx, fx, args[0]);
+
+    auto result = ctx.builder.CreateUnaryIntrinsic(llvm::Intrinsic::bswap, lhs);
+
+    store(ctx, fx, dst, result);
+  }
+
+  //|///////////////////// bitreverse ///////////////////////////////////////
+  void codegen_builtin_bitreverse(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto lhs = load(ctx, fx, args[0]);
+
+    auto result = ctx.builder.CreateUnaryIntrinsic(llvm::Intrinsic::bitreverse, lhs);
+
+    store(ctx, fx, dst, result);
   }
 
   //|///////////////////// frexp ////////////////////////////////////////////
@@ -3694,7 +3718,7 @@ namespace
 
     auto attrbuilder = llvm::AttrBuilder(ctx.context);
 
-    for(auto field : type_cast<TupleType>(fx.mir.locals[args[0]].type)->fields)
+    for (auto field : type_cast<TupleType>(fx.mir.locals[args[0]].type)->fields)
     {
       parmtypes.push_back(llvm_type(ctx, field));
     }
@@ -3703,7 +3727,7 @@ namespace
     auto asmfn = llvm::InlineAsm::get(asmty, src->value(), dsc->value(), true, false, llvm::InlineAsm::AD_Intel);
 
     size_t arg = 0;
-    for(auto &constraint : asmfn->ParseConstraints())
+    for (auto &constraint : asmfn->ParseConstraints())
     {
       if (constraint.hasArg())
       {
@@ -3920,6 +3944,14 @@ namespace
           codegen_builtin_signbit(ctx, fx, dst, call);
           break;
 
+        case Builtin::byteswap:
+          codegen_builtin_byteswap(ctx, fx, dst, call);
+          break;
+
+        case Builtin::bitreverse:
+          codegen_builtin_bitreverse(ctx, fx, dst, call);
+          break;
+
         case Builtin::frexp:
           codegen_builtin_frexp(ctx, fx, dst, call);
           break;
@@ -4053,7 +4085,7 @@ namespace
         parms.push_back(fx.locals[fx.mir.blocks[fx.currentblockid].terminator.value].alloca);
       }
 
-      for(auto &arg : args)
+      for (auto &arg : args)
       {
         if (fx.mir.locals[arg].zerosized())
           continue;
@@ -4077,7 +4109,7 @@ namespace
       func->getReturnType()->print(os, true);
       os << '\n';
 
-      for(size_t i = 0; i < func->getFunctionType()->getNumParams(); ++i)
+      for (size_t i = 0; i < func->getFunctionType()->getNumParams(); ++i)
       {
         os << "  " << i << ": ";
         func->getFunctionType()->getParamType(i)->print(os, true);
@@ -4290,7 +4322,7 @@ namespace
       auto value = ctx.builder.CreateIntCast(cond, ctx.builder.getInt64Ty(), is_signed_type(type));
       auto swtch = ctx.builder.CreateSwitch(value, fx.blocks[blockid].bx, targets.size());
 
-      for(auto &[k, v] : targets)
+      for (auto &[k, v] : targets)
       {
         swtch->addCase(ctx.builder.getInt64(k), fx.blocks[v].bx);
       }
@@ -4470,7 +4502,7 @@ namespace
 
     ctx.builder.SetInsertPoint(fx.blocks[fx.currentblockid].bx);
 
-    for(auto &statement : block.statements)
+    for (auto &statement : block.statements)
     {
       if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None)
       {
@@ -4578,7 +4610,7 @@ namespace
       }
     }
 
-    for(size_t i = fx.mir.args_beg, end = fx.mir.args_end; i != end; ++i)
+    for (size_t i = fx.mir.args_beg, end = fx.mir.args_end; i != end; ++i)
     {
       attrbuilder.clear();
 
@@ -4689,7 +4721,7 @@ namespace
     fnprot->getReturnType()->print(os, true);
     os << '\n';
 
-    for(size_t i = 0; i < fnprot->getFunctionType()->getNumParams(); ++i)
+    for (size_t i = 0; i < fnprot->getFunctionType()->getNumParams(); ++i)
     {
       os << "  " << i << ": ";
       fnprot->getFunctionType()->getParamType(i)->print(os, true);
@@ -4715,14 +4747,14 @@ namespace
 
     // determine local usage
 
-    for(size_t i = 0, end = fx.mir.locals.size(); i != end; ++i)
+    for (size_t i = 0, end = fx.mir.locals.size(); i != end; ++i)
     {
       fx.locals[i].flags = fx.mir.locals[i].flags;
     }
 
-    for(auto &block : fx.mir.blocks)
+    for (auto &block : fx.mir.blocks)
     {
-      for(auto &statement : block.statements)
+      for (auto &statement : block.statements)
       {
         if (statement.kind == MIR::Statement::NoOp)
           continue;
@@ -4742,7 +4774,7 @@ namespace
 
             while (!stack.empty())
             {
-              for(auto &field : stack.front()->fields)
+              for (auto &field : stack.front()->fields)
               {
                 if (field->kind() == Expr::CompoundLiteral)
                   stack.push_back(expr_cast<CompoundLiteralExpr>(field));
@@ -4786,7 +4818,7 @@ namespace
             fx.locals[statement.dst].firstarg_return = true;
           }
 
-          for(auto &arg : args)
+          for (auto &arg : args)
           {
             if (!is_concrete_type(fx.mir.locals[arg].type))
             {
@@ -4818,7 +4850,7 @@ namespace
       }
     }
 
-    for(auto &[arg, value] : fx.mir.statics)
+    for (auto &[arg, value] : fx.mir.statics)
     {
       auto constant = value.get<MIR::RValue::Constant>();
 
@@ -4833,7 +4865,7 @@ namespace
 
         while (!stack.empty())
         {
-          for(auto &field : stack.front()->fields)
+          for (auto &field : stack.front()->fields)
           {
             if (field->kind() == Expr::CompoundLiteral)
               stack.push_back(expr_cast<CompoundLiteralExpr>(field));
@@ -4847,7 +4879,7 @@ namespace
       }
     }
 
-    for(auto &var : fx.mir.varinfos)
+    for (auto &var : fx.mir.varinfos)
     {
       fx.locals[var.local].info = &var;
     }
@@ -4874,7 +4906,7 @@ namespace
           parameters.push_back(ctx.di.createReferenceType(llvm::dwarf::DW_TAG_pointer_type, llvm_ditype(ctx, fx.mir.locals[1])));
       }
 
-      for(size_t i = fx.mir.args_beg, end = fx.mir.args_end; i != end; ++i)
+      for (size_t i = fx.mir.args_beg, end = fx.mir.args_end; i != end; ++i)
       {
         if (fx.mir.locals[i].zerosized())
           continue;
@@ -4885,7 +4917,7 @@ namespace
           parameters.back() = ctx.di.createReferenceType(llvm::dwarf::DW_TAG_pointer_type, llvm::cast<llvm::DIType>(parameters.back()));
       }
 
-      for(size_t i = fx.mir.args_beg, end = fx.mir.locals.size(); i != end; ++i)
+      for (size_t i = fx.mir.args_beg, end = fx.mir.locals.size(); i != end; ++i)
       {
         if (fx.locals[i].info)
           fx.locals[i].addressable = true;
@@ -4925,7 +4957,7 @@ namespace
       }
     }
 
-    for(size_t i = firstarg; i < 1; ++i)
+    for (size_t i = firstarg; i < 1; ++i)
     {
       if (is_void_type(fx.mir.locals[i].type))
         continue;
@@ -4936,7 +4968,7 @@ namespace
       fx.locals[i].alloca = alloc(ctx, fx, fx.mir.locals[i].type, fx.locals[i].flags);
     }
 
-    for(size_t i = fx.mir.args_beg, j = firstarg, end = fx.mir.args_end; i != end; ++i)
+    for (size_t i = fx.mir.args_beg, j = firstarg, end = fx.mir.args_end; i != end; ++i)
     {
       if (fx.locals[i].passarg_pointer)
       {
@@ -4953,7 +4985,7 @@ namespace
       store(ctx, fx, i, fnprot->getArg(j++));
     }
 
-    for(size_t i = fx.mir.args_end, end = fx.locals.size(); i != end; ++i)
+    for (size_t i = fx.mir.args_end, end = fx.locals.size(); i != end; ++i)
     {
       if (type_category(fx.mir.locals[i].type) == TypeCategory::Unresolved)
         continue;
@@ -4966,7 +4998,7 @@ namespace
 
     if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None)
     {
-      for(size_t i = fx.mir.args_beg, end = fx.mir.args_end; i != end; ++i)
+      for (size_t i = fx.mir.args_beg, end = fx.mir.args_end; i != end; ++i)
       {
         if (fx.locals[i].info->vardecl->name)
         {
@@ -4981,19 +5013,19 @@ namespace
 
     // statics
 
-    for(auto &[arg, value] : fx.mir.statics)
+    for (auto &[arg, value] : fx.mir.statics)
     {
       codegen_static(ctx, fx, arg, value);
     }
 
     // blocks
 
-    for(size_t i = 1; i < fx.mir.blocks.size(); ++i)
+    for (size_t i = 1; i < fx.mir.blocks.size(); ++i)
     {
       fx.blocks[i].bx = llvm::BasicBlock::Create(ctx.context, "bb" + to_string(i), fnprot);
     }
 
-    for(auto &block : fx.mir.blocks)
+    for (auto &block : fx.mir.blocks)
     {
       codegen_block(ctx, fx, block);
 
@@ -5197,7 +5229,7 @@ namespace
   //|///////////////////// codegen_finalise /////////////////////////////////
   void codegen_finalise(GenContext &ctx)
   {
-    for(auto enumm : ctx.deferred_enums)
+    for (auto enumm : ctx.deferred_enums)
     {
       auto type = type_cast<TagType>(enumm);
       auto decl = decl_cast<TagDecl>(type->decl);
@@ -5205,7 +5237,7 @@ namespace
 
       vector<llvm::Metadata*> elements;
 
-      for(auto &field : decl->decls)
+      for (auto &field : decl->decls)
       {
         if (field->kind() == Decl::EnumConstant)
         {
@@ -5445,13 +5477,13 @@ void codegen(AST *ast, string const &target, GenOpts const &genopts, Diag &diag)
 
   auto root = decl_cast<TranslationUnitDecl>(ast->root);
 
-  for(auto &decl : root->decls)
+  for (auto &decl : root->decls)
   {
     if (decl->kind() == Decl::Module)
     {
       auto module = decl_cast<ModuleDecl>(decl);
 
-      for(auto &decl : module->decls)
+      for (auto &decl : module->decls)
       {
         if (decl->kind() == Decl::Function)
         {
@@ -5466,7 +5498,7 @@ void codegen(AST *ast, string const &target, GenOpts const &genopts, Diag &diag)
     }
   }
 
-  for(auto &decl : decl_cast<ModuleDecl>(root->mainmodule)->decls)
+  for (auto &decl : decl_cast<ModuleDecl>(root->mainmodule)->decls)
   {
     if (decl->kind() == Decl::Function)
     {

@@ -25,7 +25,7 @@ namespace
 
     friend ostream &operator <<(ostream &os, spaces const &indent)
     {
-      for(int i = 0; i < indent.n; ++i)
+      for (int i = 0; i < indent.n; ++i)
         os << ' ';
 
       return os;
@@ -100,7 +100,7 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
     case Decl::DeclScoped:
       if (auto &declscoped = static_cast<DeclScopedDecl const &>(decl); true)
       {
-        for(auto &scoped : declscoped.decls)
+        for (auto &scoped : declscoped.decls)
           os << *scoped << (&scoped != &declscoped.decls.back() ? "::" : "");
       }
       break;
@@ -116,11 +116,11 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
         {
           os << '<';
 
-          for(auto &arg : ref.args)
+          for (auto &arg : ref.args)
             os << *arg << (&arg != &ref.args.back() ? ", " : "");
 
           int i = 0;
-          for(auto &[name, arg] : ref.namedargs)
+          for (auto &[name, arg] : ref.namedargs)
             os << (!i++ ? "" : ", ") << *name << ": " << *arg;
 
           os << '>';
@@ -142,7 +142,7 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
         {
           os << '<';
 
-          for(auto &arg : fn.args)
+          for (auto &arg : fn.args)
             os << *arg << (&arg != &fn.args.back() ? ", " : "");
 
           os << '>';
@@ -152,7 +152,7 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
 
         if (auto parms = fn.parms; parms.size() != 0)
         {
-          for(auto &parm : parms)
+          for (auto &parm : parms)
             os << *parm << (&parm != &parms.back() ? ", " : "");
         }
 
@@ -172,7 +172,7 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
         {
           os << '<';
 
-          for(auto &arg : alias.args)
+          for (auto &arg : alias.args)
             os << *arg << (&arg != &alias.args.back() ? ", " : "");
 
           os << '>';
@@ -194,7 +194,7 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
         {
           os << '<';
 
-          for(auto &arg : tag.args)
+          for (auto &arg : tag.args)
             os << *arg << (&arg != &tag.args.back() ? ", " : "");
 
           os << '>';
@@ -225,7 +225,7 @@ std::ostream &operator <<(std::ostream &os, Decl const &decl)
       {
         os << '(';
 
-        for(auto &binding : pattern.bindings)
+        for (auto &binding : pattern.bindings)
           os << *binding << (&binding != &pattern.bindings.back() ? ", " : "");
 
         os << ')';
@@ -329,7 +329,7 @@ void TranslationUnitDecl::dump(int indent) const
 {
   cout << spaces(indent) << "TranslationUnitDecl " << this << '\n';
 
-  for(auto &decl : decls)
+  for (auto &decl : decls)
   {
     decl->dump(indent + 2);
   }
@@ -352,7 +352,7 @@ void ModuleDecl::dump(int indent) const
 {
   cout << spaces(indent) << "ModuleDecl " << this << " <" << m_file << "> '" << *this << "'\n";
 
-  for(auto &decl : decls)
+  for (auto &decl : decls)
   {
     decl->dump(indent + 2);
   }
@@ -374,17 +374,17 @@ void FunctionDecl::dump(int indent) const
 {
   cout << spaces(indent) << "FunctionDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 
-  for(auto &arg : args)
+  for (auto &arg : args)
   {
     arg->dump(indent + 2);
   }
 
-  for(auto &parm : parms)
+  for (auto &parm : parms)
   {
     parm->dump(indent + 2);
   }
 
-  for(auto &init: inits)
+  for (auto &init: inits)
   {
     init->dump(indent + 2);
   }
@@ -727,7 +727,7 @@ void StructDecl::dump(int indent) const
     basetype->dump(indent + 2);
   }
 
-  for(auto &decl : decls)
+  for (auto &decl : decls)
   {
     decl->dump(indent + 2);
   }
@@ -748,7 +748,7 @@ void UnionDecl::dump(int indent) const
 {
   cout << spaces(indent) << "UnionDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 
-  for(auto &decl : decls)
+  for (auto &decl : decls)
   {
     decl->dump(indent + 2);
   }
@@ -774,7 +774,7 @@ void VTableDecl::dump(int indent) const
     basetype->dump(indent + 2);
   }
 
-  for(auto &decl : decls)
+  for (auto &decl : decls)
   {
     decl->dump(indent + 2);
   }
@@ -796,12 +796,12 @@ void LambdaDecl::dump(int indent) const
 {
   cout << spaces(indent) << "LambdaDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 
-  for(auto &capture : captures)
+  for (auto &capture : captures)
   {
     capture->dump(indent + 2);
   }
 
-  for(auto &decl : decls)
+  for (auto &decl : decls)
   {
     decl->dump(indent + 2);
   }
@@ -916,12 +916,12 @@ void InitialiserDecl::dump(int indent) const
 {
   cout << spaces(indent) << "InitialiserDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 
-  for(auto &parm : parms)
+  for (auto &parm : parms)
   {
     parm->dump(indent + 2);
   }
 
-  for(auto &[name, parm] : namedparms)
+  for (auto &[name, parm] : namedparms)
   {
     parm->dump(indent + 2);
   }
@@ -998,7 +998,7 @@ void ConceptDecl::dump(int indent) const
 {
   cout << spaces(indent) << "ConceptDecl " << this << " <" << m_loc << "> '" << *this << "'\n";
 
-  for(auto &decl : decls)
+  for (auto &decl : decls)
   {
     decl->dump(indent + 2);
   }
@@ -1051,7 +1051,7 @@ void EnumDecl::dump(int indent) const
     basetype->dump(indent + 2);
   }
 
-  for(auto &decl : decls)
+  for (auto &decl : decls)
   {
     decl->dump(indent + 2);
   }
@@ -1064,6 +1064,13 @@ void EnumDecl::dump(int indent) const
 //|///////////////////// EnumConstantDecl::Constructor //////////////////////
 EnumConstantDecl::EnumConstantDecl(SourceLocation loc)
   : Decl(EnumConstant, loc)
+{
+}
+
+//|///////////////////// EnumConstantDecl::Constructor //////////////////////
+EnumConstantDecl::EnumConstantDecl(Ident *name, SourceLocation loc)
+  : Decl(EnumConstant, loc),
+    name(name)
 {
 }
 
@@ -1140,7 +1147,7 @@ void IfDecl::dump(int indent) const
     cond->dump(indent + 2);
   }
 
-  for(auto &decl : decls)
+  for (auto &decl : decls)
   {
     decl->dump(indent + 2);
   }

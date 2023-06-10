@@ -561,6 +561,9 @@ namespace Builtin
     make_function(ctz, "pub const fn __ctz<T>(T) -> int", __LINE__);
     make_function(popcnt, "pub const fn __popcnt<T>(T) -> int", __LINE__);
     make_function(signbit, "pub const fn __signbit<T>(T) -> int", __LINE__);
+    make_function(byteswap, "pub const fn __byteswap<T>(T) -> T", __LINE__);
+    make_function(bitreverse, "pub const fn __bitreverse<T>(T) -> T", __LINE__);
+
     make_function(abs, "pub const fn __abs<T>(T) -> T", __LINE__);
     make_function(min, "pub const fn __min<T>(T, T) -> T", __LINE__);
     make_function(max, "pub const fn __max<T>(T, T) -> T", __LINE__);
@@ -706,7 +709,7 @@ namespace Builtin
   {
     assert(module->kind() == Decl::Module && decl_cast<ModuleDecl>(module)->name == "#builtin"sv);
 
-    for(auto &decl : decl_cast<ModuleDecl>(module)->decls)
+    for (auto &decl : decl_cast<ModuleDecl>(module)->decls)
     {
       if (decl->kind() != Decl::Function)
         continue;
@@ -746,7 +749,13 @@ namespace Builtin
     auto is_char = [&](Type *type) { return is_char_type(type); };
     auto is_pointer = [&](Type *type) { return is_pointer_type(type); };
     auto is_reference = [&](Type *type) { return is_reference_type(type); };
-    auto base_type = [&](Type *type) { while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
+
+    auto base_type = [&](Type *type) {
+      while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype && (type_cast<TagType>(type)->decl->flags & TagDecl::PublicBase))
+        type = type_cast<TagType>(type)->fields[0];
+
+      return type;
+    };
 
     auto find_type = [&](Decl *decl) { return std::find_if(typeargs.begin(), typeargs.end(), [&](auto &k) { return k.first == decl; }); };
 
@@ -755,7 +764,7 @@ namespace Builtin
       if (lhs->fields.size() != rhs->fields.size())
         return false;
 
-      for(size_t index = 0; index < lhs->fields.size(); ++index)
+      for (size_t index = 0; index < lhs->fields.size(); ++index)
       {
         auto lhsfield = remove_const_type(lhs->fields[index]);
         auto rhsfield = remove_const_type(rhs->fields[index]);
@@ -903,6 +912,8 @@ namespace Builtin
       case Builtin::clz:
       case Builtin::ctz:
       case Builtin::popcnt:
+      case Builtin::byteswap:
+      case Builtin::bitreverse:
         if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_int(T->second) || is_char(T->second) || is_bool(T->second);
         break;

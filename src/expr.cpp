@@ -83,7 +83,7 @@ namespace
 
     friend ostream &operator <<(ostream &os, spaces const &indent)
     {
-      for(int i = 0; i < indent.n; ++i)
+      for (int i = 0; i < indent.n; ++i)
         os << ' ';
 
       return os;
@@ -110,7 +110,7 @@ bool is_literal_expr(Expr *expr)
 
     case Expr::ArrayLiteral:
 
-      for(auto &element : expr_cast<ArrayLiteralExpr>(expr)->elements)
+      for (auto &element : expr_cast<ArrayLiteralExpr>(expr)->elements)
         if (!is_literal_expr(element))
           return false;
 
@@ -118,7 +118,7 @@ bool is_literal_expr(Expr *expr)
 
     case Expr::CompoundLiteral:
 
-      for(auto &field : expr_cast<CompoundLiteralExpr>(expr)->fields)
+      for (auto &field : expr_cast<CompoundLiteralExpr>(expr)->fields)
         if (!is_literal_expr(field))
           return false;
 
@@ -427,7 +427,7 @@ string ArrayLiteralExpr::value() const
 
   ss << '[';
 
-  for(size_t i = 0; i < min(elements.size(), size_t(10)); ++i)
+  for (size_t i = 0; i < min(elements.size(), size_t(10)); ++i)
   {
     ss << ((i != 0) ? ", " : "") << *elements[i];
   }
@@ -464,7 +464,7 @@ string CompoundLiteralExpr::value() const
 
   ss << "{ ";
 
-  for(size_t i = 0; i < fields.size(); ++i)
+  for (size_t i = 0; i < fields.size(); ++i)
   {
     ss << ((i != 0) ? ", " : "") << *fields[i];
   }
@@ -717,12 +717,12 @@ void CallExpr::dump(int indent) const
 {
   cout << spaces(indent) << "CallExpr " << this << " <" << m_loc << "> " << *this << "\n";
 
-  for(auto &parm : parms)
+  for (auto &parm : parms)
   {
     parm->dump(indent + 2);
   }
 
-  for(auto &[name, parm] : namedparms)
+  for (auto &[name, parm] : namedparms)
   {
     parm->dump(indent + 2);
   }
@@ -949,12 +949,12 @@ void NewExpr::dump(int indent) const
 
   address->dump(indent + 2);
 
-  for(auto &parm : parms)
+  for (auto &parm : parms)
   {
     parm->dump(indent + 2);
   }
 
-  for(auto &[name, parm] : namedparms)
+  for (auto &[name, parm] : namedparms)
   {
     parm->dump(indent + 2);
   }
@@ -1050,12 +1050,12 @@ void FragmentExpr::dump(int indent) const
 {
   cout << spaces(indent) << "FragmentExpr " << this << " <" << m_loc << "> " << *this << "\n";
 
-  for(auto &arg : args)
+  for (auto &arg : args)
   {
     arg->dump(indent + 2);
   }
 
-  for(auto &decl : decls)
+  for (auto &decl : decls)
   {
     decl->dump(indent + 2);
   }

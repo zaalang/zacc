@@ -193,6 +193,8 @@ namespace Builtin
     ctz,
     popcnt,
     signbit,
+    byteswap,
+    bitreverse,
 
     abs,
     min,

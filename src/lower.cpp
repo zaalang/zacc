@@ -58,6 +58,7 @@ namespace
       size_t lineinfos;
       size_t statements;
       size_t pack_expansion;
+      SourceLocation site;
       MIR::local_t errorarg;
       MIR::block_t firstthrow;
       MIR::block_t firstbreak;
@@ -73,7 +74,6 @@ namespace
 
     unordered_map<Decl*, MIR::local_t> locals;
     unordered_map<Decl*, MIR::Fragment> symbols;
-    unordered_map<Decl*, MIR::Fragment> suppressed;
 
     MIR::local_t add_local()
     {
@@ -125,6 +125,7 @@ namespace
       barrier.statements = currentblock.statements.size();
       barrier.pack_expansion = pack_expansion;
 
+      barrier.site = site;
       barrier.errorarg = errorarg;
       barrier.firstthrow = throws.size();
       barrier.firstbreak = breaks.size();
@@ -148,31 +149,31 @@ namespace
       {
         auto &barrier = barriers.back();
 
-        for(auto i = barrier.firstthrow; i < throws.size(); ++i)
+        for (auto i = barrier.firstthrow; i < throws.size(); ++i)
         {
           if (auto blk = throws[i]; blk != currentblockid)
             mir.blocks[blk].statements.insert(mir.blocks[blk].statements.end(), barrier.retires.rbegin(), barrier.retires.rend());
         }
 
-        for(auto i = barrier.firstbreak; i < breaks.size(); ++i)
+        for (auto i = barrier.firstbreak; i < breaks.size(); ++i)
         {
           if (auto blk = breaks[i]; blk != currentblockid)
             mir.blocks[blk].statements.insert(mir.blocks[blk].statements.end(), barrier.retires.rbegin(), barrier.retires.rend());
         }
 
-        for(auto i = barrier.firstcontinue; i < continues.size(); ++i)
+        for (auto i = barrier.firstcontinue; i < continues.size(); ++i)
         {
           if (auto blk = continues[i]; blk != currentblockid)
             mir.blocks[blk].statements.insert(mir.blocks[blk].statements.end(), barrier.retires.rbegin(), barrier.retires.rend());
         }
 
-        for(auto i = barrier.firstreturn; i < returns.size(); ++i)
+        for (auto i = barrier.firstreturn; i < returns.size(); ++i)
         {
           if (auto blk = returns[i]; blk != currentblockid)
             mir.blocks[blk].statements.insert(mir.blocks[blk].statements.end(), barrier.retires.rbegin(), barrier.retires.rend());
         }
 
-        for(auto i = barrier.firstgoto; i < gotos.size(); ++i)
+        for (auto i = barrier.firstgoto; i < gotos.size(); ++i)
         {
           if (auto blk = get<0>(gotos[i]); blk != currentblockid)
             mir.blocks[blk].statements.insert(mir.blocks[blk].statements.end(), barrier.retires.rbegin(), barrier.retires.rend());
@@ -187,15 +188,15 @@ namespace
 
         if (unreachable != Unreachable::Yes)
         {
-          for(auto i = barrier.retires.rbegin(); i != barrier.retires.rend(); ++i)
+          for (auto i = barrier.retires.rbegin(); i != barrier.retires.rend(); ++i)
           {
             add_statement(std::move(*i));
           }
         }
 
         pack_expansion = barrier.pack_expansion;
-
         errorarg = barrier.errorarg;
+        site = barrier.site;
 
         barriers.pop_back();
       }
@@ -224,7 +225,9 @@ namespace
         mir.varinfos.resize(barrier.varinfos);
         mir.lineinfos.resize(barrier.lineinfos);
 
+        pack_expansion = barrier.pack_expansion;
         errorarg = barrier.errorarg;
+        site = barrier.site;
 
         diag.revert(barrier.diagstate);
 
@@ -312,12 +315,18 @@ namespace
       return nullptr;
     }
 
+    static bool begin(FnSig const &fx)
+    {
+      return inflight.emplace(fx, true).second;
+    }
+
     static MIR const &commit(FnSig const &fx, MIR &&mir, Diag const &diag)
     {
       return cache.emplace(fx, entry{ std::move(mir), diag }).first->second.mir;
     }
 
     static inline std::unordered_map<FnSig, entry> cache;
+    static inline std::unordered_map<FnSig, bool> inflight;
   };
 
   const long IllSpecified = 0x40000000;
@@ -353,7 +362,7 @@ namespace
   //|///////////////////// type_scope ///////////////////////////////////////
   Scope type_scope(LowerContext &ctx, Type const *type)
   {
-    switch(type = remove_const_type(type); type->klass())
+    switch (type = remove_const_type(type); type->klass())
     {
       case Type::Tag:
         return Scope(type_cast<TagType>(type)->decl, type_cast<TagType>(type)->args);
@@ -368,7 +377,7 @@ namespace
   //|///////////////////// scopeof_type /////////////////////////////////////
   Scope scopeof_type(LowerContext &ctx, Type const *type)
   {
-    switch(type = remove_const_type(type); type->klass())
+    switch (type = remove_const_type(type); type->klass())
     {
       case Type::Tag:
         return parent_scope(type_scope(ctx, type));
@@ -385,7 +394,7 @@ namespace
   {
     Scope sx(decl, parent.typeargs);
 
-    for(size_t i = 0; i < declargs.size(); ++i)
+    for (size_t i = 0; i < declargs.size(); ++i)
     {
       auto arg = decl_cast<TypeArgDecl>(declargs[i]);
 
@@ -394,7 +403,7 @@ namespace
         vector<Type*> defns;
         vector<Type*> fields;
 
-        for( ; k < args.size(); ++k)
+        for ( ; k < args.size(); ++k)
         {
           defns.push_back(args[k].defn);
           fields.push_back(args[k].type);
@@ -463,7 +472,7 @@ namespace
   //|///////////////////// decl_scope ///////////////////////////////////////
   Scope decl_scope(LowerContext &ctx, Scope const &scope, Decl *decl, size_t &k, vector<MIR::Local> const &args, map<Ident*, MIR::Local> const &namedargs)
   {
-    switch(decl->kind())
+    switch (decl->kind())
     {
       case Decl::Module:
         return Scope(decl);
@@ -484,15 +493,15 @@ namespace
       case Decl::TypeAlias:
         if (auto typescope = child_scope(ctx, scope, decl_cast<TypeAliasDecl>(decl), k, args, namedargs))
         {
-          if (auto j = resolve_type(ctx, typescope, decl_cast<TypeAliasDecl>(decl)->type); j && is_tag_type(j))
-            return type_scope(ctx, j);
+          if (auto type = resolve_type(ctx, typescope, decl_cast<TypeAliasDecl>(decl)->type); is_tag_type(type))
+            return type_scope(ctx, type);
 
           return typescope;
         }
         break;
 
       case Decl::TypeArg:
-        if (auto j = scope.find_type(decl); j != scope.typeargs.end() && is_tag_type(j->second))
+        if (auto j = scope.find_type(decl); j != scope.typeargs.end() && is_tag_type(remove_const_type(j->second)))
           return type_scope(ctx, j->second);
         break;
 
@@ -509,7 +518,7 @@ namespace
   //|///////////////////// fill_defaultargs /////////////////////////////////
   void fill_defaultargs(LowerContext &ctx, Decl *decl, std::vector<std::pair<Decl*, Type*>> &typeargs)
   {
-    for(auto sx = decl; sx; sx = parent_decl(sx))
+    for (auto sx = decl; sx; sx = parent_decl(sx))
     {
       vector<Decl*> *declargs = nullptr;
 
@@ -534,7 +543,7 @@ namespace
 
       if (declargs)
       {
-        for(auto &arg : *declargs)
+        for (auto &arg : *declargs)
         {
           if (decl_cast<TypeArgDecl>(arg)->defult)
           {
@@ -551,13 +560,13 @@ namespace
   }
 
   //|///////////////////// base_scope ///////////////////////////////////////
-  Scope base_scope(LowerContext &ctx, Scope const &scope)
+  Scope base_scope(LowerContext &ctx, Scope const &scope, long flags = 0)
   {
     Scope sx;
 
     if (is_tag_scope(scope))
     {
-      if (auto tagdecl = decl_cast<TagDecl>(get<Decl*>(scope.owner)); tagdecl->basetype)
+      if (auto tagdecl = decl_cast<TagDecl>(get<Decl*>(scope.owner)); tagdecl->basetype && (!(flags & QueryFlags::Public) || (tagdecl->flags & TagDecl::PublicBase)))
       {
         auto type = resolve_type(ctx, scope, tagdecl->basetype);
 
@@ -768,7 +777,7 @@ namespace
   {
     auto defn = ctx.typetable.var_defn;
 
-    for(type = remove_const_type(type); is_reference_type(type); type = remove_const_type(remove_reference_type(type)))
+    for (type = remove_const_type(type); is_reference_type(type); type = remove_const_type(remove_reference_type(type)))
       defn = ctx.typetable.find_or_create<ReferenceType>(defn);
 
     return defn;
@@ -811,14 +820,14 @@ namespace
   {
     local = resolve_as_value(ctx, local);
 
-    for(auto &field : fields)
+    for (auto &field : fields)
     {
       if (field.op == MIR::RValue::Val)
         local.type = remove_reference_type(local.type);
 
       local.type = remove_const_type(local.type);
 
-      switch(local.type->klass())
+      switch (local.type->klass())
       {
         case Type::Tag:
         case Type::Tuple:
@@ -892,7 +901,7 @@ namespace
 
   void find_decls(LowerContext &ctx, Scope const &scope, vector<Decl*> const &decls, vector<Decl*> &results)
   {
-    for(auto &decl : decls)
+    for (auto &decl : decls)
     {
       if (decl->kind() == Decl::If)
       {
@@ -931,11 +940,11 @@ namespace
       if (module->flags & ModuleDecl::Indexed)
       {
         if (auto j = module->index.find(name); j != module->index.end())
-          for(auto decl : j->second)
+          for (auto decl : j->second)
             find_decl(decl, name, queryflags, results);
 
         if (auto j = module->index.find(nullptr); j != module->index.end())
-          for(auto decl : j->second)
+          for (auto decl : j->second)
             find_decl(decl, name, queryflags, results);
 
         return;
@@ -948,10 +957,10 @@ namespace
 
       if (auto type = ctx.typetable.find<TagType>(tagdecl, scope.typeargs))
       {
-        for(auto &decl : tagdecl->args)
+        for (auto &decl : tagdecl->args)
           find_decl(decl, name, queryflags, results);
 
-        for(auto &decl : type_cast<TagType>(type)->decls)
+        for (auto &decl : type_cast<TagType>(type)->decls)
           find_decl(decl, name, queryflags, results);
 
         return;
@@ -960,7 +969,7 @@ namespace
 
     find_decls(scope, name, queryflags, results);
 
-    for(size_t i = 0; i < results.size(); ++i)
+    for (size_t i = 0; i < results.size(); ++i)
     {
       auto decl = results[i];
 
@@ -988,7 +997,7 @@ namespace
           if (is_tag_scope(scope) && ctx.typetable.find<TagType>(decl_cast<TagDecl>(get<Decl*>(scope.owner)), scope.typeargs))
             ctx.diag.error("injecting into closed scope", decl, decl->loc());
 
-          for(auto &decl : expr_cast<FragmentExpr>(result)->decls)
+          for (auto &decl : expr_cast<FragmentExpr>(result)->decls)
             find_decl(decl, name, queryflags, results);
         }
       }
@@ -1003,7 +1012,7 @@ namespace
   {
     find_decls(ctx, scope, name, queryflags, results);
 
-    for(size_t i = 0; i < results.size(); ++i)
+    for (size_t i = 0; i < results.size(); ++i)
     {
       auto decl = results[i];
 
@@ -1011,7 +1020,7 @@ namespace
       {
         auto n = results.size();
 
-        switch(auto usein = decl_cast<UsingDecl>(decl); usein->decl->kind())
+        switch (auto usein = decl_cast<UsingDecl>(decl); usein->decl->kind())
         {
           case Decl::Module:
             find_decls(ctx, usein->decl, name, queryflags | QueryFlags::Public, results);
@@ -1057,7 +1066,7 @@ namespace
       }
     }
 
-    for(size_t i = 0; i < results.size(); ++i)
+    for (size_t i = 0; i < results.size(); ++i)
     {
       if (results[i]->kind() == Decl::Import)
       {
@@ -1099,14 +1108,26 @@ namespace
   {
     vector<MIR::Local> typeargs;
 
-    for(auto &arg : args)
+    for (auto &arg : args)
     {
       if (arg->klass() == Type::Unpack)
       {
-        if (auto pack = resolve_type(ctx, scope, type_cast<UnpackType>(arg)->type); is_tuple_type(pack))
+        auto type = resolve_type(ctx, scope, type_cast<UnpackType>(arg)->type);
+
+        if (is_compound_type(type))
         {
-          for(size_t index = 0; index < type_cast<TupleType>(pack)->fields.size(); ++index)
-            typeargs.push_back(MIR::Local(type_cast<TupleType>(pack)->fields[index], type_cast<TupleType>(pack)->defns[index]));
+          auto pack = type_cast<CompoundType>(type);
+
+          for (size_t index = 0; index < pack->fields.size(); ++index)
+            typeargs.push_back(MIR::Local(pack->fields[index]));
+        }
+
+        if (is_array_type(type))
+        {
+          auto pack = type_cast<ArrayType>(type);
+
+          for (size_t index = 0; index < array_len(pack); ++index)
+            typeargs.push_back(MIR::Local(pack->type));
         }
 
         continue;
@@ -1122,7 +1143,7 @@ namespace
   {
     map<Ident*, MIR::Local> typeargs;
 
-    for(auto &[name, arg] : namedargs)
+    for (auto &[name, arg] : namedargs)
     {
       typeargs.emplace(name, MIR::Local(resolve_type(ctx, scope, arg), resolve_defn(ctx, arg)));
     }
@@ -1159,7 +1180,7 @@ namespace
       auto args = typeargs(ctx, stack.back(), declref->args);
       auto namedargs = typeargs(ctx, stack.back(), declref->namedargs);
 
-      for(auto sx = stack.rbegin(); sx != stack.rend(); ++sx)
+      for (auto sx = stack.rbegin(); sx != stack.rend(); ++sx)
       {
         find_decls(ctx, *sx, declref->name, QueryFlags::Imports | QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Usings | querymask, ResolveUsings, decls);
 
@@ -1168,7 +1189,7 @@ namespace
 
         size_t k = 0;
 
-        if ((decls[0]->flags & TypeAliasDecl::Implicit) && !declref->argless)
+        if (decls[0]->kind() == Decl::TypeAlias && (decls[0]->flags & TypeAliasDecl::Implicit) && !declref->argless)
           decls[0] = get<Decl*>(decls[0]->owner);
 
         declscope = decl_scope(ctx, outer_scope(*sx, decls[0]), decls[0], k, args, namedargs);
@@ -1188,7 +1209,7 @@ namespace
       decls.clear();
     }
 
-    for(size_t i = 1; i + 1 < scoped->decls.size(); ++i)
+    for (size_t i = 1; i + 1 < scoped->decls.size(); ++i)
     {
       auto declref = decl_cast<DeclRefDecl>(scoped->decls[i]);
 
@@ -1223,7 +1244,7 @@ namespace
     vector<Decl*> decls;
     long queryflags = QueryFlags::Parameters | QueryFlags::Variables | QueryFlags::Fields;
 
-    for(auto sx = stack.rbegin(); sx != stack.rend(); ++sx)
+    for (auto sx = stack.rbegin(); sx != stack.rend(); ++sx)
     {
       find_decls(ctx, *sx, name, queryflags, decls);
 
@@ -1310,7 +1331,7 @@ namespace
         auto name = Ident::from(expr_cast<StringLiteralExpr>(result.value)->value());
 
         vector<Decl*> results;
-        for(auto &decl : decls)
+        for (auto &decl : decls)
           find_decl(decl, name, QueryFlags::All, results);
 
         if (results.size() == 1)
@@ -1357,6 +1378,18 @@ namespace
     return field;
   }
 
+  Field find_field(LowerContext &ctx, vector<Scope> const &stack, ArrayType *arraytype, Ident *ident)
+  {
+    Field field;
+
+    if (auto index = find_index(ctx, stack, {}, ident); index != size_t(-1))
+    {
+      field = find_field(ctx, arraytype, index);
+    }
+
+    return field;
+  }
+
   Field find_field(LowerContext &ctx, CompoundType *type, size_t index)
   {
     Field field;
@@ -1398,7 +1431,7 @@ namespace
 
     field.index = 0;
 
-    for(auto &decl : tagtype->fieldvars)
+    for (auto &decl : tagtype->fieldvars)
     {
       if (decl_cast<FieldVarDecl>(decl)->name == name)
       {
@@ -1456,6 +1489,51 @@ namespace
     return field;
   }
 
+  //|///////////////////// synthesise_union_enum ////////////////////////////
+  void synthesise_union_enum(LowerContext &ctx, Scope const &scope, UnionDecl *unnion, vector<Decl*> &decls)
+  {
+    auto kindtype = ctx.mir.make_decl<EnumDecl>(unnion->loc());
+
+    kindtype->name = Ident::type_enum;
+    kindtype->flags |= EnumDecl::Public;
+    kindtype->owner = unnion;
+
+    auto kindtypefield = ctx.mir.make_decl<FieldVarDecl>(unnion->loc());
+
+    kindtypefield->name = Ident::type_enum;
+    kindtypefield->type = type(Builtin::Type_ISize);
+    kindtypefield->owner = kindtype;
+
+    kindtype->decls.push_back(kindtypefield);
+
+    kindtype->decls.push_back(ctx.mir.make_decl<EnumConstantDecl>(unnion->loc()));
+
+    for (auto &decl : decls)
+    {
+      if (decl->kind() != Decl::FieldVar)
+        continue;
+
+      kindtype->decls.push_back(ctx.mir.make_decl<EnumConstantDecl>(decl_cast<FieldVarDecl>(decl)->name, unnion->loc()));
+    }
+
+    for (auto &decl : kindtype->decls)
+    {
+      decl->owner = kindtype;
+    }
+
+    decls.insert(decls.begin(), kindtype);
+
+    auto kindfield = ctx.mir.make_decl<FieldVarDecl>(unnion->loc());
+
+    kindfield->name = Ident::kw_kind;
+    kindfield->flags |= VarDecl::Public;
+    kindfield->flags |= VarDecl::Const;
+    kindfield->type = resolve_type(ctx, scope, kindtype);
+    kindfield->owner = unnion;
+
+    decls.insert(decls.begin(), kindfield);
+  }
+
   //|///////////////////// resolve_type /////////////////////////////////////
 
   Type *resolve_type(LowerContext &ctx, Scope const &scope, ConstType *consttype)
@@ -1491,7 +1569,7 @@ namespace
     vector<Type*> defns;
     vector<Type*> fields;
 
-    for(auto &field : tupletype->fields)
+    for (auto &field : tupletype->fields)
     {
       if (field->klass() == Type::Unpack)
       {
@@ -1505,9 +1583,9 @@ namespace
             pack = remove_const_type(pack);
         }
 
-        if (is_tuple_type(pack))
+        if (is_compound_type(pack))
         {
-          for(auto element : type_cast<TupleType>(pack)->fields)
+          for (auto element : type_cast<CompoundType>(pack)->fields)
           {
             if (is_reference_type(type_cast<UnpackType>(field)->type))
             {
@@ -1517,6 +1595,25 @@ namespace
               element = ctx.typetable.find_or_create<ReferenceType>(element);
             }
 
+            defns.push_back(resolve_defn(ctx, type_cast<UnpackType>(field)->type));
+            fields.push_back(element);
+          }
+        }
+
+        if (is_array_type(pack))
+        {
+          auto element = type_cast<ArrayType>(pack)->type;
+
+          if (is_reference_type(type_cast<UnpackType>(field)->type))
+          {
+            if (is_const_reference(type_cast<UnpackType>(field)->type))
+              element = ctx.typetable.find_or_create<ConstType>(element);
+
+            element = ctx.typetable.find_or_create<ReferenceType>(element);
+          }
+
+          for (size_t index = 0; index < array_len(type_cast<ArrayType>(pack)); ++index)
+          {
             defns.push_back(resolve_defn(ctx, type_cast<UnpackType>(field)->type));
             fields.push_back(element);
           }
@@ -1550,21 +1647,28 @@ namespace
 
     find_decls(ctx, scope, tagdecl->decls, decls);
 
+    switch (tagdecl->kind())
+    {
+      case Decl::Union:
+        synthesise_union_enum(ctx, scope, decl_cast<UnionDecl>(tagdecl), decls);
+        break;
+
+      default:
+        break;
+    }
+
     auto type = ctx.typetable.create<TagType>(tagdecl, scope.typeargs);
 
     type->resolve(std::move(decls));
 
     vector<Type*> fields;
 
-    for(auto &decl : type->decls)
+    for (auto &decl : type->decls)
     {
       if (decl->kind() != Decl::FieldVar)
         continue;
 
       fields.push_back(remove_const_type(resolve_type(ctx, scope, decl_cast<FieldVarDecl>(decl)->type)));
-
-      if (is_unresolved_type(fields.back()))
-        ctx.diag.error("unresolved field type", decl, decl->loc());
     }
 
     type->resolve(std::move(fields));
@@ -1576,7 +1680,7 @@ namespace
   {
     Scope tx(tagtype->decl, tagtype->args);
 
-    for(auto &[decl, arg] : tx.typeargs)
+    for (auto &[decl, arg] : tx.typeargs)
     {
       arg = resolve_type(ctx, scope, arg);
 
@@ -1584,11 +1688,11 @@ namespace
         ctx.diag.error("unresolved type argument", decl, decl->loc());
     }
 
-    for(auto sx = tagtype->decl; sx; sx = parent_decl(sx))
+    for (auto sx = tagtype->decl; sx; sx = parent_decl(sx))
     {
       if (sx->kind() == Decl::Function)
       {
-        for(auto parm : decl_cast<FunctionDecl>(sx)->parms)
+        for (auto parm : decl_cast<FunctionDecl>(sx)->parms)
         {
           if (auto j = scope.find_type(parm); j != scope.typeargs.end())
             tx.set_type(parm, j->second);
@@ -1602,12 +1706,22 @@ namespace
   Type *resolve_type(LowerContext &ctx, Scope const &scope, TypeArgType *argtype)
   {
     if (auto j = scope.find_type(argtype->decl); j != scope.typeargs.end())
-    {
       return j->second;
-    }
 
     if (auto argdecl = decl_cast<TypeArgDecl>(argtype->decl); argdecl->defult)
       return resolve_type(ctx, scope, argdecl->defult);
+
+    if (argtype->args.size() != 0)
+    {
+      auto type = ctx.typetable.make_type<TypeArgType>(argtype->decl, argtype->koncept, argtype->args);
+
+      for (auto &[decl, arg] : type->args)
+      {
+        arg = resolve_type(ctx, scope, arg);
+      }
+
+      return type;
+    }
 
     return argtype;
   }
@@ -1642,7 +1756,7 @@ namespace
     size_t value = 0;
     Expr *lastknown = nullptr;
 
-    for(auto &decl : type_cast<TagType>(enumm)->decls)
+    for (auto &decl : type_cast<TagType>(enumm)->decls)
     {
       if (decl->kind() == Decl::EnumConstant)
       {
@@ -1705,7 +1819,7 @@ namespace
     if (auto type = ctx.typetable.find<ConstantType>(constant->decl, tagtype))
       return type;
 
-    switch(constant->decl->kind())
+    switch (constant->decl->kind())
     {
       case Decl::EnumConstant:
         return resolve_type(ctx, type_scope(ctx, tagtype), tagtype, decl_cast<EnumConstantDecl>(constant->decl));
@@ -1756,7 +1870,7 @@ namespace
     vector<Type*> defns;
     vector<Type*> parms;
 
-    for(auto &parm : fn->parms)
+    for (auto &parm : fn->parms)
     {
       if (parm->flags & ParmVarDecl::Literal)
         continue;
@@ -1794,7 +1908,7 @@ namespace
 
         if (declref->name == Ident::kw_this)
         {
-          for(auto sx = stack.rbegin(); sx != stack.rend(); ++sx)
+          for (auto sx = stack.rbegin(); sx != stack.rend(); ++sx)
           {
             if (auto owner = get_if<Decl*>(&sx->owner); owner && *owner && is_tag_decl(*owner))
               return resolve_type(ctx, *sx, *owner);
@@ -1846,21 +1960,20 @@ namespace
     cttx.stack = std::move(stack);
     cttx.translationunit = decl_cast<TranslationUnitDecl>(get<Decl*>(cttx.stack[0].owner));
     cttx.module = decl_cast<ModuleDecl>(get<Decl*>(cttx.stack[1].owner));
-    cttx.site = std::visit([&](auto &v) { return v->loc(); }, cttx.stack.back().owner);
     cttx.symbols = ctx.symbols;
 
     cttx.add_local();
     cttx.errorarg = cttx.add_local();
     cttx.push_barrier();
 
-    for(auto sx = cttx.stack.rbegin(); sx != cttx.stack.rend(); ++sx)
+    for (auto sx = cttx.stack.rbegin(); sx != cttx.stack.rend(); ++sx)
     {
       if (!is_fn_scope(*sx))
         continue;
 
       auto fn = decl_cast<FunctionDecl>(get<Decl*>(sx->owner));
 
-      for(auto &parm : FnSig(fn).parameters())
+      for (auto &parm : FnSig(fn).parameters())
       {
         if (scope.goalpost == parm)
           break;
@@ -1870,7 +1983,7 @@ namespace
 
       if (fn == ctx.mir.fx.fn)
       {
-        for(auto &[var, arg] : ctx.locals)
+        for (auto &[var, arg] : ctx.locals)
         {
           cttx.locals[var] = cttx.mir.add_local(ctx.mir.locals[arg]);
         }
@@ -1911,13 +2024,16 @@ namespace
     auto args = typeargs(ctx, scope, declref->args);
     auto namedargs = typeargs(ctx, scope, declref->namedargs);
 
-    for(auto sx = scope; sx; sx = parent_scope(std::move(sx)))
+    for (auto sx = scope; sx; sx = parent_scope(std::move(sx)))
     {
       find_decls(ctx, sx, declref->name, QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Enums | QueryFlags::Usings, ResolveUsings, decls);
 
-      for(auto &decl : decls)
+      for (auto &decl : decls)
       {
         size_t k = 0;
+
+        if (decl->kind() == Decl::TypeAlias && (decl->flags & TypeAliasDecl::Implicit) && !declref->argless)
+          decl = get<Decl*>(decl->owner);
 
         auto declscope = decl_scope(ctx, outer_scope(sx, decl), decl, k, args, namedargs);
 
@@ -1956,18 +2072,26 @@ namespace
       auto args = typeargs(ctx, stack.back(), declref.decl->args);
       auto namedargs = typeargs(ctx, stack.back(), declref.decl->namedargs);
 
-      find_decls(ctx, declref.scope, declref.decl->name, QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Enums | QueryFlags::Usings | queryflags, ResolveUsings, decls);
-
-      for(auto &decl : decls)
+      for (auto sx = declref.scope; sx; sx = base_scope(ctx, sx, QueryFlags::Public))
       {
-        size_t k = 0;
+        find_decls(ctx, sx, declref.decl->name, QueryFlags::Types | QueryFlags::Concepts | QueryFlags::Enums | QueryFlags::Usings | queryflags, ResolveUsings, decls);
 
-        auto declscope = decl_scope(ctx, outer_scope(declref.scope, decl), decl, k, args, namedargs);
+        for (auto &decl : decls)
+        {
+          size_t k = 0;
 
-        if (k != args.size() + namedargs.size())
+          auto declscope = decl_scope(ctx, outer_scope(sx, decl), decl, k, args, namedargs);
+
+          if (k != args.size() + namedargs.size())
+            continue;
+
+          types.push_back(resolve_type(ctx, declscope, get<Decl*>(declscope.owner)));
+        }
+
+        if (decls.empty())
           continue;
 
-        types.push_back(resolve_type(ctx, declscope, get<Decl*>(declscope.owner)));
+        break;
       }
 
       if (types.size() == 1)
@@ -1983,7 +2107,7 @@ namespace
   {
     auto args = typeref->args;
 
-    for(auto &[decl, arg] : args)
+    for (auto &[decl, arg] : args)
     {
       arg = resolve_type(ctx, scope, arg);
     }
@@ -1995,7 +2119,7 @@ namespace
 
   Type *resolve_type(LowerContext &ctx, Scope const &scope, TypeRefType *typeref)
   {
-    switch(typeref->decl->kind())
+    switch (typeref->decl->kind())
     {
       case Decl::TypeOf:
         return resolve_type(ctx, scope, decl_cast<TypeOfDecl>(typeref->decl));
@@ -2028,7 +2152,7 @@ namespace
 
   Type *resolve_type(LowerContext &ctx, Scope const &scope, Type *type)
   {
-    switch(type->klass())
+    switch (type->klass())
     {
       case Type::Builtin:
         return type;
@@ -2135,7 +2259,7 @@ namespace
     auto defns = tupletype->defns;
     auto fields = tupletype->fields;
 
-    for(size_t i = 0; i < fields.size(); ++i)
+    for (size_t i = 0; i < fields.size(); ++i)
     {
       while (is_reference_type(defns[i]))
       {
@@ -2170,12 +2294,12 @@ namespace
         auto defns = type_cast<TupleType>(rhs)->defns;
         auto fields = type_cast<TupleType>(rhs)->fields;
 
-        for(auto &defn : defns)
+        for (auto &defn : defns)
         {
           defn = ctx.typetable.find_or_create<ReferenceType>(defn);
         }
 
-        for(auto &field : fields)
+        for (auto &field : fields)
         {
           if (is_const_type(lhs))
           {
@@ -2256,12 +2380,12 @@ namespace
     if (koncept->name == Ident::kw_var)
       return true;
 
-    for(auto &[arg, type] : outer_scope(scope, koncept).typeargs)
+    for (auto &[arg, type] : outer_scope(scope, koncept).typeargs)
     {
       sig.set_type(arg, type);
     }
 
-    for(auto &[arg, type] : args)
+    for (auto &[arg, type] : args)
     {
       sig.set_type(arg, resolve_type(ctx, scope, type));
     }
@@ -2278,22 +2402,44 @@ namespace
     bool match = true;
     Diag diag(ctx.diag.leader());
 
-    for(auto &decl : koncept->decls)
+    for (auto &decl : koncept->decls)
     {
       if (decl->kind() != Decl::Decl::Requires)
         continue;
 
       auto reqires = decl_cast<RequiresDecl>(decl);
 
+      auto fn = decl_cast<FunctionDecl>(reqires->fn);
+
+      auto sx = Scope(fn, sig.typeargs);
+
+      for (auto &arg : fn->args)
+        sx.set_type(arg, type);
+
+      if (reqires->flags & RequiresDecl::Match)
+      {
+        LowerContext cttx(ctx.typetable, diag);
+
+        cttx.translationunit = ctx.translationunit;
+        cttx.module = ctx.module;
+
+        auto requirestype = resolve_type(cttx, sx, reqires->requirestype);
+
+        if (match = is_typearg_type(requirestype) && type_cast<TypeArgType>(requirestype)->koncept == koncept; match)
+        {
+          for (auto &[arg, type] : type_cast<TypeArgType>(requirestype)->args)
+          {
+            if (auto j = sig.find_type(arg); j != sig.typeargs.end())
+              if (!deduce_type(ctx, scope, sig, j->second, type))
+                match = false;
+
+            sig.set_type(arg, type);
+          }
+        }
+      }
+
       if (reqires->flags & RequiresDecl::Condition)
       {
-        auto fn = decl_cast<FunctionDecl>(reqires->fn);
-
-        auto sx = Scope(fn, sig.typeargs);
-
-        for(auto &arg : fn->args)
-          sx.set_type(arg, type);
-
         auto expr = stmt_cast<ReturnStmt>(fn->body)->expr;
 
         auto result = evaluate(sx, expr, {}, ctx.typetable, diag, reqires->loc());
@@ -2304,10 +2450,7 @@ namespace
 
       if (reqires->flags & RequiresDecl::Expression)
       {
-        auto fx = FnSig(decl_cast<FunctionDecl>(reqires->fn), sig.typeargs);
-
-        for(auto &arg : fx.fn->args)
-          fx.set_type(arg, type);
+        auto fx = FnSig(fn, std::move(sx.typeargs));
 
         auto &mir = lower(fx, ctx.typetable, diag);
 
@@ -2348,7 +2491,7 @@ namespace
       return false;
 
     size_t arg = mir.args_beg;
-    for(auto &parm : fx.parameters())
+    for (auto &parm : fx.parameters())
     {
       if (is_typearg_type(remove_qualifiers_type(decl_cast<ParmVarDecl>(parm)->type)))
       {
@@ -2511,7 +2654,7 @@ namespace
           if (!match_concept(ctx, fx, sig, decl_cast<ConceptDecl>(typearg->koncept), typearg->args, rhs))
             return false;
 
-          for(auto &[arg, type] : typearg->args)
+          for (auto &[arg, type] : typearg->args)
           {
             if (auto j = sig.find_type(arg); j != sig.typeargs.end() && is_typearg_type(type))
               fx.set_type(type_cast<TypeArgType>(type)->decl, j->second);
@@ -2552,7 +2695,7 @@ namespace
         {
           size_t k = 0;
 
-          for(size_t i = 0; i < type_cast<TupleType>(lhs)->fields.size(); ++i)
+          for (size_t i = 0; i < type_cast<TupleType>(lhs)->fields.size(); ++i)
           {
             auto field = type_cast<TupleType>(lhs)->fields[i];
 
@@ -2605,7 +2748,7 @@ namespace
           if (type_cast<TagType>(lhs)->decl != type_cast<TagType>(rhs)->decl)
             return false;
 
-          for(size_t i = 0, j = 0; i < type_cast<TagType>(lhs)->args.size(); ++i)
+          for (size_t i = 0, j = 0; i < type_cast<TagType>(lhs)->args.size(); ++i)
           {
             DeduceContext ttx;
 
@@ -2757,12 +2900,12 @@ namespace
         auto defns = type_cast<TupleType>(rhs.type)->defns;
         auto fields = type_cast<TupleType>(rhs.type)->fields;
 
-        for(auto &defn : defns)
+        for (auto &defn : defns)
         {
           defn = remove_reference_type(defn);
         }
 
-        for(auto &field : fields)
+        for (auto &field : fields)
         {
           field = remove_reference_type(field);
 
@@ -2795,7 +2938,7 @@ namespace
         auto defns = type_cast<TupleType>(j->second)->defns;
         auto fields = type_cast<TupleType>(j->second)->fields;
 
-        for(size_t i = 0; i < fields.size(); ++i)
+        for (size_t i = 0; i < fields.size(); ++i)
         {
           if (is_reference_type(defns[i]))
           {
@@ -2823,7 +2966,7 @@ namespace
         auto defns = type_cast<TupleType>(rhs.type)->defns;
         auto fields = type_cast<TupleType>(rhs.type)->fields;
 
-        for(auto &field : fields)
+        for (auto &field : fields)
         {
           field = ctx.typetable.find_or_create<QualArgType>(type_cast<QualArgType>(remove_reference_type(field))->qualifiers, ctx.typetable.var_defn);
         }
@@ -2899,7 +3042,7 @@ namespace
     if (params->fields.size() != fn->parms.size())
       return false;
 
-    for(size_t i = 0; i < fn->parms.size(); ++i)
+    for (size_t i = 0; i < fn->parms.size(); ++i)
     {
       if (!deduce_type(ctx, scope, sig, params->fields[i], decl_cast<ParmVarDecl>(fn->parms[i])->type))
         return false;
@@ -3002,9 +3145,9 @@ namespace
   }
 
   FindContext::FindContext(LowerContext &ctx, Type *type, long queryflags)
-    : queryflags(queryflags)
+    : name(), queryflags(queryflags)
   {
-    switch(type = remove_const_type(type); type->klass())
+    switch (type = remove_const_type(type); type->klass())
     {
       case Type::Builtin:
         name = type_cast<BuiltinType>(type)->name();
@@ -3031,7 +3174,7 @@ namespace
         break;
 
       case Type::TypeLit:
-        switch(auto value = type_cast<TypeLitType>(type)->value; value->kind())
+        switch (auto value = type_cast<TypeLitType>(type)->value; value->kind())
         {
           case Expr::BoolLiteral:
             name = Ident::type_lit;
@@ -3063,6 +3206,15 @@ namespace
             args.push_back(type);
             break;
 
+          case Expr::ArrayLiteral:
+          case Expr::CompoundLiteral:
+            name = Ident::type_lit;
+            args.push_back(type);
+            args.push_back(type);
+            if (auto result = evaluate(type_scope(ctx, type), value, ctx.symbols, ctx.typetable, ctx.diag, value->loc()))
+              args[0] = result.type;
+            break;
+
           default:
             break;
         }
@@ -3080,7 +3232,7 @@ namespace
 
         if (auto tagtype = type_cast<TagType>(type))
         {
-          for(size_t i = 0; i < decl_cast<TagDecl>(tagtype->decl)->args.size(); ++i)
+          for (size_t i = 0; i < decl_cast<TagDecl>(tagtype->decl)->args.size(); ++i)
           {
             auto arg = decl_cast<TagDecl>(tagtype->decl)->args[i];
 
@@ -3088,7 +3240,7 @@ namespace
 
             if (decl_cast<TypeArgDecl>(arg)->flags & TypeArgDecl::Pack)
             {
-              for(auto &field : type_cast<TupleType>(j->second)->fields)
+              for (auto &field : type_cast<TupleType>(j->second)->fields)
                 args.push_back(field);
 
               continue;
@@ -3129,7 +3281,7 @@ namespace
   {
     find_decls(ctx, scope, tx.name, tx.queryflags, tx.decls);
 
-    for(auto &decl : tx.decls)
+    for (auto &decl : tx.decls)
     {
       if (decl->kind() == Decl::Function)
       {
@@ -3161,7 +3313,7 @@ namespace
 
         if (viable)
         {
-          for(i = 0, k = 0; i < fn->parms.size(); ++i)
+          for (i = 0, k = 0; i < fn->parms.size(); ++i)
           {
             fx.goalpost = fn->parms[i];
 
@@ -3184,7 +3336,7 @@ namespace
               bool literal = true;
               bool constref = false;
 
-              for( ; k < n; ++k)
+              for ( ; k < n; ++k)
               {
                 auto field = parms[k].type.type;
 
@@ -3300,7 +3452,7 @@ namespace
         {
           fill_defaultargs(ctx, fn, fx.typeargs);
 
-          for(size_t i = 0; i < fn->parms.size(); ++i)
+          for (size_t i = 0; i < fn->parms.size(); ++i)
           {
             auto parm = decl_cast<ParmVarDecl>(fn->parms[i]);
             auto basetype = remove_qualifiers_type(parm->type);
@@ -3335,7 +3487,7 @@ namespace
           {
             viable &= match_arguments(ctx, scope, fx, decl_cast<FunctionDecl>(expr_cast<MatchExpr>(fn->match)->decl));
 
-            for(size_t i = 0, k = 0; i < fn->parms.size(); ++i)
+            for (size_t i = 0, k = 0; i < fn->parms.size(); ++i)
             {
               auto parm = decl_cast<ParmVarDecl>(fn->parms[i]);
 
@@ -3364,7 +3516,7 @@ namespace
 
         if (viable)
         {
-          for(size_t i = 0, k = 0; i < fn->parms.size(); ++i)
+          for (size_t i = 0, k = 0; i < fn->parms.size(); ++i)
           {
             auto parm = decl_cast<ParmVarDecl>(fn->parms[i]);
 
@@ -3374,7 +3526,7 @@ namespace
               {
                 vector<Expr*> fields;
 
-                for( ; k < parms.size(); ++k)
+                for ( ; k < parms.size(); ++k)
                 {
                   assert(parms[k].value.kind() == MIR::RValue::Constant);
 
@@ -3417,7 +3569,6 @@ namespace
                   cttx.translationunit = ctx.translationunit;
                   cttx.module = ctx.module;
                   cttx.symbols = ctx.symbols;
-                  cttx.site = fn->loc();
                   cttx.site_override = ctx.site;
 
                   lower_expression(cttx, expr_cast<UnaryOpExpr>(value)->subexpr);
@@ -3535,6 +3686,10 @@ namespace
         if ((tx.queryflags & QueryFlags::Functions) == QueryFlags::Methods)
           continue;
 
+        candidates.erase(remove_if(candidates.begin(), candidates.end(), [&](auto &candidate) {
+          return get<0>(candidate).fn->owner == variant<Decl*, Stmt*>{decl};
+        }), candidates.end());
+
         FindContext ttx(ctx, tx.name, QueryFlags::Functions);
 
         find_overloads(ctx, ttx, typescope, parms, namedparms, candidates, results);
@@ -3580,7 +3735,7 @@ namespace
 
           find_overloads(ctx, ttx, scopeof_type(ctx, field), parms, namedparms, candidates, ctors);
 
-          for(auto &fx : ctors)
+          for (auto &fx : ctors)
           {
             auto fn = ctx.mir.make_decl<FunctionDecl>(decl->loc());
 
@@ -3606,7 +3761,7 @@ namespace
         if (get_module(decl_cast<UsingDecl>(decl)->decl) != ctx.module)
           ttx.queryflags |= QueryFlags::Public;
 
-        switch(auto usein = decl_cast<UsingDecl>(decl); usein->decl->kind())
+        switch (auto usein = decl_cast<UsingDecl>(decl); usein->decl->kind())
         {
           case Decl::Module:
             find_overloads(ctx, ttx, usein->decl, parms, namedparms, candidates, results);
@@ -3659,14 +3814,14 @@ namespace
 
   void find_overloads(LowerContext &ctx, FindContext &tx, vector<Scope> const &stack, vector<MIR::Fragment> const &parms, map<Ident*, MIR::Fragment> const &namedparms, vector<std::tuple<FnSig, size_t>> &candidates, vector<FnSig> &results)
   {
-    for(auto sx = stack.rbegin(); sx != stack.rend(); ++sx)
+    for (auto sx = stack.rbegin(); sx != stack.rend(); ++sx)
     {
       find_decls(ctx, *sx, tx.name, QueryFlags::Types, tx.decls);
 
       if (tx.decls.empty())
         continue;
 
-      for(auto &decl : tx.decls)
+      for (auto &decl : tx.decls)
       {
         if (decl->kind() == Decl::TypeArg)
         {
@@ -3689,11 +3844,11 @@ namespace
       break;
     }
 
-    for(auto scope = stack.rbegin(); scope != stack.rend(); ++scope)
+    for (auto scope = stack.rbegin(); scope != stack.rend(); ++scope)
     {
       find_overloads(ctx, tx, *scope, parms, namedparms, candidates, results);
 
-      for(auto basescope = base_scope(ctx, *scope); basescope; basescope = base_scope(ctx, basescope))
+      for (auto basescope = base_scope(ctx, *scope, QueryFlags::Public); basescope; basescope = base_scope(ctx, basescope, QueryFlags::Public))
       {
         find_overloads(ctx, tx, basescope, parms, namedparms, candidates, results);
       }
@@ -3711,23 +3866,23 @@ namespace
 
     int best = std::numeric_limits<int>::max();
 
-    for(auto &fx : overloads)
+    for (auto &fx : overloads)
     {
       int rank = fx.fn->args.size();
 
-      for(auto sx = Scope(fx.fn); sx; sx = parent_scope(std::move(sx)))
+      for (auto sx = Scope(fx.fn); sx; sx = parent_scope(std::move(sx)))
       {
         if (is_tag_scope(sx))
           rank += decl_cast<TagDecl>(get<Decl*>(sx.owner))->args.size();
       }
 
-      for(size_t i = 0, k = 0; i < fx.fn->parms.size(); ++i)
+      for (size_t i = 0, k = 0; i < fx.fn->parms.size(); ++i)
       {
         auto parm = decl_cast<ParmVarDecl>(fx.fn->parms[i]);
 
         auto rankargs = [&](auto &self, Type const *type, int s) -> void {
 
-          while(true)
+          while (true)
           {
             switch (type->klass())
             {
@@ -3757,19 +3912,19 @@ namespace
                 break;
 
               case Type::Tuple:
-                for(auto &field : type_cast<TupleType>(type)->fields)
+                for (auto &field : type_cast<TupleType>(type)->fields)
                   self(self, field, (s - 1) / type_cast<TupleType>(type)->fields.size());
                 break;
 
               case Type::Tag:
                 if (type_cast<TagType>(type)->args.empty())
-                  rank += s - 1;
-                for(auto &[decl, arg] : type_cast<TagType>(type)->args)
+                  rank += s/2;
+                for (auto &[decl, arg] : type_cast<TagType>(type)->args)
                   self(self, arg, (s - 1) / type_cast<TagType>(type)->args.size());
                 break;
 
               default:
-                rank += s - 1;
+                rank += s/2;
                 break;
             }
 
@@ -3799,13 +3954,13 @@ namespace
           }
 
           if (lhs->klass() == Type::TypeArg)
-            rank += s - 1;
+            rank += s/2;
 
           if ((is_pointer_type(lhs) && !is_pointference_type(rhs)) || (is_builtin_type(lhs) && lhs != rhs))
-            rank += s - 1;
+            rank += s/2;
 
           if (is_voidpointer_type(lhs) && !is_voidpointer_type(rhs))
-            rank += s - 1;
+            rank += s/2;
         };
 
         if (!is_pack_type(parm->type))
@@ -3893,7 +4048,7 @@ namespace
 
     FindContext tx(ctx, decl_cast<ConceptDecl>(typearg->koncept)->name, QueryFlags::Functions | QueryFlags::Public);
 
-    for(auto &arg : decl_cast<ConceptDecl>(typearg->koncept)->args)
+    for (auto &arg : decl_cast<ConceptDecl>(typearg->koncept)->args)
     {
       if (auto j = find_if(typearg->args.begin(), typearg->args.end(), [&](auto &k) { return k.first == arg; }); j != typearg->args.end())
       {
@@ -3922,7 +4077,7 @@ namespace
 
     find_overloads(ctx, tx, parent_scope(declscope), parms, namedparms, candidates, overloads);
 
-    for(auto &fx: overloads)
+    for (auto &fx: overloads)
     {
       auto fnparm = decl_cast<ParmVarDecl>(fx.fn->parms[0]);
 
@@ -4035,7 +4190,7 @@ namespace
 
     if (is_tag_type(type))
     {
-      for(auto scope = type_scope(ctx, type); scope; scope = base_scope(ctx, scope))
+      for (auto scope = type_scope(ctx, type); scope; scope = base_scope(ctx, scope, QueryFlags::Public))
       {
         find_overloads(ctx, tx, scope, parms, namedparms, callee.candidates, callee.overloads);
       }
@@ -4059,7 +4214,7 @@ namespace
 
     if (is_tag_type(parms[0].type.type))
     {
-      for(auto scope = type_scope(ctx, parms[0].type.type); scope; scope = base_scope(ctx, scope))
+      for (auto scope = type_scope(ctx, parms[0].type.type); scope; scope = base_scope(ctx, scope, QueryFlags::Public))
       {
         find_overloads(ctx, tx, scope, parms, namedparms, callee.candidates, callee.overloads);
       }
@@ -4088,7 +4243,7 @@ namespace
 
     if (is_tag_type(parms[0].type.type))
     {
-      for(auto scope = type_scope(ctx, parms[0].type.type); scope; scope = base_scope(ctx, scope))
+      for (auto scope = type_scope(ctx, parms[0].type.type); scope; scope = base_scope(ctx, scope, QueryFlags::Public))
       {
         find_overloads(ctx, tx, scope, parms, namedparms, callee.candidates, callee.overloads);
       }
@@ -4096,7 +4251,7 @@ namespace
 
     if (is_tag_type(parms[1].type.type) && parms[1].type.type != parms[0].type.type)
     {
-      for(auto scope = type_scope(ctx, parms[1].type.type); scope; scope = base_scope(ctx, scope))
+      for (auto scope = type_scope(ctx, parms[1].type.type); scope; scope = base_scope(ctx, scope, QueryFlags::Public))
       {
         find_overloads(ctx, tx, scope, parms, namedparms, callee.candidates, callee.overloads);
       }
@@ -4136,7 +4291,7 @@ namespace
     {
       tx.queryflags = (tx.queryflags & ~QueryFlags::Functions) | QueryFlags::Methods;
 
-      for(auto scope = basescope; scope; scope = base_scope(ctx, scope))
+      for (auto scope = basescope; scope; scope = base_scope(ctx, scope, QueryFlags::Public))
       {
         find_overloads(ctx, tx, scope, parms, namedparms, callee.candidates, callee.overloads);
       }
@@ -4180,7 +4335,7 @@ namespace
 
           if (is_tag_type(type))
           {
-            for(auto &decl : type_cast<TagType>(type)->decls)
+            for (auto &decl : type_cast<TagType>(type)->decls)
             {
               if (decl->kind() == Decl::Function && (decl->flags & FunctionDecl::Destructor))
                 tx.decls.push_back(decl);
@@ -4215,7 +4370,15 @@ namespace
       tx.args = typeargs(ctx, ctx.stack.back(), declref.decl->args);
       tx.namedargs = typeargs(ctx, ctx.stack.back(), declref.decl->namedargs);
 
-      find_overloads(ctx, tx, declref.scope, parms, namedparms, callee.candidates, callee.overloads);
+      for (auto sx = declref.scope; sx; sx = base_scope(ctx, sx, QueryFlags::Public))
+      {
+        find_overloads(ctx, tx, sx, parms, namedparms, callee.candidates, callee.overloads);
+
+        if (callee.overloads.empty())
+          continue;
+
+        break;
+      }
 
       resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
     }
@@ -4225,7 +4388,9 @@ namespace
 
   Callee find_callee(LowerContext &ctx, vector<Scope> const &stack, Scope const &basescope, Decl *callee, vector<MIR::Fragment> const &parms = {}, map<Ident*, MIR::Fragment> const &namedparms = {}, bool is_callop = false)
   {
-    switch(callee->kind())
+    ctx.site = callee->loc();
+
+    switch (callee->kind())
     {
       case Decl::DeclRef:
         return find_callee(ctx, stack, basescope, decl_cast<DeclRefDecl>(callee), parms, namedparms, is_callop);
@@ -4253,7 +4418,7 @@ namespace
     {
       ctx.diag << "  ambiguous overloads\n";
 
-      for(auto &overload : callee.overloads)
+      for (auto &overload : callee.overloads)
         ctx.diag << Diag::white() << "    " << get_module(overload.fn)->file() << ":" << overload.fn->loc() << ":" << Diag::cyan() << *overload.fn << '\n';
     }
 
@@ -4261,7 +4426,7 @@ namespace
     {
       ctx.diag << Diag::white() << "  candidate functions\n";
 
-      for(auto &[candidate, state]: callee.candidates)
+      for (auto &[candidate, state]: callee.candidates)
       {
         ctx.diag << Diag::white() << "    " << get_module(candidate.fn)->file() << ":" << candidate.fn->loc() << ":" << Diag::cyan() << *candidate.fn << '\n';
 
@@ -4292,10 +4457,10 @@ namespace
     {
       ctx.diag << Diag::white() << "  provided parameters\n";
 
-      for(auto &parm : parms)
+      for (auto &parm : parms)
         ctx.diag << Diag::white() << "    " << &parm - &parms[0] + 1 << ": " << Diag::cyan() << parm.type << '\n';
 
-      for(auto &[name, parm] : namedparms)
+      for (auto &[name, parm] : namedparms)
         ctx.diag << Diag::white() << "    " << *name << ": " << Diag::cyan() << parm.type << '\n';
     }
 
@@ -4316,7 +4481,7 @@ namespace
 
         parms[0].type = type;
 
-        for(auto &decl : type_cast<TagType>(type)->decls)
+        for (auto &decl : type_cast<TagType>(type)->decls)
         {
           if (decl->kind() == Decl::Function && (decl->flags & FunctionDecl::Destructor))
             callee = find_callee(ctx, type, decl_cast<FunctionDecl>(decl)->name, parms, namedparms);
@@ -4355,6 +4520,7 @@ namespace
     if (!lower_expr(ctx, result, expr))
     {
       swap(ctx.stack, stack);
+
       return nullptr;
     }
 
@@ -4492,7 +4658,7 @@ namespace
           auto defns = type_cast<TupleType>(lhs)->defns;
           auto fields = type_cast<TupleType>(lhs)->fields;
 
-          for(size_t i = 0; i < fields.size(); ++i)
+          for (size_t i = 0; i < fields.size(); ++i)
             if (!promote_type(ctx, fields[i], type_cast<TupleType>(rhs)->fields[i]))
               return false;
 
@@ -4725,7 +4891,7 @@ namespace
   //|///////////////////// collapse_returns /////////////////////////////////
   void collapse_returns(LowerContext &ctx)
   {
-    for(auto i = ctx.barriers.back().firstreturn; i < ctx.returns.size(); ++i)
+    for (auto i = ctx.barriers.back().firstreturn; i < ctx.returns.size(); ++i)
       ctx.mir.blocks[ctx.returns[i]].terminator.blockid = ctx.currentblockid;
 
     ctx.returns.resize(ctx.barriers.back().firstreturn);
@@ -4747,7 +4913,7 @@ namespace
       {
         case Type::Builtin:
 
-          switch(type_cast<BuiltinType>(type)->kind())
+          switch (type_cast<BuiltinType>(type)->kind())
           {
             case BuiltinType::Bool:
               result = literal;
@@ -4799,7 +4965,7 @@ namespace
       {
         case Type::Builtin:
 
-          switch(type_cast<BuiltinType>(type)->kind())
+          switch (type_cast<BuiltinType>(type)->kind())
           {
             case BuiltinType::Char:
               result = literal;
@@ -4847,11 +5013,11 @@ namespace
     {
       auto literal = get<IntLiteralExpr*>(value);
 
-      switch(type->klass())
+      switch (type->klass())
       {
         case Type::Builtin:
 
-          switch(type_cast<BuiltinType>(type)->kind())
+          switch (type_cast<BuiltinType>(type)->kind())
           {
             case BuiltinType::Bool:
               result = ctx.mir.make_expr<BoolLiteralExpr>(literal->value().value != 0, literal->loc());
@@ -4926,7 +5092,7 @@ namespace
       {
         case Type::Builtin:
 
-          switch(type_cast<BuiltinType>(type)->kind())
+          switch (type_cast<BuiltinType>(type)->kind())
           {
             case BuiltinType::Bool:
               result = ctx.mir.make_expr<BoolLiteralExpr>(literal->value().value != 0, literal->loc());
@@ -4982,7 +5148,7 @@ namespace
       {
         case Type::Builtin:
 
-          switch(type_cast<BuiltinType>(type)->kind())
+          switch (type_cast<BuiltinType>(type)->kind())
           {
             case BuiltinType::Bool:
               result = ctx.mir.make_expr<BoolLiteralExpr>(false, literal->loc());
@@ -5032,7 +5198,7 @@ namespace
       {
         vector<Expr*> elements;
 
-        for(auto expr : literal->elements)
+        for (auto expr : literal->elements)
         {
           MIR::RValue value;
 
@@ -5059,7 +5225,7 @@ namespace
 
       vector<Expr*> elements;
 
-      for(size_t i = 0; i < literal->fields.size(); ++i)
+      for (size_t i = 0; i < literal->fields.size(); ++i)
       {
         MIR::RValue value;
 
@@ -5146,7 +5312,7 @@ namespace
       index += 1;
     }
 
-    for( ; index < thistype->fields.size(); ++index)
+    for ( ; index < thistype->fields.size(); ++index)
     {
       auto type = thistype->fields[index];
       auto fntype = type_cast<FunctionType>(remove_qualifiers_type(type));
@@ -5156,7 +5322,7 @@ namespace
       vector<MIR::Fragment> parms;
       map<Ident*, MIR::Fragment> namedparms;
 
-      for(auto &parm : type_cast<TupleType>(fntype->paramtuple)->fields)
+      for (auto &parm : type_cast<TupleType>(fntype->paramtuple)->fields)
       {
         MIR::Fragment value = { parm };
 
@@ -5168,7 +5334,7 @@ namespace
 
       if (var->flags & VarDecl::SelfImplicit)
       {
-        for(auto sx = ctx.stack.rbegin(); sx != ctx.stack.rend(); ++sx)
+        for (auto sx = ctx.stack.rbegin(); sx != ctx.stack.rend(); ++sx)
         {
           if (!is_tag_scope(*sx))
             continue;
@@ -5242,7 +5408,7 @@ namespace
     Type *args[2] = {};
     Type *type[2] = {};
 
-    for(size_t i = 0; i < callee.fn->args.size(); ++i)
+    for (size_t i = 0; i < callee.fn->args.size(); ++i)
     {
       args[i] = callee.find_type(callee.fn->args[i])->second;
       type[i] = remove_const_type(args[i]);
@@ -5250,7 +5416,7 @@ namespace
 
     bool match = false;
 
-    switch(callee.fn->builtin)
+    switch (callee.fn->builtin)
     {
       case Builtin::is_const:
         match = is_const_type(args[0]) || (is_qualarg_type(args[0]) && (type_cast<QualArgType>(args[0])->qualifiers & QualArgType::Const));
@@ -5330,7 +5496,7 @@ namespace
 
       case Builtin::is_same:
 
-        for(size_t i = 0; i < 2; ++i)
+        for (size_t i = 0; i < 2; ++i)
         {
           if (is_qualarg_type(args[i]))
           {
@@ -5342,6 +5508,7 @@ namespace
         }
 
         match = (args[0] == args[1]);
+
         break;
 
       case Builtin::is_match:
@@ -5356,8 +5523,9 @@ namespace
         {
           Scope sig;
 
-          match = match_concept(ctx, ctx.stack.back(), sig, decl_cast<ConceptDecl>(typearg->koncept), typearg->args, args[1]);
+          match = match_concept(ctx, ctx.stack.back(), sig, decl_cast<ConceptDecl>(typearg->koncept), typearg->args, type[1]);
         }
+
         break;
 
       default:
@@ -5423,7 +5591,7 @@ namespace
   {
     Decl *declid = nullptr;
 
-    for(auto sx = ctx.stack.rbegin(); sx != ctx.stack.rend(); ++sx)
+    for (auto sx = ctx.stack.rbegin(); sx != ctx.stack.rend(); ++sx)
     {
       if (auto owner = get_if<Decl*>(&sx->owner); owner && *owner)
       {
@@ -5776,7 +5944,7 @@ namespace
     vector<MIR::Fragment> parms;
     map<Ident*, MIR::Fragment> namedparms;
 
-    for(auto &parm : type_cast<TupleType>(fntype->paramtuple)->fields)
+    for (auto &parm : type_cast<TupleType>(fntype->paramtuple)->fields)
     {
       MIR::Fragment value = { parm };
 
@@ -5928,7 +6096,7 @@ namespace
         return false;
       }
 
-      for(auto i = beg; i != end; i = i + Numeric::int_literal(1))
+      for (auto i = beg; i != end; i = i + Numeric::int_literal(1))
       {
         result.push_back(i.sign * i.value);
       }
@@ -5949,7 +6117,7 @@ namespace
     auto parmtype = resolve_type_as_value(ctx, scope, parm);
     auto tupletype = type_cast<TupleType>(remove_reference_type(parmtype));
 
-    for(size_t i = k, index = 0; i < n; ++i, ++index)
+    for (size_t i = k, index = 0; i < n; ++i, ++index)
     {
       auto type = tupletype->fields[index];
 
@@ -6026,23 +6194,52 @@ namespace
       base.value = MIR::RValue::local(MIR::RValue::Val, arg, loc);
     }
 
-    if (!is_compound_type(base.type.type))
+    if (!is_compound_type(base.type.type) && !is_array_type(base.type.type))
     {
       ctx.diag.error("compound type required", ctx.stack.back(), loc);
       return false;
     }
 
-    auto pack = type_cast<CompoundType>(base.type.type);
+    auto values = vector<MIR::Fragment>();
 
-    for(size_t index = 0; index < pack->fields.size(); ++index)
+    if (is_compound_type(base.type.type))
     {
-      MIR::Fragment value = base;
+      auto pack = type_cast<CompoundType>(base.type.type);
 
-      auto field = find_field(ctx, type_cast<CompoundType>(value.type.type), index);
+      for (size_t index = 0; index < pack->fields.size(); ++index)
+      {
+        values.push_back(base);
 
-      if (!lower_field(ctx, value, value, field, loc))
+        auto field = find_field(ctx, pack, index);
+
+        if (!lower_field(ctx, values.back(), values.back(), field, loc))
+          return false;
+      }
+    }
+
+    if (is_array_type(base.type.type))
+    {
+      auto pack = type_cast<ArrayType>(base.type.type);
+
+      if (pack->size->klass() != Type::TypeLit || type_cast<TypeLitType>(pack->size)->value->kind() != Expr::IntLiteral)
+      {
+        ctx.diag.error("invalid array literal size", ctx.stack.back(), loc);
         return false;
+      }
 
+      for (size_t index = 0; index < array_len(pack); ++index)
+      {
+        values.push_back(base);
+
+        auto field = find_field(ctx, pack, index);
+
+        if (!lower_field(ctx, values.back(), values.back(), field, loc))
+          return false;
+      }
+    }
+
+    for (auto &value : values)
+    {
       if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd)
       {
         if ((value.type.flags & MIR::Local::XValue) && !(value.type.flags & MIR::Local::Const))
@@ -6070,7 +6267,7 @@ namespace
       auto expr = stack.back();
       stack.pop_back();
 
-      switch(expr->kind())
+      switch (expr->kind())
       {
         case Expr::Paren:
           stack.push_back(expr_cast<ParenExpr>(expr)->subexpr);
@@ -6086,9 +6283,9 @@ namespace
           break;
 
         case Expr::Call:
-          for(auto &parm : expr_cast<CallExpr>(expr)->parms)
+          for (auto &parm : expr_cast<CallExpr>(expr)->parms)
             stack.push_back(parm);
-          for(auto &[name, parm] : expr_cast<CallExpr>(expr)->namedparms)
+          for (auto &[name, parm] : expr_cast<CallExpr>(expr)->namedparms)
             stack.push_back(parm);
           if (expr_cast<CallExpr>(expr)->base)
             stack.push_back(expr_cast<CallExpr>(expr)->base);
@@ -6149,7 +6346,7 @@ namespace
 
     auto old_expansion = ctx.pack_expansion;
 
-    for(ctx.pack_expansion = 0; ctx.pack_expansion < iterations; ++ctx.pack_expansion)
+    for (ctx.pack_expansion = 0; ctx.pack_expansion < iterations; ++ctx.pack_expansion)
     {
       if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Unpack)
       {
@@ -6175,7 +6372,7 @@ namespace
   //|///////////////////// lower_parms //////////////////////////////////////
   bool lower_parms(LowerContext &ctx, vector<MIR::Fragment> &parms, map<Ident*, MIR::Fragment> &namedparms, vector<Expr*> const &exprs, map<Ident*, Expr*> const &namedexprs, SourceLocation loc)
   {
-    for(auto expr : exprs)
+    for (auto expr : exprs)
     {
       if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Unpack)
       {
@@ -6206,7 +6403,7 @@ namespace
       parms.push_back(std::move(parm));
     }
 
-    for(auto [name, expr] : namedexprs)
+    for (auto [name, expr] : namedexprs)
     {
       MIR::Fragment parm;
 
@@ -6267,7 +6464,7 @@ namespace
 
     auto scope = Scope(callee.fn, std::move(callee.typeargs));
 
-    for(size_t i = 0, k = 0; i < callee.fn->parms.size(); ++i)
+    for (size_t i = 0, k = 0; i < callee.fn->parms.size(); ++i)
     {
       scope.goalpost = callee.fn->parms[i];
 
@@ -6382,7 +6579,7 @@ namespace
 
     if (callee.fn->flags & FunctionDecl::Builtin)
     {
-      switch(callee.fn->builtin)
+      switch (callee.fn->builtin)
       {
         case Builtin::Type_Void:
         case Builtin::Type_Bool:
@@ -6503,7 +6700,7 @@ namespace
       {
         vector<EvalResult> arglist;
 
-        for(auto &parm : parms)
+        for (auto &parm : parms)
         {
           EvalResult arg;
 
@@ -6531,7 +6728,7 @@ namespace
 
     vector<MIR::local_t> arglist;
 
-    for(auto const &[parm, expr] : zip(callee.parameters(), parms))
+    for (auto const &[parm, expr] : zip(callee.parameters(), parms))
     {
       auto arg = ctx.add_temporary();
 
@@ -6777,14 +6974,6 @@ namespace
       elemtype = resolve_type(ctx, arrayliteral->coercedtype);
     }
 
-    else if (arrayliteral->elements.size() != 0)
-    {
-      elemtype = find_type(ctx, ctx.stack, arrayliteral->elements.front()).type;
-
-      if (!elemtype)
-        return;
-    }
-
     auto size = resolve_type(ctx, arrayliteral->size);
 
     if (size->klass() != Type::TypeLit || type_cast<TypeLitType>(size)->value->kind() != Expr::IntLiteral)
@@ -6793,11 +6982,17 @@ namespace
       return;
     }
 
-    auto type = ctx.typetable.find_or_create<ArrayType>(elemtype, size);
-
     if (all_of(arrayliteral->elements.begin(), arrayliteral->elements.end(), [](auto expr) { return is_literal_expr(expr); }))
     {
-      for(auto &element : arrayliteral->elements)
+      if (elemtype == ctx.typetable.var_defn && arrayliteral->elements.size() != 0)
+      {
+        elemtype = find_type(ctx, ctx.stack, arrayliteral->elements[0]).type;
+
+        if (!elemtype)
+          return;
+      }
+
+      for (auto &element : arrayliteral->elements)
       {
         if ((is_bool_type(elemtype) && element->kind() != Expr::BoolLiteral) ||
             (is_char_type(elemtype) && element->kind() != Expr::CharLiteral) ||
@@ -6813,24 +7008,34 @@ namespace
         }
       }
 
-      result.type = MIR::Local(type, MIR::Local::Const | MIR::Local::Literal);
+      result.type = MIR::Local(ctx.typetable.find_or_create<ArrayType>(elemtype, size), MIR::Local::Const | MIR::Local::Literal);
       result.value = arrayliteral;
       return;
     }
 
-    vector<MIR::Fragment> values(arrayliteral->elements.size());
+    vector<MIR::Fragment> values;
+    map<Ident*, MIR::Fragment> namedvalues;
 
-    for(size_t index = 0; index < values.size(); ++index)
+    if (!lower_parms(ctx, values, namedvalues, arrayliteral->elements, {}, arrayliteral->loc()))
+      return;
+
+    for (auto &value : values)
     {
-      if (!lower_expr(ctx, values[index], arrayliteral->elements[index]))
-        return;
+      promote_type(ctx, elemtype, value.type.type);
     }
+
+    if (values.size() != arrayliteral->elements.size())
+    {
+      size = ctx.typetable.find_or_create<TypeLitType>(ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(1, values.size()), arrayliteral->loc()));
+    }
+
+    auto type = ctx.typetable.find_or_create<ArrayType>(elemtype, size);
 
     if (all_of(values.begin(), values.end(), [](auto &value) { return value.type.flags & MIR::Local::Literal; }))
     {
       vector<Expr*> elements(values.size());
 
-      for(size_t index = 0; index < values.size(); ++index)
+      for (size_t index = 0; index < values.size(); ++index)
       {
         elements[index] = std::visit([&](auto &v) { return static_cast<Expr*>(v); }, values[index].value.get<MIR::RValue::Constant>());
       }
@@ -6846,7 +7051,7 @@ namespace
 
     auto typeref = ctx.typetable.find_or_create<ReferenceType>(elemtype);
 
-    for(size_t index = 0; index < values.size(); ++index)
+    for (size_t index = 0; index < values.size(); ++index)
     {
       auto dst = ctx.add_temporary();
       auto res = ctx.add_temporary();
@@ -6865,7 +7070,7 @@ namespace
 
       parms[0] = std::move(values[index]);
 
-      if (!lower_new(ctx, result, elemtype, parms, namedparms, arrayliteral->elements[index]->loc()))
+      if (!lower_new(ctx, result, elemtype, parms, namedparms, parms[0].value.loc()))
         return;
 
       realise_as_value(ctx, Place(Place::Fer, res), result);
@@ -6925,13 +7130,14 @@ namespace
     vector<Type*> defns;
     vector<Type*> fields;
 
-    vector<MIR::Fragment> values(compoundliteral->fields.size());
+    vector<MIR::Fragment> values;
+    map<Ident*, MIR::Fragment> namedvalues;
 
-    for(size_t index = 0; index < values.size(); ++index)
+    if (!lower_parms(ctx, values, namedvalues, compoundliteral->fields, {}, compoundliteral->loc()))
+      return;
+
+    for (size_t index = 0; index < values.size(); ++index)
     {
-      if (!lower_expr(ctx, values[index], compoundliteral->fields[index]))
-        return;
-
       defns.push_back(ctx.typetable.var_defn);
       fields.push_back(values[index].type.type);
     }
@@ -6942,7 +7148,7 @@ namespace
     {
       vector<Expr*> elements(values.size());
 
-      for(size_t index = 0; index < values.size(); ++index)
+      for (size_t index = 0; index < values.size(); ++index)
       {
         elements[index] = std::visit([&](auto &v) { return static_cast<Expr*>(v); }, values[index].value.get<MIR::RValue::Constant>());
       }
@@ -6955,7 +7161,7 @@ namespace
 
     auto arg = ctx.add_temporary();
 
-    for(size_t index = 0; index < values.size(); ++index)
+    for (size_t index = 0; index < values.size(); ++index)
     {
       auto dst = ctx.add_temporary();
       auto res = ctx.add_temporary();
@@ -7049,8 +7255,7 @@ namespace
         return true;
       }
 
-      if (ctx.suppressed.find(vardecl) == ctx.suppressed.end())
-        ctx.diag.error("variable not defined in this context", ctx.stack.back(), loc);
+      ctx.diag.error("variable not defined in this context", ctx.stack.back(), loc);
 
       return false;
     }
@@ -7092,7 +7297,7 @@ namespace
 
     parms[0] = std::move(base);
 
-    for(;;)
+    for (;;)
     {
       auto name = decl_cast<DeclRefDecl>(declref->decl)->name;
 
@@ -7106,9 +7311,9 @@ namespace
 
       if (decl_cast<DeclRefDecl>(declref->decl)->argless)
       {
-        if (is_compound_type(parms[0].type.type))
+        if (name->kind() == Ident::Index || name->kind() == Ident::Hash)
         {
-          if (name->kind() == Ident::Index || name->kind() == Ident::Hash)
+          if (is_compound_type(parms[0].type.type))
           {
             if (auto field = find_field(ctx, ctx.stack, type_cast<CompoundType>(parms[0].type.type), name))
             {
@@ -7117,9 +7322,19 @@ namespace
               return true;
             }
           }
+
+          if (is_array_type(parms[0].type.type))
+          {
+            if (auto field = find_field(ctx, ctx.stack, type_cast<ArrayType>(parms[0].type.type), name))
+            {
+              lower_field(ctx, result, parms[0], field, declref->loc());
+
+              return true;
+            }
+          }
         }
 
-        for(auto type = parms[0].type.type; is_tag_type(type); )
+        for (auto type = parms[0].type.type; is_tag_type(type); )
         {
           auto tagtype = type_cast<TagType>(type);
 
@@ -7257,7 +7472,7 @@ namespace
         auto defns = type_cast<TupleType>(result.type.type)->defns;
         auto fields = type_cast<TupleType>(result.type.type)->fields;
 
-        for(size_t i = 0; i < fields.size(); ++i)
+        for (size_t i = 0; i < fields.size(); ++i)
         {
           if (is_reference_type(defns[i]))
           {
@@ -7296,6 +7511,7 @@ namespace
       result = std::move(parms[0]);
 
       result.type = resolve_as_value(ctx, result.type);
+      result.type.defn = remove_const_type(remove_reference_type(result.type.defn));
 
       if (result.type.flags & MIR::Local::Unaligned)
         ctx.diag.error("cannot reference unaligned field", ctx.stack.back(), loc);
@@ -7501,7 +7717,7 @@ namespace
 
         if (lhs == rhs)
         {
-          for(auto k = 0; k < n; ++k)
+          for (auto k = 0; k < n; ++k)
             lhs = ctx.typetable.find_or_create<PointerType>(ctx.typetable.find_or_create<ConstType>(lhs));
 
           callee.fx = map_builtin(ctx, binaryop, lhs);
@@ -7528,13 +7744,10 @@ namespace
       if (!lower_expr(ctx, result, op, parms, namedparms, loc))
         return false;
 
-      if (result.type.type == lhs.type.type && !(lhs.type.flags & MIR::Local::Const))
-      {
-        parms[0] = std::move(lhs);
-        parms[1] = std::move(result);
+      parms[0] = std::move(lhs);
+      parms[1] = std::move(result);
 
-        callee = find_callee(ctx, ctx.stack, BinaryOpExpr::Assign, parms, namedparms);
-      }
+      callee = find_callee(ctx, ctx.stack, BinaryOpExpr::Assign, parms, namedparms);
     }
 
     if (binaryop == BinaryOpExpr::Assign || (BinaryOpExpr::AddAssign <= binaryop && binaryop <= BinaryOpExpr::XorAssign))
@@ -7545,7 +7758,7 @@ namespace
 
         if (any_of(tupletype->defns.begin(), tupletype->defns.end(), [](auto defn) { return is_reference_type(defn); }))
         {
-          for(size_t i = 0; i < tupletype->fields.size(); ++i)
+          for (size_t i = 0; i < tupletype->fields.size(); ++i)
           {
             if (is_const_reference(tupletype->fields[i]))
             {
@@ -7587,7 +7800,7 @@ namespace
         auto defns = rhs->defns;
         auto fields = rhs->fields;
 
-        for(size_t k = 0; k < fields.size(); ++k)
+        for (size_t k = 0; k < fields.size(); ++k)
         {
           promote_type(ctx, fields[k], remove_const_type(remove_reference_type(lhs->fields[k])));
         }
@@ -7718,7 +7931,7 @@ namespace
 
         MIR::Fragment base = parms[0];
 
-        for(;;)
+        for (;;)
         {
           auto name = Ident::from(decl_cast<DeclRefDecl>(expr_cast<DeclRefExpr>(binaryop->lhs)->decl)->name->str() + '=');
 
@@ -8129,7 +8342,7 @@ namespace
       {
         match = true;
 
-        for(size_t i = 0; i != type_cast<TagType>(lhs)->args.size(); ++i)
+        for (size_t i = 0; i != type_cast<TagType>(lhs)->args.size(); ++i)
         {
           if (is_unresolved_type(type_cast<TagType>(lhs)->args[i].second))
             continue;
@@ -8155,27 +8368,26 @@ namespace
     cttx.translationunit = decl_cast<TranslationUnitDecl>(get<Decl*>(cttx.stack[0].owner));
     cttx.module = decl_cast<ModuleDecl>(get<Decl*>(cttx.stack[1].owner));
     cttx.symbols = ctx.symbols;
-    cttx.site = ctx.site;
 
     cttx.add_local();
     cttx.errorarg = cttx.add_local();
     cttx.push_barrier();
 
-    for(auto sx = cttx.stack.rbegin(); sx != cttx.stack.rend(); ++sx)
+    for (auto sx = cttx.stack.rbegin(); sx != cttx.stack.rend(); ++sx)
     {
       if (!is_fn_scope(*sx))
         continue;
 
       auto fn = decl_cast<FunctionDecl>(get<Decl*>(sx->owner));
 
-      for(auto &parm : FnSig(fn).parameters())
+      for (auto &parm : FnSig(fn).parameters())
       {
         lower_decl(cttx, decl_cast<ParmVarDecl>(parm));
       }
 
       if (fn == ctx.mir.fx.fn)
       {
-        for(auto &[var, arg] : ctx.locals)
+        for (auto &[var, arg] : ctx.locals)
         {
           cttx.locals[var] = cttx.mir.add_local(ctx.mir.locals[arg]);
         }
@@ -8240,7 +8452,15 @@ namespace
         {
           vector<Decl*> decls;
 
-          find_decls(ctx, declref.scope, declref.decl->name, QueryFlags::Variables | QueryFlags::Fields, decls);
+          for (auto sx = declref.scope; sx; sx = base_scope(ctx, sx, QueryFlags::Public))
+          {
+            find_decls(ctx, sx, declref.decl->name, QueryFlags::Variables | QueryFlags::Fields, decls);
+
+            if (decls.empty())
+              continue;
+
+            break;
+          }
 
           if (decls.size() == 1)
           {
@@ -8452,7 +8672,7 @@ namespace
     if (!lower_parms(ctx, parms, namedparms, call->parms, call->namedparms, call->loc()))
       return;
 
-    for(;;)
+    for (;;)
     {
       bool is_callop = false;
 
@@ -8471,7 +8691,7 @@ namespace
 
           if (decl_cast<DeclRefDecl>(call->callee)->argless)
           {
-            for(auto type = parms[0].type.type; is_tag_type(type); )
+            for (auto type = parms[0].type.type; is_tag_type(type); )
             {
               auto tagtype = type_cast<TagType>(type);
 
@@ -8522,7 +8742,7 @@ namespace
 
         if (is_callop)
         {
-          for(;;)
+          for (;;)
           {
             if (lower_base_deref(ctx, parms[0], call->loc()))
               continue;
@@ -8612,11 +8832,10 @@ namespace
     cttx.translationunit = decl_cast<TranslationUnitDecl>(get<Decl*>(cttx.stack[0].owner));
     cttx.module = decl_cast<ModuleDecl>(get<Decl*>(cttx.stack[1].owner));
     cttx.symbols = ctx.symbols;
-    cttx.site = fx.fn->loc();
 
     cttx.add_local();
 
-    for(auto &parm : fx.parameters())
+    for (auto &parm : fx.parameters())
     {
       cttx.stack.back().goalpost = parm;
 
@@ -8645,7 +8864,7 @@ namespace
 
     auto typescope = child_scope(ctx.stack.back(), lambda->decl);
 
-    for(auto &capture : decl_cast<LambdaDecl>(lambda->decl)->captures)
+    for (auto &capture : decl_cast<LambdaDecl>(lambda->decl)->captures)
     {
       MIR::Fragment result;
 
@@ -8678,8 +8897,6 @@ namespace
   //|///////////////////// lower_expr ///////////////////////////////////////
   bool lower_expr(LowerContext &ctx, MIR::Fragment &result, Expr *expr)
   {
-    ctx.site = expr->loc();
-
     switch (expr->kind())
     {
       case Expr::VoidLiteral:
@@ -8811,16 +9028,26 @@ namespace
       if (!(value.type.flags & MIR::Local::Literal))
         ctx.diag.error("non literal value", ctx.stack.back(), vardecl->loc());
 
-      if (vardecl->pattern && vardecl->pattern->kind() == Decl::TuplePattern)
+      if (vardecl->pattern)
       {
-        for(auto &binding : decl_cast<TuplePatternDecl>(vardecl->pattern)->bindings)
+        switch (vardecl->pattern->kind())
         {
-          MIR::Fragment field = value;
+          case Decl::TuplePattern:
 
-          if (!lower_expr(ctx, field, field, expr_cast<DeclRefExpr>(decl_cast<StmtVarDecl>(binding)->value)))
-            return;
+            for (auto &binding : decl_cast<TuplePatternDecl>(vardecl->pattern)->bindings)
+            {
+              MIR::Fragment field = value;
 
-          lower_decl(ctx, decl_cast<VarDecl>(binding), field);
+              if (!lower_expr(ctx, field, field, expr_cast<DeclRefExpr>(decl_cast<StmtVarDecl>(binding)->value)))
+                return;
+
+              lower_decl(ctx, decl_cast<VarDecl>(binding), field);
+            }
+
+            break;
+
+          default:
+            assert(false);
         }
       }
 
@@ -8888,27 +9115,37 @@ namespace
       realise_as_value_type(ctx, arg, value, vardecl->flags & VarDecl::Const);
     }
 
-    if (vardecl->pattern && vardecl->pattern->kind() == Decl::TuplePattern)
+    if (vardecl->pattern)
     {
-      for(auto &binding : decl_cast<TuplePatternDecl>(vardecl->pattern)->bindings)
+      switch (vardecl->pattern->kind())
       {
-        MIR::Fragment field;
+        case Decl::TuplePattern:
 
-        field.type = value.type;
-        field.type.defn = vardecl->type;
-        field.type.flags = MIR::Local::LValue | MIR::Local::Reference;
-        field.value = MIR::RValue::local(MIR::RValue::Ref, arg, binding->loc());
+          for (auto &binding : decl_cast<TuplePatternDecl>(vardecl->pattern)->bindings)
+          {
+            MIR::Fragment field;
 
-        if (!lower_expr_deref(ctx, field, binding->loc()))
-          return;
+            field.type = value.type;
+            field.type.defn = vardecl->type;
+            field.type.flags = MIR::Local::LValue | MIR::Local::Reference;
+            field.value = MIR::RValue::local(MIR::RValue::Ref, arg, binding->loc());
 
-        if (!lower_expr(ctx, field, field, expr_cast<DeclRefExpr>(decl_cast<StmtVarDecl>(binding)->value)))
-          return;
+            if (!lower_expr_deref(ctx, field, binding->loc()))
+              return;
 
-        if (!(field.type.flags & MIR::Local::Reference))
-          ctx.diag.error("non reference binding", ctx.stack.back(), binding->loc());
+            if (!lower_expr(ctx, field, field, expr_cast<DeclRefExpr>(decl_cast<StmtVarDecl>(binding)->value)))
+              return;
 
-        lower_decl(ctx, decl_cast<VarDecl>(binding), field);
+            if (!(field.type.flags & MIR::Local::Reference))
+              ctx.diag.error("non reference binding", ctx.stack.back(), binding->loc());
+
+            lower_decl(ctx, decl_cast<VarDecl>(binding), field);
+          }
+
+          break;
+
+        default:
+          assert(false);
       }
     }
 
@@ -8949,10 +9186,7 @@ namespace
     MIR::Fragment value;
 
     if (!lower_expr(ctx, value, stmtvar->value))
-    {
-      ctx.suppressed[stmtvar] = value;
       return;
-    }
 
     if (stmtvar->flags & VarDecl::Literal)
     {
@@ -8975,7 +9209,6 @@ namespace
     {
       ctx.diag.error("unresolved type for variable", ctx.stack.back(), stmtvar->loc());
       ctx.diag << "  variable type : '" << *value.type.type << "'\n";
-      ctx.suppressed[stmtvar] = value;
       return;
     }
 
@@ -8984,7 +9217,6 @@ namespace
       // infer_pointer_type(ctx, value.type, stmtvar);
 
       ctx.diag.error("unable to infer pointer type", ctx.stack.back(), stmtvar->loc());
-      ctx.suppressed[stmtvar] = value;
       return;
     }
 
@@ -9089,7 +9321,7 @@ namespace
         index = thistype->fields.size();
       }
 
-      for(; index < thistype->fields.size(); ++index)
+      for (; index < thistype->fields.size(); ++index)
       {
         auto type = thistype->fields[index];
         auto decl = decl_cast<FieldVarDecl>(thistype->fieldvars[index]);
@@ -9158,7 +9390,7 @@ namespace
 
     if (is_struct_type(thistype) || is_tuple_type(thistype) || is_lambda_type(thistype))
     {
-      for(size_t index = thistype->fields.size(); index-- != 0; )
+      for (size_t index = thistype->fields.size(); index-- != 0; )
       {
         auto type = thistype->fields[index];
 
@@ -9181,7 +9413,7 @@ namespace
       auto endblock = ctx.currentblockid + thistype->fields.size();
       auto switcher = ctx.add_block(MIR::Terminator::switcher(cond, endblock));
 
-      for(size_t index = 1; index < thistype->fields.size(); ++index)
+      for (size_t index = 1; index < thistype->fields.size(); ++index)
       {
         auto type = thistype->fields[index];
 
@@ -9240,7 +9472,7 @@ namespace
 
     if (is_tuple_type(thistype))
     {
-      for(size_t index = 0; index < thistype->fields.size(); ++index)
+      for (size_t index = 0; index < thistype->fields.size(); ++index)
       {
         auto type = thistype->fields[index];
 
@@ -9267,7 +9499,7 @@ namespace
           return;
       }
 
-      for(size_t index = 0; index < thistype->fields.size(); ++index)
+      for (size_t index = 0; index < thistype->fields.size(); ++index)
       {
         auto type = thistype->fields[index];
         auto decl = decl_cast<FieldVarDecl>(type_cast<TagType>(thistype)->fieldvars[index]);
@@ -9298,7 +9530,7 @@ namespace
 
     if (is_lambda_type(thistype))
     {
-      for(size_t index = 0; index < thistype->fields.size(); ++index)
+      for (size_t index = 0; index < thistype->fields.size(); ++index)
       {
         auto type = thistype->fields[index];
 
@@ -9351,7 +9583,7 @@ namespace
 
     if (is_struct_type(thistype) || is_tuple_type(thistype) || is_lambda_type(thistype))
     {
-      for(size_t index = 0; index < thistype->fields.size(); ++index)
+      for (size_t index = 0; index < thistype->fields.size(); ++index)
       {
         auto type = thistype->fields[index];
 
@@ -9397,7 +9629,7 @@ namespace
       auto endblock = ctx.currentblockid + thistype->fields.size();
       auto switcher = ctx.add_block(MIR::Terminator::switcher(cond, endblock));
 
-      for(size_t index = 1; index < thistype->fields.size(); ++index)
+      for (size_t index = 1; index < thistype->fields.size(); ++index)
       {
         auto type = thistype->fields[index];
 
@@ -9436,7 +9668,7 @@ namespace
 
     if (is_struct_type(thistype) || is_tuple_type(thistype) || is_lambda_type(thistype))
     {
-      for(size_t index = 0; index < thistype->fields.size(); ++index)
+      for (size_t index = 0; index < thistype->fields.size(); ++index)
       {
         MIR::Fragment result;
 
@@ -9490,7 +9722,7 @@ namespace
       auto endblock = ctx.currentblockid + thistype->fields.size();
       auto switcher = ctx.add_block(MIR::Terminator::switcher(cond, endblock));
 
-      for(size_t index = 1; index < thistype->fields.size(); ++index)
+      for (size_t index = 1; index < thistype->fields.size(); ++index)
       {
         auto type = thistype->fields[index];
 
@@ -9528,7 +9760,7 @@ namespace
 
     if (is_struct_type(thistype) || is_tuple_type(thistype) || is_lambda_type(thistype))
     {
-      for(size_t index = 0; index < thistype->fields.size(); ++index)
+      for (size_t index = 0; index < thistype->fields.size(); ++index)
       {
         MIR::Fragment result;
         vector<MIR::Fragment> parms(2);
@@ -9579,7 +9811,7 @@ namespace
 
     if (is_struct_type(thistype) || is_tuple_type(thistype) || is_lambda_type(thistype))
     {
-      for(size_t index = 0; index < thistype->fields.size(); ++index)
+      for (size_t index = 0; index < thistype->fields.size(); ++index)
       {
         MIR::Fragment result;
         vector<MIR::Fragment> parms(2);
@@ -10049,7 +10281,7 @@ namespace
     auto thistype = type_cast<TupleType>(ctx.mir.locals[0].type);
     auto thattype = resolve_as_reference(ctx, ctx.mir.locals[1]);
 
-    for(size_t index = 0; index < thistype->fields.size(); ++index)
+    for (size_t index = 0; index < thistype->fields.size(); ++index)
     {
       auto type = thistype->fields[index];
 
@@ -10249,7 +10481,7 @@ namespace
 
     auto fragment = expr_cast<FragmentExpr>(injection->expr);
 
-    for(auto &expr : fragment->args)
+    for (auto &expr : fragment->args)
     {
       MIR::Fragment result;
       if (!lower_expr(ctx, result, expr))
@@ -10273,7 +10505,7 @@ namespace
   //|///////////////////// lower_declaration_statement //////////////////////
   void lower_declaration_statement(LowerContext &ctx, DeclStmt *stmt)
   {
-    switch(stmt->decl->kind())
+    switch (stmt->decl->kind())
     {
       case Decl::VoidVar:
         lower_decl(ctx, decl_cast<VoidVarDecl>(stmt->decl));
@@ -10351,7 +10583,7 @@ namespace
     auto sm = ctx.push_barrier();
     ctx.stack.emplace_back(ifs, ctx.stack.back().typeargs);
 
-    for(auto &init : ifs->inits)
+    for (auto &init : ifs->inits)
     {
       ctx.stack.back().goalpost = init;
 
@@ -10423,7 +10655,7 @@ namespace
     auto sm = ctx.push_barrier();
     ctx.stack.emplace_back(ifs, ctx.stack.back().typeargs);
 
-    for(auto &init : ifs->inits)
+    for (auto &init : ifs->inits)
     {
       ctx.stack.back().goalpost = init;
 
@@ -10454,7 +10686,7 @@ namespace
 
     vector<tuple<StmtVarDecl*, MIR::local_t, MIR::local_t, MIR::local_t>> ranges;
 
-    for(auto &init : fors->inits)
+    for (auto &init : fors->inits)
     {
       ctx.stack.back().goalpost = init;
 
@@ -10545,7 +10777,7 @@ namespace
     MIR::Fragment condition;
     vector<MIR::block_t> block_conds;
 
-    for(auto &[rangevar, arg, beg, end] : ranges)
+    for (auto &[rangevar, arg, beg, end] : ranges)
     {
       MIR::Fragment compare;
 
@@ -10572,7 +10804,7 @@ namespace
       block_conds.push_back(ctx.add_block(MIR::Terminator::switcher(cond, ctx.currentblockid + 1)));
     }
 
-    for(auto &[rangevar, arg, beg, end] : ranges)
+    for (auto &[rangevar, arg, beg, end] : ranges)
     {
       MIR::Fragment value;
 
@@ -10624,12 +10856,12 @@ namespace
 
     auto block_step = ctx.currentblockid;
 
-    for(auto &[rangevar, arg, beg, end] : ranges)
+    for (auto &[rangevar, arg, beg, end] : ranges)
     {
       ctx.add_statement(MIR::Statement::storageloop(arg));
     }
 
-    for(auto &[rangevar, arg, beg, end] : ranges)
+    for (auto &[rangevar, arg, beg, end] : ranges)
     {
       MIR::Fragment increment;
 
@@ -10652,12 +10884,12 @@ namespace
         realise_destructor(ctx, res, fors->loc());
     }
 
-    for(auto &iter : fors->iters)
+    for (auto &iter : fors->iters)
     {
       lower_statement(ctx, iter);
     }
 
-    for(auto &init : fors->inits)
+    for (auto &init : fors->inits)
     {
       if (init->kind() == Stmt::Declaration && !(stmt_cast<DeclStmt>(init)->decl->flags & VarDecl::Range))
       {
@@ -10667,15 +10899,15 @@ namespace
 
     ctx.add_block(MIR::Terminator::gotoer(block_loop));
 
-    for(auto &block_cond : block_conds)
+    for (auto &block_cond : block_conds)
       ctx.mir.blocks[block_cond].terminator.targets.emplace_back(0, ctx.currentblockid);
 
-    for(auto i = ctx.barriers.back().firstcontinue; i < ctx.continues.size(); ++i)
+    for (auto i = ctx.barriers.back().firstcontinue; i < ctx.continues.size(); ++i)
       ctx.mir.blocks[ctx.continues[i]].terminator.blockid = block_step;
 
     ctx.continues.resize(ctx.barriers.back().firstcontinue);
 
-    for(auto i = ctx.barriers.back().firstbreak; i < ctx.breaks.size(); ++i)
+    for (auto i = ctx.barriers.back().firstbreak; i < ctx.breaks.size(); ++i)
       ctx.mir.blocks[ctx.breaks[i]].terminator.blockid = ctx.currentblockid;
 
     if ((!fors->cond || (fors->cond && is_true_constant(ctx, condition))) && ranges.empty() && ctx.barriers.back().firstbreak == ctx.breaks.size())
@@ -10697,7 +10929,7 @@ namespace
 
     vector<tuple<StmtVarDecl*, MIR::local_t, MIR::local_t, MIR::local_t>> ranges;
 
-    for(auto &init : rofs->inits)
+    for (auto &init : rofs->inits)
     {
       ctx.stack.back().goalpost = init;
 
@@ -10790,7 +11022,7 @@ namespace
     MIR::Fragment condition;
     vector<MIR::block_t> block_conds;
 
-    for(auto &[rangevar, arg, beg, end] : ranges)
+    for (auto &[rangevar, arg, beg, end] : ranges)
     {
       MIR::Fragment compare;
 
@@ -10817,7 +11049,7 @@ namespace
       block_conds.push_back(ctx.add_block(MIR::Terminator::switcher(cond, ctx.currentblockid + 1, ctx.currentblockid + 1)));
     }
 
-    for(auto &[rangevar, arg, beg, end] : ranges)
+    for (auto &[rangevar, arg, beg, end] : ranges)
     {
       MIR::Fragment decrement;
 
@@ -10840,7 +11072,7 @@ namespace
         realise_destructor(ctx, res, rofs->loc());
     }
 
-    for(auto &[rangevar, arg, beg, end] : ranges)
+    for (auto &[rangevar, arg, beg, end] : ranges)
     {
       MIR::Fragment value;
 
@@ -10881,7 +11113,7 @@ namespace
       block_conds.push_back(ctx.add_block(MIR::Terminator::switcher(cond, ctx.currentblockid + 1, ctx.currentblockid + 1)));
     }
 
-    for(auto &iter : rofs->iters)
+    for (auto &iter : rofs->iters)
     {
       lower_statement(ctx, iter);
     }
@@ -10894,13 +11126,13 @@ namespace
 
     auto block_step = ctx.currentblockid;
 
-    for(auto &[rangevar, arg, beg, end] : ranges)
+    for (auto &[rangevar, arg, beg, end] : ranges)
     {
       ctx.add_statement(MIR::Statement::storageloop(arg));
       ctx.add_statement(MIR::Statement::storageloop(end));
     }
 
-    for(auto &init : rofs->inits)
+    for (auto &init : rofs->inits)
     {
       if (init->kind() == Stmt::Declaration && !(stmt_cast<DeclStmt>(init)->decl->flags & VarDecl::Range))
       {
@@ -10910,10 +11142,10 @@ namespace
 
     ctx.add_block(MIR::Terminator::gotoer(block_loop));
 
-    for(auto &block_cond : block_conds)
+    for (auto &block_cond : block_conds)
       ctx.mir.blocks[block_cond].terminator.blockid = ctx.currentblockid;
 
-    for(auto i = ctx.barriers.back().firstcontinue; i < ctx.continues.size(); ++i)
+    for (auto i = ctx.barriers.back().firstcontinue; i < ctx.continues.size(); ++i)
       ctx.mir.blocks[ctx.continues[i]].terminator.blockid = block_step;
 
     ctx.continues.resize(ctx.barriers.back().firstcontinue);
@@ -10923,7 +11155,7 @@ namespace
     else
       ctx.unreachable = Unreachable::No;
 
-    for(auto i = ctx.barriers.back().firstbreak; i < ctx.breaks.size(); ++i)
+    for (auto i = ctx.barriers.back().firstbreak; i < ctx.breaks.size(); ++i)
       ctx.mir.blocks[ctx.breaks[i]].terminator.blockid = ctx.currentblockid;
 
     ctx.breaks.resize(ctx.barriers.back().firstbreak);
@@ -10942,7 +11174,7 @@ namespace
     map<Ident*, StmtVarDecl*> vars;
     vector<tuple<StmtVarDecl*, MIR::Fragment>> ranges;
 
-    for(auto &init : fors->inits)
+    for (auto &init : fors->inits)
     {
       ctx.stack.back().goalpost = init;
 
@@ -11000,11 +11232,11 @@ namespace
 
     ctx.stack.back().goalpost = nullptr;
 
-    for(size_t index = 0; index < iterations; ++index)
+    for (size_t index = 0; index < iterations; ++index)
     {
       auto ssm = ctx.push_barrier();
 
-      for(auto &range : ranges)
+      for (auto &range : ranges)
       {
         MIR::Fragment value = get<1>(range);
 
@@ -11051,7 +11283,7 @@ namespace
 
       ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1));
 
-      for(auto i = ctx.barriers.back().firstcontinue; i < ctx.continues.size(); ++i)
+      for (auto i = ctx.barriers.back().firstcontinue; i < ctx.continues.size(); ++i)
         ctx.mir.blocks[ctx.continues[i]].terminator.blockid = ctx.currentblockid;
 
       if (ctx.barriers.back().firstcontinue != ctx.continues.size())
@@ -11059,7 +11291,7 @@ namespace
 
       ctx.continues.resize(ctx.barriers.back().firstcontinue);
 
-      for(auto &iter : fors->iters)
+      for (auto &iter : fors->iters)
       {
         auto expr = stmt_cast<ExprStmt>(iter)->expr;
 
@@ -11099,7 +11331,7 @@ namespace
       ctx.unreachable = Unreachable::No;
     }
 
-    for(auto i = ctx.barriers.back().firstbreak; i < ctx.breaks.size(); ++i)
+    for (auto i = ctx.barriers.back().firstbreak; i < ctx.breaks.size(); ++i)
       ctx.mir.blocks[ctx.breaks[i]].terminator.blockid = ctx.currentblockid;
 
     if (ctx.barriers.back().firstbreak != ctx.breaks.size())
@@ -11117,7 +11349,7 @@ namespace
     auto sm = ctx.push_barrier();
     ctx.stack.emplace_back(wile, ctx.stack.back().typeargs);
 
-    for(auto &init : wile->inits)
+    for (auto &init : wile->inits)
     {
       ctx.stack.back().goalpost = init;
 
@@ -11134,7 +11366,7 @@ namespace
 
     MIR::Fragment condition;
 
-    for(auto &iter : wile->iters)
+    for (auto &iter : wile->iters)
     {
       lower_statement(ctx, iter);
     }
@@ -11164,7 +11396,7 @@ namespace
 
     auto block_step = ctx.currentblockid;
 
-    for(auto &init : wile->inits)
+    for (auto &init : wile->inits)
     {
       if (init->kind() == Stmt::Declaration)
       {
@@ -11176,7 +11408,7 @@ namespace
 
     ctx.mir.blocks[block_cond].terminator.targets.emplace_back(0, ctx.currentblockid);
 
-    for(auto i = ctx.barriers.back().firstcontinue; i < ctx.continues.size(); ++i)
+    for (auto i = ctx.barriers.back().firstcontinue; i < ctx.continues.size(); ++i)
       ctx.mir.blocks[ctx.continues[i]].terminator.blockid = block_step;
 
     ctx.continues.resize(ctx.barriers.back().firstcontinue);
@@ -11186,7 +11418,7 @@ namespace
     else
       ctx.unreachable = Unreachable::No;
 
-    for(auto i = ctx.barriers.back().firstbreak; i < ctx.breaks.size(); ++i)
+    for (auto i = ctx.barriers.back().firstbreak; i < ctx.breaks.size(); ++i)
       ctx.mir.blocks[ctx.breaks[i]].terminator.blockid = ctx.currentblockid;
 
     ctx.breaks.resize(ctx.barriers.back().firstbreak);
@@ -11201,7 +11433,7 @@ namespace
     auto sm = ctx.push_barrier();
     ctx.stack.emplace_back(swtch, ctx.stack.back().typeargs);
 
-    for(auto &init : swtch->inits)
+    for (auto &init : swtch->inits)
     {
       ctx.stack.back().goalpost = init;
 
@@ -11257,7 +11489,7 @@ namespace
     vector<Decl*> decls;
     find_decls(ctx, ctx.stack.back(), swtch->decls, decls);
 
-    for(auto &decl : decls)
+    for (auto &decl : decls)
     {
       if (decl->kind() != Decl::Case)
       {
@@ -11308,7 +11540,7 @@ namespace
           lower_decl(ctx, casevar, value);
         }
 
-        for(auto value : labels)
+        for (auto value : labels)
         {
           if (std::find_if(ctx.mir.blocks[block_cond].terminator.targets.begin(), ctx.mir.blocks[block_cond].terminator.targets.end(), [&](auto &target) { return get<0>(target) == value; }) != ctx.mir.blocks[block_cond].terminator.targets.end())
             ctx.diag.error("duplicate label in switch", ctx.stack.back(), decl->loc());
@@ -11346,10 +11578,10 @@ namespace
     if (ctx.mir.blocks[block_cond].terminator.blockid == block_cond)
       ctx.mir.blocks[block_cond].terminator.blockid = ctx.currentblockid;
 
-    for(auto &block_body : block_bodys)
+    for (auto &block_body : block_bodys)
       ctx.mir.blocks[block_body].terminator.blockid = ctx.currentblockid;
 
-    for(auto i = ctx.barriers.back().firstgoto; i < ctx.gotos.size(); ++i)
+    for (auto i = ctx.barriers.back().firstgoto; i < ctx.gotos.size(); ++i)
     {
       auto [blk, label] = ctx.gotos[i];
 
@@ -11414,7 +11646,7 @@ namespace
     {
       unreachable[1] = Unreachable::No;
 
-      for(auto i = ctx.barriers.back().firstthrow; i < ctx.throws.size(); ++i)
+      for (auto i = ctx.barriers.back().firstthrow; i < ctx.throws.size(); ++i)
         ctx.mir.blocks[ctx.throws[i]].terminator.blockid = ctx.currentblockid;
 
       ctx.throws.resize(ctx.barriers.back().firstthrow);
@@ -11528,7 +11760,7 @@ namespace
         auto defns = type_cast<TupleType>(result.type.type)->defns;
         auto fields = type_cast<TupleType>(result.type.type)->fields;
 
-        for(size_t i = 0; i < defns.size(); ++i)
+        for (size_t i = 0; i < defns.size(); ++i)
         {
           if (is_return_reference(ctx, expr_cast<CompoundLiteralExpr>(retrn->expr)->fields[i]))
             defns[i] = ctx.typetable.find_or_create<ReferenceType>(defns[i]);
@@ -11607,7 +11839,7 @@ namespace
     auto sm = ctx.push_barrier();
     ctx.stack.emplace_back(compound, ctx.stack.back().typeargs);
 
-    for(auto &stmt : compound->stmts)
+    for (auto &stmt : compound->stmts)
     {
       ctx.stack.back().goalpost = stmt;
 
@@ -11639,7 +11871,7 @@ namespace
   {
     ctx.mir.add_lineinfo(ctx.currentblockid, ctx.currentblock.statements.size(), stmt->loc().lineno);
 
-    switch(stmt->kind())
+    switch (stmt->kind())
     {
       case Stmt::Null:
         break;
@@ -11759,7 +11991,7 @@ namespace
 
     ctx.mir.args_beg = ctx.mir.locals.size();
 
-    for(auto &parm : fx.parameters())
+    for (auto &parm : fx.parameters())
     {
       ctx.stack.back().goalpost = parm;
 
@@ -11808,7 +12040,7 @@ namespace
     {
       ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1));
 
-      for(auto &retn : ctx.returns)
+      for (auto &retn : ctx.returns)
         ctx.mir.blocks[retn].terminator.blockid = ctx.currentblockid;
     }
 
@@ -11829,9 +12061,9 @@ namespace
   {
     ctx.diag << "  " << name << ": '" << Diag::white() << *vartype << Diag::normal() << "' wanted: '" << Diag::white() << *ctx.mir.locals[arg].type << Diag::normal() << "'";
 
-    for(auto &block : ctx.mir.blocks)
+    for (auto &block : ctx.mir.blocks)
     {
-      for(auto &statement : block.statements)
+      for (auto &statement : block.statements)
       {
         if (statement.kind == MIR::Statement::NoOp)
           continue;
@@ -11885,9 +12117,9 @@ namespace
 
     if (is_concrete_type(ctx.mir.locals[id].type))
     {
-      for(auto &block : ctx.mir.blocks)
+      for (auto &block : ctx.mir.blocks)
       {
-        for(auto &statement : block.statements)
+        for (auto &statement : block.statements)
         {
           if (statement.kind == MIR::Statement::Construct)
           {
@@ -11935,7 +12167,7 @@ namespace
             {
               auto scope = Scope(callee.fn, std::move(callee.typeargs));
 
-              for(auto const &[parm, arg] : zip(callee.parameters(), args))
+              for (auto const &[parm, arg] : zip(callee.parameters(), args))
               {
                 scope.goalpost = parm;
 
@@ -11950,7 +12182,7 @@ namespace
               {
                 ctx.diag.error("invalid call resolution", ctx.mir.fx.fn, loc);
 
-                for(auto const &[parm, arg] : zip(callee.parameters(), args))
+                for (auto const &[parm, arg] : zip(callee.parameters(), args))
                   diag_mismatch(ctx, "parameter type", arg, decl_cast<ParmVarDecl>(parm)->type);
 
                 return false;
@@ -11985,14 +12217,14 @@ namespace
     if (mir.fx.fn->flags & FunctionDecl::Defaulted)
       return;
 
-    for(size_t iteration = 0; iteration < 3; ++iteration)
+    for (size_t iteration = 0; iteration < 3; ++iteration)
     {
       if (ctx.diag.has_errored())
         return;
 
-      for(auto block = mir.blocks.rbegin(); block != mir.blocks.rend(); ++block)
+      for (auto block = mir.blocks.rbegin(); block != mir.blocks.rend(); ++block)
       {
-        for(auto statement = block->statements.rbegin(); statement != block->statements.rend(); ++statement)
+        for (auto statement = block->statements.rbegin(); statement != block->statements.rend(); ++statement)
         {
           auto dst = mir.locals[statement->dst];
 
@@ -12014,7 +12246,7 @@ namespace
               if (op == MIR::RValue::Fer)
                 lhs = ctx.typetable.find_or_create<ReferenceType>(lhs);
 
-              for(auto &field : fields)
+              for (auto &field : fields)
               {
                 if (field.op == MIR::RValue::Val)
                   rhs = remove_pointference_type(rhs);
@@ -12089,7 +12321,7 @@ namespace
                 callee = FnSig(callee.fn, scope.typeargs, callee.throwtype);
               }
 
-              for(auto const &[parm, arg] : zip(callee.parameters(), args))
+              for (auto const &[parm, arg] : zip(callee.parameters(), args))
               {
                 scope.goalpost = parm;
 
@@ -12116,7 +12348,7 @@ namespace
   {
     bool changed = false;
 
-    for(size_t arg = 0; arg != mir.locals.size(); ++arg)
+    for (size_t arg = 0; arg != mir.locals.size(); ++arg)
     {
       auto dst = mir.locals[arg];
 
@@ -12158,23 +12390,20 @@ MIR const &lower(FnSig const &fx, TypeTable &typetable, Diag &diag)
     return j->mir;
   }
 
-  auto rr = recursion_counter<__COUNTER__>();
-
-  if (rr.count > 256)
-  {
-    diag.error("unable to lower function", fx.fn, fx.fn->loc());
-
-    throw runtime_error("recursion limit reached");
-  }
-
   LowerContext ctx(typetable, diag);
+
+  if (!Cache::begin(fx))
+  {
+    ctx.diag.error("unable to lower function", fx.fn, fx.fn->loc());
+
+    return Cache::commit(fx, std::move(ctx.mir), ctx.diag);
+  }
 
   seed_stack(ctx.stack, Scope(fx.fn, fx.typeargs));
 
   ctx.mir.fx = fx;
   ctx.translationunit = decl_cast<TranslationUnitDecl>(get<Decl*>(ctx.stack[0].owner));
   ctx.module = decl_cast<ModuleDecl>(get<Decl*>(ctx.stack[1].owner));
-  ctx.site = fx.fn->loc();
 
   lower_function(ctx, fx);
 
@@ -12200,7 +12429,6 @@ MIR lower(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fragment> co
 
   ctx.translationunit = decl_cast<TranslationUnitDecl>(get<Decl*>(ctx.stack[0].owner));
   ctx.module = decl_cast<ModuleDecl>(get<Decl*>(ctx.stack[1].owner));
-  ctx.site = std::visit([&](auto &v) { return v->loc(); }, ctx.stack.back().owner);
   ctx.is_expression = true;
   ctx.symbols = symbols;
 

@@ -20,6 +20,15 @@ struct Visitor
 
   virtual void visit(VarDecl *vardecl)
   {
+    switch (vardecl->kind())
+    {
+      case Decl::StmtVar:
+        visit(decl_cast<StmtVarDecl>(vardecl)->value);
+        break;
+
+      default:
+        break;
+    }
   }
 
   virtual void visit(Expr *expr)
@@ -27,12 +36,12 @@ struct Visitor
     switch (expr->kind())
     {
       case Expr::ArrayLiteral:
-        for(auto &element : expr_cast<ArrayLiteralExpr>(expr)->elements)
+        for (auto &element : expr_cast<ArrayLiteralExpr>(expr)->elements)
           visit(element);
         break;
 
       case Expr::CompoundLiteral:
-        for(auto &field : expr_cast<CompoundLiteralExpr>(expr)->fields)
+        for (auto &field : expr_cast<CompoundLiteralExpr>(expr)->fields)
           visit(field);
         break;
 
@@ -62,9 +71,9 @@ struct Visitor
       case Expr::Call:
         if (expr_cast<CallExpr>(expr)->base)
           visit(expr_cast<CallExpr>(expr)->base);
-        for(auto &parm: expr_cast<CallExpr>(expr)->parms)
+        for (auto &parm: expr_cast<CallExpr>(expr)->parms)
           visit(parm);
-        for(auto &[name, parm] : expr_cast<CallExpr>(expr)->namedparms)
+        for (auto &[name, parm] : expr_cast<CallExpr>(expr)->namedparms)
           visit(parm);
         if (auto decl = expr_cast<CallExpr>(expr)->callee; decl->kind() == Decl::DeclRef)
           if (!expr_cast<CallExpr>(expr)->base)
@@ -83,9 +92,9 @@ struct Visitor
 
       case Expr::New:
         visit(expr_cast<NewExpr>(expr)->address);
-        for(auto &parm: expr_cast<NewExpr>(expr)->parms)
+        for (auto &parm: expr_cast<NewExpr>(expr)->parms)
           visit(parm);
-        for(auto &[name, parm] : expr_cast<NewExpr>(expr)->namedparms)
+        for (auto &[name, parm] : expr_cast<NewExpr>(expr)->namedparms)
           visit(parm);
         break;
 
@@ -122,7 +131,7 @@ struct Visitor
       case Stmt::If:
         if (stmt_cast<IfStmt>(stmt)->cond)
           visit(stmt_cast<IfStmt>(stmt)->cond);
-        for(auto &init : stmt_cast<IfStmt>(stmt)->inits)
+        for (auto &init : stmt_cast<IfStmt>(stmt)->inits)
           visit(init);
         if (stmt_cast<IfStmt>(stmt)->stmts[0])
           visit(stmt_cast<IfStmt>(stmt)->stmts[0]);
@@ -133,9 +142,9 @@ struct Visitor
       case Stmt::For:
         if (stmt_cast<ForStmt>(stmt)->cond)
           visit(stmt_cast<ForStmt>(stmt)->cond);
-        for(auto &init : stmt_cast<ForStmt>(stmt)->inits)
+        for (auto &init : stmt_cast<ForStmt>(stmt)->inits)
           visit(init);
-        for(auto &iter : stmt_cast<ForStmt>(stmt)->iters)
+        for (auto &iter : stmt_cast<ForStmt>(stmt)->iters)
           visit(iter);
         visit(stmt_cast<ForStmt>(stmt)->stmt);
         break;
@@ -143,9 +152,9 @@ struct Visitor
       case Stmt::Rof:
         if (stmt_cast<RofStmt>(stmt)->cond)
           visit(stmt_cast<RofStmt>(stmt)->cond);
-        for(auto &init : stmt_cast<RofStmt>(stmt)->inits)
+        for (auto &init : stmt_cast<RofStmt>(stmt)->inits)
           visit(init);
-        for(auto &iter : stmt_cast<RofStmt>(stmt)->iters)
+        for (auto &iter : stmt_cast<RofStmt>(stmt)->iters)
           visit(iter);
         visit(stmt_cast<RofStmt>(stmt)->stmt);
         break;
@@ -153,9 +162,9 @@ struct Visitor
       case Stmt::While:
         if (stmt_cast<WhileStmt>(stmt)->cond)
           visit(stmt_cast<WhileStmt>(stmt)->cond);
-        for(auto &init : stmt_cast<WhileStmt>(stmt)->inits)
+        for (auto &init : stmt_cast<WhileStmt>(stmt)->inits)
           visit(init);
-        for(auto &iter : stmt_cast<WhileStmt>(stmt)->iters)
+        for (auto &iter : stmt_cast<WhileStmt>(stmt)->iters)
           visit(iter);
         visit(stmt_cast<WhileStmt>(stmt)->stmt);
         break;
@@ -163,9 +172,9 @@ struct Visitor
       case Stmt::Switch:
         if (stmt_cast<SwitchStmt>(stmt)->cond)
           visit(stmt_cast<SwitchStmt>(stmt)->cond);
-        for(auto &init : stmt_cast<SwitchStmt>(stmt)->inits)
+        for (auto &init : stmt_cast<SwitchStmt>(stmt)->inits)
           visit(init);
-        for(auto &decl : stmt_cast<SwitchStmt>(stmt)->decls)
+        for (auto &decl : stmt_cast<SwitchStmt>(stmt)->decls)
           if (decl->kind() == Decl::Case)
             visit(decl_cast<CaseDecl>(decl)->body);
         break;
@@ -198,7 +207,7 @@ struct Visitor
         break;
 
       case Stmt::Compound:
-        for(auto &stmt : stmt_cast<CompoundStmt>(stmt)->stmts)
+        for (auto &stmt : stmt_cast<CompoundStmt>(stmt)->stmts)
           visit(stmt);
         break;
 
@@ -209,10 +218,10 @@ struct Visitor
 
   virtual void visit(Decl *decl)
   {
-    switch(decl->kind())
+    switch (decl->kind())
     {
       case Decl::Module:
-        for(auto &decl : decl_cast<ModuleDecl>(decl)->decls)
+        for (auto &decl : decl_cast<ModuleDecl>(decl)->decls)
           visit(decl);
         break;
 
@@ -231,7 +240,7 @@ struct Visitor
         break;
 
       case Decl::DeclScoped:
-        for(auto &decl : decl_cast<DeclScopedDecl>(decl)->decls)
+        for (auto &decl : decl_cast<DeclScopedDecl>(decl)->decls)
           visit(decl);
         break;
 
@@ -243,7 +252,7 @@ struct Visitor
         break;
 
       case Decl::TypeAlias:
-        for(auto &decl : decl_cast<TypeAliasDecl>(decl)->args)
+        for (auto &decl : decl_cast<TypeAliasDecl>(decl)->args)
           visit(decl);
         break;
 
@@ -253,9 +262,9 @@ struct Visitor
       case Decl::Concept:
       case Decl::Lambda:
       case Decl::Enum:
-        for(auto &decl : decl_cast<TagDecl>(decl)->args)
+        for (auto &decl : decl_cast<TagDecl>(decl)->args)
           visit(decl);
-        for(auto &decl : decl_cast<TagDecl>(decl)->decls)
+        for (auto &decl : decl_cast<TagDecl>(decl)->decls)
           visit(decl);
         break;
 
@@ -272,9 +281,9 @@ struct Visitor
         break;
 
       case Decl::Initialiser:
-        for(auto &decl : decl_cast<InitialiserDecl>(decl)->parms)
+        for (auto &decl : decl_cast<InitialiserDecl>(decl)->parms)
           visit(decl);
-        for(auto &[name, decl] : decl_cast<InitialiserDecl>(decl)->namedparms)
+        for (auto &[name, decl] : decl_cast<InitialiserDecl>(decl)->namedparms)
           visit(decl);
         break;
 
@@ -293,7 +302,7 @@ struct Visitor
         break;
 
       case Decl::Import:
-        for(auto &decl : decl_cast<ImportDecl>(decl)->usings)
+        for (auto &decl : decl_cast<ImportDecl>(decl)->usings)
           visit(decl);
         break;
 
@@ -302,11 +311,11 @@ struct Visitor
         break;
 
       case Decl::Function:
-        for(auto &decl : decl_cast<FunctionDecl>(decl)->args)
+        for (auto &decl : decl_cast<FunctionDecl>(decl)->args)
           visit(decl);
-        for(auto &decl : decl_cast<FunctionDecl>(decl)->parms)
+        for (auto &decl : decl_cast<FunctionDecl>(decl)->parms)
           visit(decl);
-        for(auto &decl : decl_cast<FunctionDecl>(decl)->inits)
+        for (auto &decl : decl_cast<FunctionDecl>(decl)->inits)
           visit(decl);
         if (decl_cast<FunctionDecl>(decl)->match)
           visit(decl_cast<FunctionDecl>(decl)->match);

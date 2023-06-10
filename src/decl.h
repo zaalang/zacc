@@ -687,6 +687,7 @@ class RequiresDecl : public Decl
     {
       Condition = 0x1000000,
       Expression = 0x2000000,
+      Match = 0x4000000,
     };
 
   public:
@@ -718,6 +719,7 @@ class EnumConstantDecl : public Decl
 {
   public:
     EnumConstantDecl(SourceLocation loc);
+    EnumConstantDecl(Ident *name, SourceLocation loc);
 
     Ident *name = nullptr;
     Expr *value = nullptr;

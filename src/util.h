@@ -139,9 +139,9 @@ inline std::string escape(std::string_view str)
 
   result.reserve(str.length());
 
-  for(auto ch = str.begin(), end = str.end(); ch != end; ++ch)
+  for (auto ch = str.begin(), end = str.end(); ch != end; ++ch)
   {
-    switch(*ch)
+    switch (*ch)
     {
       case '\a':
         result += "\\a";
@@ -226,11 +226,11 @@ inline std::string unescape(std::string_view str)
 
   result.reserve(str.length());
 
-  for(auto ch = str.data(), end = str.data() + str.size(); ch != end; ++ch)
+  for (auto ch = str.data(), end = str.data() + str.size(); ch != end; ++ch)
   {
     if (*ch == '\\')
     {
-      switch(*++ch)
+      switch (*++ch)
       {
         case 'a':
           result += '\a';

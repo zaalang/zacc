@@ -63,7 +63,7 @@ namespace
 
     bool is_super_field(vector<MIR::RValue::Field> const &lhs, vector<MIR::RValue::Field> const &rhs)
     {
-      for(size_t i = 0; i < min(lhs.size(), rhs.size()); ++i)
+      for (size_t i = 0; i < min(lhs.size(), rhs.size()); ++i)
       {
         if (lhs[i].index != rhs[i].index)
           return false;
@@ -74,7 +74,7 @@ namespace
 
     bool is_common_field(vector<MIR::RValue::Field> const &lhs, vector<MIR::RValue::Field> const &rhs)
     {
-      for(size_t i = 0; i < min(lhs.size(), rhs.size()); ++i)
+      for (size_t i = 0; i < min(lhs.size(), rhs.size()); ++i)
       {
         if (lhs[i].index != rhs[i].index)
           return false;
@@ -85,9 +85,9 @@ namespace
 
     bool is_shared(MIR::local_t arg1, MIR::local_t arg2, int depth = 5)
     {
-      for(auto dep1 : threads[0].locals[arg1].depends_upon)
+      for (auto dep1 : threads[0].locals[arg1].depends_upon)
       {
-        for(auto dep2: threads[0].locals[arg2].depends_upon)
+        for (auto dep2: threads[0].locals[arg2].depends_upon)
         {
           if (get<1>(*dep2) == get<1>(*dep1) && is_common_field(get<2>(*dep2), get<2>(*dep1)))
             return true;
@@ -102,7 +102,7 @@ namespace
 
     bool is_dangling(MIR::local_t arg, int depth = 5)
     {
-      for(auto dep : threads[0].locals[arg].depends_upon)
+      for (auto dep : threads[0].locals[arg].depends_upon)
       {
         if (depth != 0 && is_dangling(get<1>(*dep), depth - 1))
           return true;
@@ -113,9 +113,9 @@ namespace
 
     bool is_consumed(MIR::local_t arg, int depth = 5)
     {
-      for(auto dep : threads[0].locals[arg].depends_upon)
+      for (auto dep : threads[0].locals[arg].depends_upon)
       {
-        for(auto fld : threads[0].locals[get<1>(*dep)].consumed_fields)
+        for (auto fld : threads[0].locals[get<1>(*dep)].consumed_fields)
           if (get<1>(*fld) == get<1>(*dep) && is_common_field(get<2>(*fld), get<2>(*dep)))
             return true;
 
@@ -128,7 +128,7 @@ namespace
 
     bool is_poisoned(MIR::local_t arg, int depth = 5)
     {
-      for(auto dep : threads[0].locals[arg].depends_upon)
+      for (auto dep : threads[0].locals[arg].depends_upon)
       {
         if (depth != 0 && is_poisoned(get<1>(*dep), depth - 1))
           return true;
@@ -273,7 +273,7 @@ namespace
     {
       auto j = lifetime.find_first_of("(", i);
 
-      for(int indent = 0; j != string_view::npos; )
+      for (int indent = 0; j != string_view::npos; )
       {
         if (lifetime[j] == '(')
           indent += 1;
@@ -298,7 +298,7 @@ namespace
   //|///////////////////// has_launder //////////////////////////////////////
   bool has_launder(Context &ctx, vector<Lifetime> const &annotations)
   {
-    for(auto &annotation : annotations)
+    for (auto &annotation : annotations)
     {
       if (annotation.type == Lifetime::launder)
         return true;
@@ -310,7 +310,7 @@ namespace
   //|///////////////////// has_consume //////////////////////////////////////
   [[maybe_unused]] bool has_consume(Context &ctx, vector<Lifetime> const &annotations, Decl *parm)
   {
-    for(auto &annotation : annotations)
+    for (auto &annotation : annotations)
     {
       if (annotation.type == Lifetime::consume)
       {
@@ -325,7 +325,7 @@ namespace
   //|///////////////////// has_poison ///////////////////////////////////////
   [[maybe_unused]] bool has_poison(Context &ctx, vector<Lifetime> const &annotations, Decl *parm)
   {
-    for(auto &annotation : annotations)
+    for (auto &annotation : annotations)
     {
       if (annotation.type == Lifetime::poison)
       {
@@ -340,7 +340,7 @@ namespace
   //|///////////////////// has_repose ///////////////////////////////////////
   [[maybe_unused]] bool has_repose(Context &ctx, vector<Lifetime> const &annotations, Decl *parm1, Decl *parm2)
   {
-    for(auto &annotation : annotations)
+    for (auto &annotation : annotations)
     {
       if (annotation.type == Lifetime::repose)
       {
@@ -428,7 +428,7 @@ namespace
   {
     size_t arg = 0;
 
-    for(auto &parm : callee.parameters())
+    for (auto &parm : callee.parameters())
     {
       if (decl_cast<ParmVarDecl>(parm)->name == name)
         return { decl_cast<ParmVarDecl>(parm), arg };
@@ -448,13 +448,13 @@ namespace
     {
       ctx.threads[0].locals[get<1>(*dep)].consumed = true;
 
-      for(auto dep2 : ctx.threads[0].locals[get<1>(*dep)].depends_upon)
+      for (auto dep2 : ctx.threads[0].locals[get<1>(*dep)].depends_upon)
         consume(ctx, mir, get<1>(*dep), dep2);
     }
 
 #if 0
     cout << "consume: " << *dep << endl;
-    for(auto fld : ctx.threads[0].locals[get<1>(*dep)].consumed_fields)
+    for (auto fld : ctx.threads[0].locals[get<1>(*dep)].consumed_fields)
       cout << "       : " << *fld << endl;
 #endif
   }
@@ -471,7 +471,7 @@ namespace
     if (ctx.threads[0].locals[arg].sealed && dep != ctx.threads[0].locals[arg].depends_upon.back())
       return;
 
-    for(auto &local : ctx.threads[0].locals)
+    for (auto &local : ctx.threads[0].locals)
     {
       if (!local.live)
         continue;
@@ -482,7 +482,7 @@ namespace
       if (local.sealed && local.depends_upon.back() == dep)
         continue;
 
-      for(auto fld : local.depends_upon)
+      for (auto fld : local.depends_upon)
       {
         if (get<1>(*fld) != get<1>(*dep))
           continue;
@@ -508,7 +508,7 @@ namespace
 
     auto &consumed_fields = ctx.threads[0].locals[get<1>(*dep)].consumed_fields;
 
-    for(auto i = consumed_fields.begin(); i != consumed_fields.end(); )
+    for (auto i = consumed_fields.begin(); i != consumed_fields.end(); )
     {
       if (ctx.is_super_field(get<2>(*dep), get<2>(**i)))
         i = consumed_fields.erase(i);
@@ -569,7 +569,7 @@ namespace
 
           if (is_pack_type(decl_cast<ParmVarDecl>(parm1)->type) || is_reference_type(decl_cast<ParmVarDecl>(parm1)->type))
           {
-            for(auto dep : ctx.threads[0].locals[arg1].depends_upon)
+            for (auto dep : ctx.threads[0].locals[arg1].depends_upon)
               ctx.threads[0].locals[get<1>(*dep)].depends_upon.push_back(ctx.make_field(arg2 + mir.locals.size()));
           }
           else
@@ -606,7 +606,7 @@ namespace
         {
           if (lhs == annotation.text)
           {
-            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+            for (auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
               consume(ctx, mir, args[arg], dep);
           }
           else
@@ -615,18 +615,18 @@ namespace
 
             Decl *target = nullptr;
             vector<MIR::RValue::Field> subfields;
-            for(auto type = mir.locals[args[arg]].type; is_tag_type(type); )
+            for (auto type = mir.locals[args[arg]].type; is_tag_type(type); )
             {
               auto tagtype = type_cast<TagType>(type);
 
-              for(auto &decl : tagtype->fieldvars)
+              for (auto &decl : tagtype->fieldvars)
               {
                 if (decl_cast<VarDecl>(decl)->name == rhs)
                 {
                   target = decl;
                   subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, size_t(&decl - &tagtype->fieldvars.front()) });
 
-                  for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+                  for (auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
                     consume(ctx, mir, args[arg], ctx.make_field(dep, subfields));
 
                   break;
@@ -659,7 +659,7 @@ namespace
 
         if (auto [parm, arg] = find_arg(ctx, callee, annotation.text); parm)
         {
-          for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+          for (auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
             ctx.threads[0].locals[get<1>(*dep)].consumed = true;
 
           ctx.threads[0].locals[dst].borrowed = args[arg];
@@ -678,7 +678,7 @@ namespace
         {
           if (is_pack_type(decl_cast<ParmVarDecl>(parm)->type) || is_reference_type(decl_cast<ParmVarDecl>(parm)->type))
           {
-            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+            for (auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
               ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.begin(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.end());
           }
           else
@@ -702,7 +702,7 @@ namespace
         {
           if (lhs == annotation.text)
           {
-            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+            for (auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
               ctx.threads[0].locals[dst].depends_upon.push_back(dep);
           }
           else
@@ -711,18 +711,18 @@ namespace
 
             Decl *target = nullptr;
             vector<MIR::RValue::Field> subfields;
-            for(auto type = mir.locals[args[arg]].type; is_tag_type(type); )
+            for (auto type = mir.locals[args[arg]].type; is_tag_type(type); )
             {
               auto tagtype = type_cast<TagType>(type);
 
-              for(auto &decl : tagtype->fieldvars)
+              for (auto &decl : tagtype->fieldvars)
               {
                 if (decl_cast<VarDecl>(decl)->name == rhs)
                 {
                   target = decl;
                   subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, size_t(&decl - &tagtype->fieldvars.front()) });
 
-                  for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+                  for (auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
                     ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(dep, subfields));
 
                   break;
@@ -759,7 +759,7 @@ namespace
         {
           if (lhs == annotation.text)
           {
-            for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+            for (auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
               poison(ctx, mir, args[arg], dep);
           }
           else
@@ -768,18 +768,18 @@ namespace
 
             Decl *target = nullptr;
             vector<MIR::RValue::Field> subfields;
-            for(auto type = mir.locals[args[arg]].type; is_tag_type(type); )
+            for (auto type = mir.locals[args[arg]].type; is_tag_type(type); )
             {
               auto tagtype = type_cast<TagType>(type);
 
-              for(auto &decl : tagtype->fieldvars)
+              for (auto &decl : tagtype->fieldvars)
               {
                 if (decl_cast<VarDecl>(decl)->name == rhs)
                 {
                   target = decl;
                   subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, size_t(&decl - &tagtype->fieldvars.front()) });
 
-                  for(auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+                  for (auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
                     poison(ctx, mir, args[arg], ctx.make_field(dep, subfields));
 
                   break;
@@ -816,7 +816,7 @@ namespace
         {
           auto rhs = parse(trim(annotation.text.substr(annotation.text.find_first_of(',') + 1)), annotation.loc);
 
-          for(auto dst : ctx.threads[0].locals[args[arg]].depends_upon)
+          for (auto dst : ctx.threads[0].locals[args[arg]].depends_upon)
           {
             ctx.threads[0].locals[get<1>(*dst)].immune = false;
             ctx.threads[0].locals[get<1>(*dst)].consumed = false;
@@ -845,7 +845,7 @@ namespace
         {
           auto rhs = parse(trim(annotation.text.substr(annotation.text.find_first_of(',') + 1)), annotation.loc);
 
-          for(auto dst : ctx.threads[0].locals[args[arg]].depends_upon)
+          for (auto dst : ctx.threads[0].locals[args[arg]].depends_upon)
           {
             apply(ctx, mir, rhs, get<1>(*dst), callee, args, loc);
           }
@@ -876,13 +876,13 @@ namespace
           {
             auto tagtype = type_cast<TagType>(type);
 
-            for(auto decl : tagtype->decls)
+            for (auto decl : tagtype->decls)
             {
               if (decl->kind() == Decl::Function && decl_cast<FunctionDecl>(decl)->name == rhs)
               {
                 target.type = Lifetime::none;
 
-                for(auto &annotation : decl_cast<FunctionDecl>(decl)->lifetimes)
+                for (auto &annotation : decl_cast<FunctionDecl>(decl)->lifetimes)
                 {
                   target.type = annotation.type;
 
@@ -946,7 +946,7 @@ namespace
 
     if (all_of(fields.begin(), fields.end(), [](auto k){ return k.op != MIR::RValue::Val; }))
     {
-      switch(op)
+      switch (op)
       {
         case MIR::RValue::Val:
           if (is_builtin_type(mir.locals[dst].type))
@@ -964,7 +964,7 @@ namespace
         case MIR::RValue::Fer:
           if (ctx.state(arg) != State::ok)
             ctx.diag.error("potentially invalid dereference", mir.fx.fn, loc);
-          for(auto dep : ctx.threads[0].locals[arg].depends_upon)
+          for (auto dep : ctx.threads[0].locals[arg].depends_upon)
             ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.begin(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.end());
           break;
 
@@ -979,13 +979,13 @@ namespace
 
     if (fields.size() != 0 && fields[0].op == MIR::RValue::Val && all_of(fields.begin() + 1, fields.end(), [](auto k){ return k.op != MIR::RValue::Val; }))
     {
-      switch(op)
+      switch (op)
       {
         case MIR::RValue::Val:
           break;
 
         case MIR::RValue::Ref:
-          for(auto dep : ctx.threads[0].locals[arg].depends_upon)
+          for (auto dep : ctx.threads[0].locals[arg].depends_upon)
             ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(dep, fields));
           ctx.threads[0].locals[dst].immune = true;
           break;
@@ -1019,7 +1019,7 @@ namespace
           break;
       }
 
-      for(auto dep : ctx.threads[0].locals[dst].depends_upon)
+      for (auto dep : ctx.threads[0].locals[dst].depends_upon)
         consume(ctx, mir, dst, dep);
 
       ctx.threads[0].locals[dst].sealed = false;
@@ -1039,11 +1039,11 @@ namespace
 
     if (callee.fn->name == Ident::op_assign || has_launder(ctx, notations))
     {
-      for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
+      for (auto dep : ctx.threads[0].locals[args[0]].depends_upon)
         launder(ctx, mir, args[0], dep);
     }
 
-    for(auto const &[parm, arg] : zip(callee.parameters(), args))
+    for (auto const &[parm, arg] : zip(callee.parameters(), args))
     {
       switch (ctx.state(arg))
       {
@@ -1067,7 +1067,7 @@ namespace
       {
         if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type) && is_mutable_reference(ctx, mir.locals[arg]))
         {
-          for(auto const &[other_parm, other_arg] : zip(callee.parameters(), args))
+          for (auto const &[other_parm, other_arg] : zip(callee.parameters(), args))
           {
             if (other_arg == arg)
               continue;
@@ -1088,7 +1088,7 @@ namespace
       {
         case Builtin::Assign:
           if (is_pointference_type(mir.locals[dst].type))
-            for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
+            for (auto dep : ctx.threads[0].locals[args[0]].depends_upon)
               ctx.threads[0].locals[get<1>(*dep)].depends_upon.insert(ctx.threads[0].locals[get<1>(*dep)].depends_upon.end(), ctx.threads[0].locals[args[1]].depends_upon.begin(), ctx.threads[0].locals[args[1]].depends_upon.end());
           ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[args[0]].depends_upon;
           break;
@@ -1133,7 +1133,7 @@ namespace
           {
             auto lambda = decl_cast<LambdaDecl>(type_cast<TagType>(callee.fn->returntype)->decl);
 
-            for(auto &arg : args)
+            for (auto &arg : args)
             {
               if (is_reference_type(decl_cast<LambdaVarDecl>(lambda->captures[&arg - &args.front()])->type))
               {
@@ -1149,7 +1149,7 @@ namespace
         case Builtin::Tuple_Copytructor:
         case Builtin::Tuple_CopytructorEx:
           // depend(*other)
-          for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
+          for (auto dep : ctx.threads[0].locals[args[0]].depends_upon)
             ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.begin(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.end());
           break;
 
@@ -1158,8 +1158,8 @@ namespace
         case Builtin::Tuple_Assignment:
         case Builtin::Tuple_AssignmentEx:
           // append(this, depend(*other))
-          for(auto dep : ctx.threads[0].locals[args[0]].depends_upon)
-            for(auto src : ctx.threads[0].locals[args[1]].depends_upon)
+          for (auto dep : ctx.threads[0].locals[args[0]].depends_upon)
+            for (auto src : ctx.threads[0].locals[args[1]].depends_upon)
               ctx.threads[0].locals[get<1>(*dep)].depends_upon = ctx.threads[0].locals[get<1>(*src)].depends_upon;
           // depend(this)
           ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[args[0]].depends_upon;
@@ -1170,14 +1170,14 @@ namespace
       }
     }
 
-    for(auto &annotation : notations)
+    for (auto &annotation : notations)
     {
       apply(ctx, mir, annotation, dst, callee, args, loc);
     }
 
     if (mir.locals[dst].flags & MIR::Local::MoveRef)
     {
-      for(auto dep : ctx.threads[0].locals[dst].depends_upon)
+      for (auto dep : ctx.threads[0].locals[dst].depends_upon)
         consume(ctx, mir, dst, dep);
 
       ctx.threads[0].locals[dst].depends_upon.clear();
@@ -1187,10 +1187,10 @@ namespace
     {
       auto arg = ctx.threads[0].locals.size();
 
-      for(auto &thread : ctx.threads)
+      for (auto &thread : ctx.threads)
         thread.locals.push_back(Context::Storage());
 
-      for(auto &thread : ctx.threads)
+      for (auto &thread : ctx.threads)
         thread.locals[arg].live = true;
 
       ctx.threads[0].locals[dst].sealed = true;
@@ -1241,7 +1241,7 @@ namespace
 
     analyse_assign_statement(ctx, mir, statement);
 
-    for(auto dep : ctx.threads[0].locals[dst - 1].depends_upon)
+    for (auto dep : ctx.threads[0].locals[dst - 1].depends_upon)
     {
       ctx.threads[0].locals[get<1>(*dep)].consumed |= ctx.threads[0].locals[dst].consumed;
       ctx.threads[0].locals[get<1>(*dep)].poisoned |= ctx.threads[0].locals[dst].poisoned;
@@ -1263,11 +1263,11 @@ namespace
     {
       auto arg = ctx.threads[0].locals[statement.dst].borrowed;
 
-      for(auto dep : ctx.threads[0].locals[arg].depends_upon)
+      for (auto dep : ctx.threads[0].locals[arg].depends_upon)
         ctx.threads[0].locals[get<1>(*dep)].consumed = false;
     }
 
-    //for(auto &local : ctx.threads[0].locals)
+    //for (auto &local : ctx.threads[0].locals)
     //{
     //  if (!local.live)
     //    continue;
@@ -1288,14 +1288,14 @@ namespace
     auto arg = statement.dst;
 
     auto loc = [&]() {
-      for(auto &info : mir.varinfos)
+      for (auto &info : mir.varinfos)
         if (info.local == statement.dst)
           return info.vardecl->loc();
       return mir.fx.fn->loc();
     };
 
 #if 0
-      for(auto dep : ctx.threads[0].locals[arg].depends_upon)
+      for (auto dep : ctx.threads[0].locals[arg].depends_upon)
         cout << "loop: " << *dep << endl;
 #endif
 
@@ -1338,7 +1338,7 @@ namespace
 
     ctx.add_thread(0, vector<Context::Storage>(mir.locals.size() + mir.args_end));
 
-    for(auto arg = mir.args_beg; arg != mir.args_end; ++arg)
+    for (auto arg = mir.args_beg; arg != mir.args_end; ++arg)
     {
       ctx.threads[0].locals[arg].live = true;
 
@@ -1350,17 +1350,17 @@ namespace
       }
     }
 
-    for(auto &[arg, value] : mir.statics)
+    for (auto &[arg, value] : mir.statics)
     {
       ctx.threads[0].locals[arg].live = true;
     }
 
-    for(auto &annotation : notations)
+    for (auto &annotation : notations)
     {
       setup(ctx, mir, annotation);
     }
 
-    for(size_t block_id = 0; block_id < mir.blocks.size(); ++block_id)
+    for (size_t block_id = 0; block_id < mir.blocks.size(); ++block_id)
     {
       auto &block = mir.blocks[block_id];
 
@@ -1372,21 +1372,22 @@ namespace
       if (j != ctx.threads.begin())
         std::swap(ctx.threads.front(), *j);
 
-      for(size_t i = 1; i != ctx.threads.size(); )
+      for (size_t i = 1; i != ctx.threads.size(); )
       {
         if (ctx.threads[i].block <= block_id)
         {
-          for(size_t k = 0; k < ctx.threads[0].locals.size(); ++k)
+          for (size_t k = 0; k < ctx.threads[0].locals.size(); ++k)
           {
+            ctx.threads[0].locals[k].live |= ctx.threads[i].locals[k].live;
             ctx.threads[0].locals[k].consumed |= ctx.threads[i].locals[k].consumed;
             ctx.threads[0].locals[k].immune &= ctx.threads[i].locals[k].immune;
             ctx.threads[0].locals[k].poisoned |= ctx.threads[i].locals[k].poisoned;
 
-            for(auto dep : ctx.threads[i].locals[k].depends_upon)
+            for (auto dep : ctx.threads[i].locals[k].depends_upon)
               if (find(ctx.threads[0].locals[k].depends_upon.begin(), ctx.threads[0].locals[k].depends_upon.end(), dep) == ctx.threads[0].locals[k].depends_upon.end())
                 ctx.threads[0].locals[k].depends_upon.push_back(dep);
 
-            for(auto fld : ctx.threads[i].locals[k].consumed_fields)
+            for (auto fld : ctx.threads[i].locals[k].consumed_fields)
               if (find(ctx.threads[0].locals[k].consumed_fields.begin(), ctx.threads[0].locals[k].consumed_fields.end(), fld) == ctx.threads[0].locals[k].consumed_fields.end())
                 ctx.threads[0].locals[k].consumed_fields.push_back(fld);
           }
@@ -1399,7 +1400,7 @@ namespace
         ++i;
       }
 
-      for(auto &statement : block.statements)
+      for (auto &statement : block.statements)
       {
         //cout << statement << endl;
 
@@ -1441,7 +1442,7 @@ namespace
 
         case MIR::Terminator::Switch:
           ctx.threads[0].block = block.terminator.blockid;
-          for(auto &[value, block]: block.terminator.targets)
+          for (auto &[value, block]: block.terminator.targets)
             if (block > block_id)
               ctx.add_thread(block, ctx.threads[0].locals);
           break;
@@ -1462,7 +1463,7 @@ namespace
 
     ctx.threads[0].locals[0].live = true;
 
-    for(auto arg = mir.args_beg; arg != mir.args_end; ++arg)
+    for (auto arg = mir.args_beg; arg != mir.args_end; ++arg)
     {
       ctx.threads[0].locals[arg].live = false;
     }
@@ -1471,7 +1472,7 @@ namespace
       return;
 
     auto arg = mir.args_beg;
-    for(auto &parm : mir.fx.parameters())
+    for (auto &parm : mir.fx.parameters())
     {
       if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type) && !is_const_reference(ctx, mir.locals[arg]))
       {

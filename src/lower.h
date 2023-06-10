@@ -211,11 +211,11 @@ inline QualArgType *TypeTable::find_or_create<QualArgType>(long qualifiers, Type
 template<>
 inline TypeLitType *TypeTable::find_or_create<TypeLitType>(Expr *expr)
 {
-  switch(expr->kind())
+  switch (expr->kind())
   {
     case Expr::IntLiteral:
 
-      for(auto &lit : int_literal_types)
+      for (auto &lit : int_literal_types)
       {
         if (expr_cast<IntLiteralExpr>(lit->value)->value() == expr_cast<IntLiteralExpr>(expr)->value())
           return lit;
@@ -227,7 +227,7 @@ inline TypeLitType *TypeTable::find_or_create<TypeLitType>(Expr *expr)
 
     case Expr::StringLiteral:
 
-      for(auto &lit : string_literal_types)
+      for (auto &lit : string_literal_types)
       {
         if (expr_cast<StringLiteralExpr>(lit->value)->value() == expr_cast<StringLiteralExpr>(expr)->value())
           return lit;
@@ -246,13 +246,13 @@ inline TypeLitType *TypeTable::find_or_create<TypeLitType>(Expr *expr)
     case Expr::ArrayLiteral:
     case Expr::CompoundLiteral:
 
-      for(auto &lit : other_literal_types)
+      for (auto &lit : other_literal_types)
       {
         if (equals(lit, expr))
           return lit;
       }
 
-      switch(expr->kind())
+      switch (expr->kind())
       {
         case Expr::VoidLiteral:
           other_literal_types.push_back(make_type<TypeLitType>(make_expr<VoidLiteralExpr>(expr->loc())));
@@ -282,7 +282,7 @@ inline TypeLitType *TypeTable::find_or_create<TypeLitType>(Expr *expr)
 
           std::vector<Expr*> elements;
 
-          for(auto &element : expr_cast<ArrayLiteralExpr>(expr)->elements)
+          for (auto &element : expr_cast<ArrayLiteralExpr>(expr)->elements)
             elements.push_back(find_or_create<TypeLitType>(element)->value);
 
           other_literal_types.push_back(make_type<TypeLitType>(make_expr<ArrayLiteralExpr>(elements, expr_cast<ArrayLiteralExpr>(expr)->size, expr->loc())));
@@ -294,7 +294,7 @@ inline TypeLitType *TypeTable::find_or_create<TypeLitType>(Expr *expr)
 
           std::vector<Expr*> fields;
 
-          for(auto &field : expr_cast<CompoundLiteralExpr>(expr)->fields)
+          for (auto &field : expr_cast<CompoundLiteralExpr>(expr)->fields)
             fields.push_back(find_or_create<TypeLitType>(field)->value);
 
           other_literal_types.push_back(make_type<TypeLitType>(make_expr<CompoundLiteralExpr>(fields, expr->loc())));

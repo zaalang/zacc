@@ -24,7 +24,7 @@ namespace
 
     friend ostream &operator <<(ostream &os, spaces const &indent)
     {
-      for(int i = 0; i < indent.n; ++i)
+      for (int i = 0; i < indent.n; ++i)
         os << ' ';
 
       return os;
@@ -151,7 +151,7 @@ void CompoundStmt::dump(int indent) const
 {
   cout << spaces(indent) << "CompoundStmt " << this << " <" << m_loc << ">\n";
 
-  for(auto &stmt : stmts)
+  for (auto &stmt : stmts)
   {
     stmt->dump(indent + 2);
   }
@@ -226,7 +226,7 @@ void IfStmt::dump(int indent) const
 {
   cout << spaces(indent) << "IfStmt " << this << " <" << m_loc << ">\n";
 
-  for(auto &init : inits)
+  for (auto &init : inits)
   {
     init->dump(indent + 2);
   }
@@ -262,7 +262,7 @@ void ForStmt::dump(int indent) const
 {
   cout << spaces(indent) << "ForStmt " << this << " <" << m_loc << ">\n";
 
-  for(auto &init : inits)
+  for (auto &init : inits)
   {
     init->dump(indent + 2);
   }
@@ -272,7 +272,7 @@ void ForStmt::dump(int indent) const
     cond->dump(indent + 2);
   }
 
-  for(auto &iter : iters)
+  for (auto &iter : iters)
   {
     iter->dump(indent + 2);
   }
@@ -298,7 +298,7 @@ void RofStmt::dump(int indent) const
 {
   cout << spaces(indent) << "RofStmt " << this << " <" << m_loc << ">\n";
 
-  for(auto &init : inits)
+  for (auto &init : inits)
   {
     init->dump(indent + 2);
   }
@@ -308,7 +308,7 @@ void RofStmt::dump(int indent) const
     cond->dump(indent + 2);
   }
 
-  for(auto &iter : iters)
+  for (auto &iter : iters)
   {
     iter->dump(indent + 2);
   }
@@ -334,12 +334,12 @@ void WhileStmt::dump(int indent) const
 {
   cout << spaces(indent) << "WhileStmt " << this << " <" << m_loc << ">\n";
 
-  for(auto &init : inits)
+  for (auto &init : inits)
   {
     init->dump(indent + 2);
   }
 
-  for(auto &iter : iters)
+  for (auto &iter : iters)
   {
     iter->dump(indent + 2);
   }
@@ -370,7 +370,7 @@ void SwitchStmt::dump(int indent) const
 {
   cout << spaces(indent) << "SwitchStmt " << this << " <" << m_loc << ">\n";
 
-  for(auto &init : inits)
+  for (auto &init : inits)
   {
     init->dump(indent + 2);
   }
@@ -380,7 +380,7 @@ void SwitchStmt::dump(int indent) const
     cond->dump(indent + 2);
   }
 
-  for(auto &decl : decls)
+  for (auto &decl : decls)
   {
     decl->dump(indent + 2);
   }

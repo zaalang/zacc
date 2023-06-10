@@ -64,6 +64,7 @@ fn test_as_tuple()
   }
 
   std::assert(std::is_same<as_tuple<X>, (i32, f64, bool)>);
+  std::assert(std::is_same<as_tuple<X>, (X...,)>);
 }
 
 fn test_as_soa()

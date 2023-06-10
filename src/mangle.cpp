@@ -196,7 +196,7 @@ namespace
   {
     string result;
 
-    for(auto parm : fn->args)
+    for (auto parm : fn->args)
     {
       (void)parm;
       result += "Da";
@@ -218,7 +218,7 @@ namespace
         result += 'v';
     }
 
-    for(auto parm : fn->parms)
+    for (auto parm : fn->parms)
     {
       mangle_type(result, decl_cast<ParmVarDecl>(parm)->type);
     }
@@ -294,7 +294,7 @@ namespace
           {
             int count = 0;
 
-            for(auto &stmt : stmt_cast<CompoundStmt>(owner)->stmts)
+            for (auto &stmt : stmt_cast<CompoundStmt>(owner)->stmts)
             {
               if (stmt == owner)
                 break;

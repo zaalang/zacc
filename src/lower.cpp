@@ -3918,13 +3918,13 @@ namespace
 
               case Type::Tag:
                 if (type_cast<TagType>(type)->args.empty())
-                  rank += s/2;
+                  rank += s - 1;
                 for (auto &[decl, arg] : type_cast<TagType>(type)->args)
                   self(self, arg, (s - 1) / type_cast<TagType>(type)->args.size());
                 break;
 
               default:
-                rank += s/2;
+                rank += s - 1;
                 break;
             }
 
@@ -3939,9 +3939,6 @@ namespace
 
           while (is_tag_type(rhs))
           {
-            if (lhs->klass() == Type::TypeArg)
-              break;
-
             if (lhs->klass() == Type::Tag && type_cast<TagType>(lhs)->decl == type_cast<TagType>(rhs)->decl)
               break;
 
@@ -3954,13 +3951,13 @@ namespace
           }
 
           if (lhs->klass() == Type::TypeArg)
-            rank += s/2;
+            rank += s - 1;
 
           if ((is_pointer_type(lhs) && !is_pointference_type(rhs)) || (is_builtin_type(lhs) && lhs != rhs))
-            rank += s/2;
+            rank += s - 1;
 
           if (is_voidpointer_type(lhs) && !is_voidpointer_type(rhs))
-            rank += s/2;
+            rank += s - 1;
         };
 
         if (!is_pack_type(parm->type))

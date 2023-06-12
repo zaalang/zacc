@@ -996,6 +996,7 @@ namespace
       case Decl::ParmVar:
       case Decl::StmtVar:
       case Decl::VoidVar:
+      case Decl::DeclRef:
         dst = sema.make_typelit(sema.make_declref_expression(typeref->decl, declref->loc()));
         return;
 

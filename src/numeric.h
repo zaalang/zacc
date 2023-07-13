@@ -11,6 +11,7 @@
 
 #include <iostream>
 #include <string_view>
+#include <cstdint>
 #include <cassert>
 
 namespace Numeric

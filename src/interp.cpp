@@ -2373,7 +2373,7 @@ namespace
 
     if (!fn)
     {
-      ctx.diag.error("null funciton pointer dereference");
+      ctx.diag.error("null funciton pointer dereference", fx.scope, loc);
       return false;
     }
 

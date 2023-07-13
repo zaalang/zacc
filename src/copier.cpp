@@ -199,7 +199,12 @@ namespace
       elements.push_back(copier_expr(ctx, element));
     }
 
-    return new ArrayLiteralExpr(elements, copier_type(ctx, arrayliteral->size), arrayliteral->loc());
+    auto result = new ArrayLiteralExpr(elements, copier_type(ctx, arrayliteral->size), arrayliteral->loc());
+
+    if (arrayliteral->coercedtype)
+      result->coercedtype = copier_type(ctx, arrayliteral->coercedtype);
+
+    return result;
   }
 
   //|///////////////////// compoundliteral //////////////////////////////////
@@ -339,9 +344,9 @@ namespace
   }
 
   //|///////////////////// requires_expression //////////////////////////////
-  Expr *copier_expr(CopierContext &ctx, RequiresExpr *requires)
+  Expr *copier_expr(CopierContext &ctx, RequiresExpr *reqires)
   {
-    return new RequiresExpr(copier_decl(ctx, requires->decl), requires->loc());
+    return new RequiresExpr(copier_decl(ctx, reqires->decl), reqires->loc());
   }
 
   //|///////////////////// match_expression /////////////////////////////////

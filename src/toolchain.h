@@ -47,6 +47,7 @@ class ToolChain
     
     std::string const & os() const { return m_os; }
     std::string const & env() const { return m_env; }
+    std::string const & arch() const { return m_arch; }
 
     explicit operator bool() const { return m_type != Unknown; }
 

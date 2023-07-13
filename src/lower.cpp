@@ -469,8 +469,8 @@ namespace
     return child_scope(ctx, parent, decl, decl->args, k, args, namedargs);
   }
 
-  //|///////////////////// decl_scope ///////////////////////////////////////
-  Scope decl_scope(LowerContext &ctx, Scope const &scope, Decl *decl, size_t &k, vector<MIR::Local> const &args, map<Ident*, MIR::Local> const &namedargs)
+  //|///////////////////// inner_scope //////////////////////////////////////
+  Scope inner_scope(LowerContext &ctx, Scope const &scope, Decl *decl, size_t &k, vector<MIR::Local> const &args, map<Ident*, MIR::Local> const &namedargs)
   {
     switch (decl->kind())
     {
@@ -493,8 +493,13 @@ namespace
       case Decl::TypeAlias:
         if (auto typescope = child_scope(ctx, scope, decl_cast<TypeAliasDecl>(decl), k, args, namedargs))
         {
-          if (auto type = resolve_type(ctx, typescope, decl_cast<TypeAliasDecl>(decl)->type); is_tag_type(type))
-            return type_scope(ctx, type);
+          auto type = resolve_type(ctx, typescope, decl_cast<TypeAliasDecl>(decl)->type);
+
+          if (is_typearg_type(type) && type_cast<TypeArgType>(type)->koncept)
+            return Scope(type_cast<TypeArgType>(type)->koncept, type_cast<TypeArgType>(type)->args);
+
+          if (is_tag_type(type))
+            return Scope(type_cast<TagType>(type)->decl, type_cast<TagType>(type)->args);
 
           return typescope;
         }
@@ -504,9 +509,6 @@ namespace
         if (auto j = scope.find_type(decl); j != scope.typeargs.end() && is_tag_type(remove_const_type(j->second)))
           return type_scope(ctx, j->second);
         break;
-
-      case Decl::EnumConstant:
-        return child_scope(scope, decl_cast<EnumConstantDecl>(decl));
 
       default:
         assert(ctx.diag.has_errored());
@@ -1192,7 +1194,7 @@ namespace
         if (decls[0]->kind() == Decl::TypeAlias && (decls[0]->flags & TypeAliasDecl::Implicit) && !declref->argless)
           decls[0] = get<Decl*>(decls[0]->owner);
 
-        declscope = decl_scope(ctx, outer_scope(*sx, decls[0]), decls[0], k, args, namedargs);
+        declscope = inner_scope(ctx, outer_scope(*sx, decls[0]), decls[0], k, args, namedargs);
 
         if ((k & ~IllSpecified) != args.size() + namedargs.size())
           return nullptr;
@@ -1223,7 +1225,7 @@ namespace
 
       size_t k = 0;
 
-      declscope = decl_scope(ctx, outer_scope(declscope, decls[0]), decls[0], k, args, namedargs);
+      declscope = inner_scope(ctx, outer_scope(declscope, decls[0]), decls[0], k, args, namedargs);
 
       if ((k & ~IllSpecified) != args.size() + namedargs.size())
         return nullptr;
@@ -2016,6 +2018,36 @@ namespace
     return ctx.voidtype;
   }
 
+  Type *resolve_type(LowerContext &ctx, Scope const &scope, Decl *decl, size_t &k, vector<MIR::Local> const &args, map<Ident*, MIR::Local> const &namedargs)
+  {
+    switch (decl->kind())
+    {
+      case Decl::Struct:
+      case Decl::Union:
+      case Decl::VTable:
+      case Decl::Concept:
+      case Decl::Enum:
+        return resolve_type(ctx, child_scope(ctx, scope, decl_cast<TagDecl>(decl), k, args, namedargs), decl);
+
+      case Decl::Function:
+        return resolve_type(ctx, child_scope(ctx, scope, decl_cast<FunctionDecl>(decl), k, args, namedargs), decl);
+
+      case Decl::TypeAlias:
+        return resolve_type(ctx, child_scope(ctx, scope, decl_cast<TypeAliasDecl>(decl), k, args, namedargs), decl);
+
+      case Decl::EnumConstant:
+        return resolve_type(ctx, scope, decl);
+
+      case Decl::TypeArg:
+        return resolve_type(ctx, scope, decl);
+
+      default:
+        assert(ctx.diag.has_errored());
+    }
+
+    return resolve_type(ctx, scope, decl);
+  }
+
   Type *resolve_type(LowerContext &ctx, Scope const &scope, TypeRefType *typeref, DeclRefDecl *declref)
   {
     vector<Type*> types;
@@ -2035,12 +2067,12 @@ namespace
         if (decl->kind() == Decl::TypeAlias && (decl->flags & TypeAliasDecl::Implicit) && !declref->argless)
           decl = get<Decl*>(decl->owner);
 
-        auto declscope = decl_scope(ctx, outer_scope(sx, decl), decl, k, args, namedargs);
+        auto type = resolve_type(ctx, outer_scope(sx, decl), decl, k, args, namedargs);
 
         if (k != args.size() + namedargs.size())
           continue;
 
-        types.push_back(resolve_type(ctx, declscope, get<Decl*>(declscope.owner)));
+        types.push_back(type);
       }
 
       if (decls.empty())
@@ -2080,12 +2112,12 @@ namespace
         {
           size_t k = 0;
 
-          auto declscope = decl_scope(ctx, outer_scope(sx, decl), decl, k, args, namedargs);
+          auto type = resolve_type(ctx, outer_scope(sx, decl), decl, k, args, namedargs);
 
           if (k != args.size() + namedargs.size())
             continue;
 
-          types.push_back(resolve_type(ctx, declscope, get<Decl*>(declscope.owner)));
+          types.push_back(type);
         }
 
         if (decls.empty())
@@ -2225,6 +2257,9 @@ namespace
 
       case Decl::Function:
         return resolve_type(ctx, scope, decl_cast<FunctionDecl>(decl));
+
+      case Decl::EnumConstant:
+        return resolve_type(ctx, scope, resolve_type(ctx, scope, get<Decl*>(scope.owner)), decl_cast<EnumConstantDecl>(decl));
 
       case Decl::VoidVar:
       case Decl::StmtVar:
@@ -3964,11 +3999,11 @@ namespace
         {
           if (k < parms.size())
           {
-            rankcast(rankcast, parm->type, parms[k], 5);
+            rankcast(rankcast, parm->type, parms[k], 10);
           }
           else if (auto j = namedparms.find(parm->name); j != namedparms.end())
           {
-            rankcast(rankcast, parm->type, j->second, 5);
+            rankcast(rankcast, parm->type, j->second, 10);
           }
           else
           {
@@ -8774,7 +8809,7 @@ namespace
         if (!(is_decl_scope(basescope) && get<Decl*>(basescope.owner)->kind() == Decl::Lambda && !(get<Decl*>(basescope.owner)->flags & LambdaDecl::Captures)))
           parms.erase(parms.begin());
 
-        callee = find_callee(ctx, ctx.stack, basescope, call->callee, parms, namedparms, is_callop);
+        callee = find_callee(ctx, ctx.stack, Scope(), call->callee, parms, namedparms, is_callop);
       }
 
       if (!callee)

@@ -136,15 +136,6 @@ int main(int argc, char *argv[])
         opts.llvmargs.push_back(argv[++i]);
     }
 
-    if (opts.triple.find("linux") != std::string::npos)
-      sema.add_cfg("os.linux");
-
-    if (opts.triple.find("windows") != std::string::npos)
-      sema.add_cfg("os.windows");
-
-    if (opts.triple.find("zaos") != std::string::npos)
-      sema.add_cfg("os.zaos");
-
     if (opts.checkmode == GenOpts::CheckedMode::Checked)
       sema.add_cfg("zaa.build.checked");
 
@@ -160,6 +151,9 @@ int main(int argc, char *argv[])
       cerr << "unable to initialise toolchain\n";
       exit(1);
     }
+
+    sema.add_cfg("os." + toolchain.os());
+    sema.add_cfg("arch." + toolchain.arch());
 
     string outfile = filename(toolchain, basename(input), opts.outputtype);
 

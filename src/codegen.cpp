@@ -583,6 +583,9 @@ namespace
         }
         break;
 
+      case Type::Slice:
+        return llvm_slice(ctx, type_cast<SliceType>(type)->type);
+
       case Type::Function:
         return llvm_fntype(ctx, type_cast<FunctionType>(type));
 
@@ -856,6 +859,18 @@ namespace
       ditype = ctx.di.createEnumerationType(llvm_discope(ctx, decl), decl->name->sv(), difile, decl->loc().lineno, sizeof_type(type) * 8, alignof_type(type) * 8, ctx.di.getOrCreateArray({}), llvm_ditype(ctx, type->fields[0]));
 
       ctx.deferred_enums.push_back(type);
+    }
+
+    if (is_slice_type(local.type))
+    {
+      auto lenty = llvm_ditype(ctx, Builtin::type(Builtin::Type_USize));
+      auto dataty = llvm_ditype(ctx, ctx.typetable.find_or_create<PointerType>(type_cast<SliceType>(local.type)->type));
+
+      vector<llvm::Metadata*> elements;
+      elements.push_back(ctx.di.createMemberType(ctx.diunit, "len", ctx.difile, 0, sizeof(uint64_t) * 8, alignof(uint64_t) * 8, 0, llvm::DINode::FlagZero, lenty));
+      elements.push_back(ctx.di.createMemberType(ctx.diunit, "data", ctx.difile, 0, sizeof(char*) * 8, alignof(char*) * 8, sizeof(uint64_t) * 8, llvm::DINode::FlagZero, dataty));
+
+      ditype = ctx.di.createStructType(ctx.diunit, "#slice", ctx.difile, 0, sizeof_type(local.type) * 8, alignof_type(local.type) * 8, llvm::DINode::FlagZero, nullptr, ctx.di.getOrCreateArray(elements));
     }
 
     if (is_function_type(local.type))
@@ -5296,9 +5311,15 @@ namespace
     options.AllowFPOpFusion = llvm::FPOpFusion::Standard;
     options.ExceptionModel = llvm::ExceptionHandling::None;
 
+#if LLVM_VERSION_MAJOR == 16
+    auto relocmodel = std::optional<llvm::Reloc::Model>();
+    auto codemodel = std::optional<llvm::CodeModel::Model>();
+    auto optlevel = llvm::CodeGenOpt::None;
+#else
     auto relocmodel = llvm::Optional<llvm::Reloc::Model>();
     auto codemodel = llvm::Optional<llvm::CodeModel::Model>();
     auto optlevel = llvm::CodeGenOpt::None;
+#endif
 
     switch (ctx.genopts.reloc)
     {

@@ -144,8 +144,8 @@ namespace
     return child_scope(ctx, parent, decl, decl->args, k, args, namedargs, sema);
   }
 
-  //|///////////////////// decl_scope ///////////////////////////////////////
-  Scope decl_scope(TyperContext &ctx, Scope const &scope, Decl *decl, size_t &k, vector<Type*> const &args, map<Ident*, Type*> const &namedargs, Sema &sema)
+  //|///////////////////// inner_scope //////////////////////////////////////
+  Scope inner_scope(TyperContext &ctx, Scope const &scope, Decl *decl, size_t &k, vector<Type*> const &args, map<Ident*, Type*> const &namedargs, Sema &sema)
   {
     switch (decl->kind())
     {
@@ -167,8 +167,18 @@ namespace
         return child_scope(ctx, scope, decl_cast<FunctionDecl>(decl), k, args, namedargs, sema);
 
       case Decl::TypeAlias:
-        if (auto j = resolve_alias(ctx, child_scope(ctx, scope, decl_cast<TypeAliasDecl>(decl), k, args, namedargs, sema), decl_cast<TypeAliasDecl>(decl)->type, sema); j && is_tag_type(j))
-          return Scope(type_cast<TagType>(j)->decl, type_cast<TagType>(j)->args);
+        if (auto typescope = child_scope(ctx, scope, decl_cast<TypeAliasDecl>(decl), k, args, namedargs, sema))
+        {
+          auto type = resolve_alias(ctx, typescope, decl_cast<TypeAliasDecl>(decl)->type, sema);
+
+          if (is_typearg_type(type) && type_cast<TypeArgType>(type)->koncept)
+            return Scope(type_cast<TypeArgType>(type)->koncept, type_cast<TypeArgType>(type)->args);
+
+          if (is_tag_type(type))
+            return Scope(type_cast<TagType>(type)->decl, type_cast<TagType>(type)->args);
+
+          return typescope;
+        }
         break;
 
       case Decl::TypeArg:
@@ -777,7 +787,7 @@ namespace
 
           size_t k = 0;
 
-          declscope = decl_scope(ctx, outer_scope(sx, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
+          declscope = inner_scope(ctx, outer_scope(sx, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
 
           break;
         }
@@ -823,7 +833,7 @@ namespace
 
         size_t k = 0;
 
-        declscope = decl_scope(ctx, outer_scope(declscope, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
+        declscope = inner_scope(ctx, outer_scope(declscope, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
 
         if (decls[0]->kind() == Decl::Import || decls[0]->kind() == Decl::Module)
           querymask |= QueryFlags::Public;
@@ -1241,7 +1251,7 @@ namespace
         if (decls[0]->kind() == Decl::TypeAlias && (decls[0]->flags & TypeAliasDecl::Implicit) && !declref->argless)
           decls[0] = get<Decl*>(decls[0]->owner);
 
-        declscope = decl_scope(ctx, outer_scope(sx, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
+        declscope = inner_scope(ctx, outer_scope(sx, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
 
         if (k != declref->args.size() + declref->namedargs.size())
         {
@@ -1289,7 +1299,7 @@ namespace
 
       size_t k = 0;
 
-      declscope = decl_scope(ctx, outer_scope(declscope, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
+      declscope = inner_scope(ctx, outer_scope(declscope, decls[0]), decls[0], k, declref->args, declref->namedargs, sema);
 
       if (k != declref->args.size() + declref->namedargs.size())
       {
@@ -1481,6 +1491,11 @@ namespace
   //|///////////////////// arrayliteral /////////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, ArrayLiteralExpr *arrayliteral, Sema &sema)
   {
+    if (arrayliteral->coercedtype)
+    {
+      resolve_type(ctx, scope, arrayliteral->coercedtype, sema);
+    }
+
     for (auto &element : arrayliteral->elements)
     {
       resolve_expr(ctx, scope, element, sema);
@@ -1632,9 +1647,9 @@ namespace
   }
 
   //|///////////////////// requires_expression //////////////////////////////
-  void resolve_expr(TyperContext &ctx, Scope const &scope, RequiresExpr *requires, Sema &sema)
+  void resolve_expr(TyperContext &ctx, Scope const &scope, RequiresExpr *reqires, Sema &sema)
   {
-    typer_decl(ctx, requires->decl, sema);
+    typer_decl(ctx, reqires->decl, sema);
   }
 
   //|///////////////////// match_expression /////////////////////////////////

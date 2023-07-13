@@ -1145,6 +1145,9 @@ namespace
 
     auto elements = parse_expression_list(ctx, sema);
 
+    if (ctx.tok == Token::identifier && ctx.token(1) == Token::colon)
+      elements.push_back(parse_expression(ctx, sema));
+
     if (ctx.try_consume_token(Token::colon))
     {
       if (elements.size() != 1)
@@ -1167,7 +1170,12 @@ namespace
         return nullptr;
       }
 
-      return sema.make_call_expression(sema.make_declref(Ident::from("__array_literal"), loc), elements, {}, loc);
+      auto callee = sema.make_declref(Ident::from("__array_literal"), loc);
+
+      if (coercedtype)
+        callee->args.push_back(coercedtype);
+
+      return sema.make_call_expression(callee, elements, {}, loc);
     }
 
     Expr *size = nullptr;

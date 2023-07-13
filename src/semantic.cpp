@@ -371,9 +371,9 @@ namespace
   }
 
   //|///////////////////// requires_expression //////////////////////////////
-  void semantic_expr(SemanticContext &ctx, RequiresExpr *requires, Sema &sema)
+  void semantic_expr(SemanticContext &ctx, RequiresExpr *reqires, Sema &sema)
   {
-    semantic_decl(ctx, requires->decl, sema);
+    semantic_decl(ctx, reqires->decl, sema);
   }
 
   //|///////////////////// match_expression /////////////////////////////////

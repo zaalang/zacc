@@ -1347,6 +1347,12 @@ namespace
       }
     }
 
+    if (fn->flags & FunctionDecl::Defaulted)
+    {
+      if (fn->builtin == 0)
+        ctx.diag.error("invalid defaulted function", ctx.file, fn->loc());
+    }
+
     for (auto attr : fn->attributes)
     {
       auto attribute = decl_cast<AttributeDecl>(attr);

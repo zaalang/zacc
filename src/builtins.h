@@ -152,6 +152,12 @@ namespace Builtin
     StringAppend,
     StringCreate,
 
+    SliceLen,
+    SliceData,
+    SliceIndex,
+    SliceBegin,
+    SliceEnd,
+
     Bool,
 
     CallOp,
@@ -167,6 +173,7 @@ namespace Builtin
     is_struct,
     is_vtable,
     is_lambda,
+    is_slice,
     is_builtin,
     is_pointer,
     is_reference,

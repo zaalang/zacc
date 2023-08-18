@@ -154,10 +154,10 @@ int ToolChain::ld(string_view input, string_view output, vector<string> librarie
 
   if (m_type == MinGW)
   {
-    cmd = m_base + "\\bin\\ld.exe";
+    cmd = m_base + "\\bin\\ld.lld.exe";
 
-    cmd += " -nostdlib";
-	cmd += " --stack 8388608";
+    //cmd += " -nostdlib";
+    cmd += " --stack 8388608";
 
     // --subsystem console/windows
 

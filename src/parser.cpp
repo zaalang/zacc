@@ -31,6 +31,8 @@ namespace
     vector<Decl*> attributes;
     vector<Expr*> substitutions;
 
+    Ident *fname = nullptr;
+
     ParseContext(SourceText const &text, Diag &diag)
       : diag(diag),
         text(text)
@@ -844,6 +846,14 @@ namespace
       if (ctx.try_consume_token(Token::ellipsis))
         parm->type = sema.make_pack(parm->type);
 
+      if (is_pointference_type(parm->type) && is_function_type(remove_const_type(remove_pointference_type(parm->type))))
+      {
+        parm->name = ctx.fname;
+
+        if (ctx.tok == Token::identifier || ctx.tok == Token::dollar)
+          break;
+      }
+
       if (ctx.tok == Token::identifier || ctx.tok == Token::dollar)
       {
         parm->name = parse_ident(ctx, IdentUsage::VarName, sema);
@@ -1110,11 +1120,16 @@ namespace
   Expr *parse_string_literal(ParseContext &ctx, Sema &sema)
   {
     auto loc = ctx.tok.loc;
-    auto text = ctx.tok.text;
+    auto text = std::string();
 
-    ctx.consume_token();
+    while (ctx.tok == Token::string_literal)
+    {
+      text += unescape(ctx.tok.text.substr(1, ctx.tok.text.length()-2));
 
-    return sema.make_string_literal(unescape(text.substr(1, text.length()-2)), loc);
+      ctx.consume_token();
+    }
+
+    return sema.make_string_literal(text, loc);
   }
 
   //|///////////////////// parse_array_literal //////////////////////////////
@@ -1148,37 +1163,7 @@ namespace
     if (ctx.tok == Token::identifier && ctx.token(1) == Token::colon)
       elements.push_back(parse_expression(ctx, sema));
 
-    if (ctx.try_consume_token(Token::colon))
-    {
-      if (elements.size() != 1)
-      {
-        ctx.diag.error("expected single source value", ctx.text, ctx.tok.loc);
-        return nullptr;
-      }
-
-      elements.push_back(parse_expression(ctx, sema));
-
-      if (!elements.back())
-      {
-        ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-        return nullptr;
-      }
-
-      if (!ctx.try_consume_token(Token::r_square))
-      {
-        ctx.diag.error("expected bracket", ctx.text, ctx.tok.loc);
-        return nullptr;
-      }
-
-      auto callee = sema.make_declref(Ident::from("__array_literal"), loc);
-
-      if (coercedtype)
-        callee->args.push_back(coercedtype);
-
-      return sema.make_call_expression(callee, elements, {}, loc);
-    }
-
-    Expr *size = nullptr;
+    auto size = sema.make_numeric_literal(+1, elements.size(), loc);
 
     if (ctx.try_consume_token(Token::semi))
     {
@@ -1195,10 +1180,6 @@ namespace
         ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
         return nullptr;
       }
-    }
-    else
-    {
-      size = sema.make_numeric_literal(+1, elements.size(), loc);
     }
 
     if (!ctx.try_consume_token(Token::r_square))
@@ -1217,29 +1198,117 @@ namespace
 
     auto outer_const = ctx.try_consume_token(Token::kw_const);
 
-    if (ctx.try_consume_token(Token::l_paren))
+    switch (ctx.tok.type)
     {
-      auto fields = parse_typearg_list(ctx, sema);
+      case Token::kw_fn: {
+        ctx.consume_token(Token::kw_fn);
 
-      if (!ctx.try_consume_token(Token::r_paren))
-      {
-        ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-        return nullptr;
+        if (!ctx.try_consume_token(Token::l_paren))
+        {
+          ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+          return nullptr;
+        }
+
+        bool pointer = ctx.try_consume_token(Token::star);
+        bool reference = !pointer && ctx.try_consume_token(Token::amp);
+
+        if (pointer || reference)
+        {
+          if (ctx.tok == Token::identifier || ctx.tok == Token::dollar)
+          {
+            ctx.fname = parse_ident(ctx, IdentUsage::VarName, sema);
+          }
+
+          if (!ctx.try_consume_token(Token::r_paren))
+          {
+            ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+            return nullptr;
+          }
+
+          if (!ctx.try_consume_token(Token::l_paren))
+          {
+            ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+            return nullptr;
+          }
+        }
+
+        auto parms = parse_typearg_list(ctx, sema);
+
+        if (!ctx.try_consume_token(Token::r_paren))
+        {
+          ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+          return nullptr;
+        }
+
+        auto throwtype = Builtin::type(Builtin::Type_Void);
+
+        if (ctx.try_consume_token(Token::kw_throws))
+        {
+          if (!ctx.try_consume_token(Token::l_paren))
+          {
+            ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+            return nullptr;
+          }
+
+          throwtype = parse_type(ctx, sema);
+
+          if (!ctx.try_consume_token(Token::r_paren))
+          {
+            ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+            return nullptr;
+          }
+        }
+
+        auto returntype = Builtin::type(Builtin::Type_Void);
+
+        if (ctx.try_consume_token(Token::arrow))
+        {
+          returntype = parse_type(ctx, sema);
+
+          if (!returntype)
+          {
+            ctx.diag.error("expected requires type", ctx.text, ctx.tok.loc);
+            return nullptr;
+          }
+        }
+
+        type = sema.make_fntype(returntype, sema.make_tuple(parms), throwtype);
+
+        if (pointer)
+          type = sema.make_pointer(sema.make_const(type));
+
+        if (reference)
+          type = sema.make_reference(sema.make_const(type));
+
+        break;
       }
 
-      type = sema.make_tuple(fields);
+      case Token::l_paren: {
+        ctx.consume_token(Token::l_paren);
+
+        type = sema.make_tuple(parse_typearg_list(ctx, sema));
+
+        if (!ctx.try_consume_token(Token::r_paren))
+        {
+          ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+          return nullptr;
+        }
+
+        break;
+      }
+
+      default: {
+
+        auto name = parse_qualified_name(ctx, sema);
+
+        if (!name)
+          return nullptr;
+
+        type = sema.make_typeref(name);
+      }
     }
-    else
-    {
-      auto name = parse_qualified_name(ctx, sema);
 
-      if (!name)
-        return nullptr;
-
-      type = sema.make_typeref(name);
-    }
-
-    while (ctx.tok == Token::kw_mut || ctx.tok == Token::kw_const || ctx.tok == Token::star || ctx.tok == Token::amp || ctx.tok == Token::ampamp || ctx.tok == Token::l_square || ctx.tok == Token::kw_fn)
+    while (ctx.tok == Token::kw_mut || ctx.tok == Token::kw_const || ctx.tok == Token::star || ctx.tok == Token::amp || ctx.tok == Token::ampamp || ctx.tok == Token::l_square)
     {
       auto kw_mut = ctx.try_consume_token(Token::kw_mut);
       auto kw_const = ctx.try_consume_token(Token::kw_const);
@@ -1291,43 +1360,6 @@ namespace
         }
 
         type = sema.make_array(type, size);
-      }
-      else if (ctx.try_consume_token(Token::kw_fn))
-      {
-        if (!ctx.try_consume_token(Token::l_paren))
-        {
-          ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-          return nullptr;
-        }
-
-        auto parms = parse_typearg_list(ctx, sema);
-
-        if (!ctx.try_consume_token(Token::r_paren))
-        {
-          ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-          return nullptr;
-        }
-
-        auto throwtype = Builtin::type(Builtin::Type_Void);
-
-        if (ctx.try_consume_token(Token::kw_throws))
-        {
-          if (!ctx.try_consume_token(Token::l_paren))
-          {
-            ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-            return nullptr;
-          }
-
-          throwtype = parse_type(ctx, sema);
-
-          if (!ctx.try_consume_token(Token::r_paren))
-          {
-            ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-            return nullptr;
-          }
-        }
-
-        type = sema.make_fntype(type, sema.make_tuple(parms), throwtype);
       }
 
       if (kw_const)
@@ -2401,7 +2433,7 @@ namespace
 
       case Token::questionexclaim:
         ctx.consume_token();
-        return sema.make_unary_expression(UnaryOpExpr::Unwrap, lhs, op.loc);
+        return parse_expression_post(ctx, sema.make_unary_expression(UnaryOpExpr::Unwrap, lhs, op.loc), sema);
 
       case Token::ellipsis:
         ctx.consume_token();
@@ -2892,24 +2924,6 @@ namespace
       return nullptr;
   }
 
-  //|///////////////////// parse_using_or_alias_declaration /////////////////
-  Decl *parse_using_or_alias_declaration(ParseContext &ctx, Sema &sema)
-  {
-    int i = 0;
-
-    if (ctx.tok == Token::kw_pub)
-      i += 1;
-
-    if (ctx.token(i + 1) == Token::identifier && (ctx.token(i + 2) == Token::less || ctx.token(i + 2) == Token::equal))
-    {
-      return parse_typealias_declaration(ctx, sema);
-    }
-    else
-    {
-      return parse_using_declaration(ctx, sema);
-    }
-  }
-
   //|///////////////////// parse_var_declaration ////////////////////////////
   Decl *parse_var_declaration(ParseContext &ctx, Sema &sema)
   {
@@ -3356,13 +3370,15 @@ namespace
     auto fn = sema.function_declaration(ctx.tok.loc);
 
     fn->flags |= FunctionDecl::Constructor;
-    fn->flags |= FunctionDecl::Static;
 
     if (ctx.try_consume_token(Token::kw_pub))
       fn->flags |= FunctionDecl::Public;
 
     if (ctx.try_consume_token(Token::kw_const))
       fn->flags |= FunctionDecl::Const;
+
+    if (ctx.try_consume_token(Token::kw_static))
+      fn->flags |= FunctionDecl::Static;
 
     fn->attributes = std::move(ctx.attributes);
 
@@ -3515,7 +3531,10 @@ namespace
       field->type = remove_const_type(field->type);
     }
 
-    field->name = parse_ident(ctx, IdentUsage::VarName, sema);
+    if (is_pointference_type(field->type) && is_function_type(remove_const_type(remove_pointference_type(field->type))))
+      field->name = ctx.fname;
+    else
+      field->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
     if (ctx.try_consume_token(Token::equal))
     {
@@ -3618,6 +3637,22 @@ namespace
 
         switch (tok.type)
         {
+          case Token::kw_using:
+            if (ctx.token(nexttok) == Token::identifier && (ctx.token(nexttok + 1) == Token::less || ctx.token(nexttok + 1) == Token::equal))
+              tok.type = Token::pseudo_alias;
+            break;
+
+          case Token::kw_fn:
+            if (ctx.token(nexttok) == Token::l_paren && (ctx.token(nexttok+1) == Token::star || ctx.token(nexttok+1) == Token::amp))
+              tok.type = Token::pseudo_fnptr;
+            break;
+
+          default:
+            break;
+        }
+
+        switch (tok.type)
+        {
           case Token::semi:
             ctx.diag.warn("extra semi", ctx.text, tok.loc);
             ctx.consume_token(Token::semi);
@@ -3651,8 +3686,16 @@ namespace
             decl = parse_enum_declaration(ctx, sema);
             break;
 
+          case Token::kw_import:
+            decl = parse_import_declaration(ctx, sema);
+            break;
+
           case Token::kw_using:
-            decl = parse_using_or_alias_declaration(ctx, sema);
+            decl = parse_using_declaration(ctx, sema);
+            break;
+
+          case Token::pseudo_alias:
+            decl = parse_typealias_declaration(ctx, sema);
             break;
 
           case Token::kw_void:
@@ -3661,6 +3704,7 @@ namespace
           case Token::l_paren:
           case Token::identifier:
           case Token::coloncolon:
+          case Token::pseudo_fnptr:
           case Token::dollar:
             if (strct->name == tok.text || tok.text == "this")
             {
@@ -3908,6 +3952,22 @@ namespace
 
         switch (tok.type)
         {
+          case Token::kw_using:
+            if (ctx.token(nexttok) == Token::identifier && (ctx.token(nexttok + 1) == Token::less || ctx.token(nexttok + 1) == Token::equal))
+              tok.type = Token::pseudo_alias;
+            break;
+
+          case Token::kw_fn:
+            if (ctx.token(nexttok) == Token::l_paren && (ctx.token(nexttok+1) == Token::star || ctx.token(nexttok+1) == Token::amp))
+              tok.type = Token::pseudo_fnptr;
+            break;
+
+          default:
+            break;
+        }
+
+        switch (tok.type)
+        {
           case Token::semi:
             ctx.diag.warn("extra semi", ctx.text, tok.loc);
             ctx.consume_token(Token::semi);
@@ -3941,8 +4001,16 @@ namespace
             decl = parse_enum_declaration(ctx, sema);
             break;
 
+          case Token::kw_import:
+            decl = parse_import_declaration(ctx, sema);
+            break;
+
           case Token::kw_using:
-            decl = parse_using_or_alias_declaration(ctx, sema);
+            decl = parse_using_declaration(ctx, sema);
+            break;
+
+          case Token::pseudo_alias:
+            decl = parse_typealias_declaration(ctx, sema);
             break;
 
           case Token::identifier:
@@ -4132,6 +4200,22 @@ namespace
 
         switch (tok.type)
         {
+          case Token::kw_using:
+            if (ctx.token(nexttok) == Token::identifier && (ctx.token(nexttok + 1) == Token::less || ctx.token(nexttok + 1) == Token::equal))
+              tok.type = Token::pseudo_alias;
+            break;
+
+          case Token::kw_fn:
+            if (ctx.token(nexttok) == Token::l_paren && (ctx.token(nexttok+1) == Token::star || ctx.token(nexttok+1) == Token::amp))
+              tok.type = Token::pseudo_fnptr;
+            break;
+
+          default:
+            break;
+        }
+
+        switch (tok.type)
+        {
           case Token::semi:
             ctx.diag.warn("extra semi", ctx.text, tok.loc);
             ctx.consume_token(Token::semi);
@@ -4161,8 +4245,16 @@ namespace
             decl = parse_enum_declaration(ctx, sema);
             break;
 
+          case Token::kw_import:
+            decl = parse_import_declaration(ctx, sema);
+            break;
+
           case Token::kw_using:
-            decl = parse_using_or_alias_declaration(ctx, sema);
+            decl = parse_using_declaration(ctx, sema);
+            break;
+
+          case Token::pseudo_alias:
+            decl = parse_typealias_declaration(ctx, sema);
             break;
 
           case Token::hash:
@@ -4314,6 +4406,11 @@ namespace
           tok = ctx.token(nexttok++);
         }
 
+        if (tok == Token::kw_using && ctx.token(nexttok) == Token::identifier && (ctx.token(nexttok + 1) == Token::less || ctx.token(nexttok + 1) == Token::equal))
+        {
+          tok.type = Token::pseudo_alias;
+        }
+
         switch (tok.type)
         {
           case Token::semi:
@@ -4326,7 +4423,11 @@ namespace
             break;
 
           case Token::kw_using:
-            decl = parse_using_or_alias_declaration(ctx, sema);
+            decl = parse_using_declaration(ctx, sema);
+            break;
+
+          case Token::pseudo_alias:
+            decl = parse_typealias_declaration(ctx, sema);
             break;
 
           case Token::kw_requires:
@@ -4460,6 +4561,22 @@ namespace
         if (tok == Token::kw_static)
         {
           tok = ctx.token(nexttok++);
+        }
+
+        switch (tok.type)
+        {
+          case Token::kw_using:
+            if (ctx.token(nexttok) == Token::identifier && (ctx.token(nexttok + 1) == Token::less || ctx.token(nexttok + 1) == Token::equal))
+              tok.type = Token::pseudo_alias;
+            break;
+
+          case Token::kw_fn:
+            if (ctx.token(nexttok) == Token::l_paren && (ctx.token(nexttok+1) == Token::star || ctx.token(nexttok+1) == Token::amp))
+              tok.type = Token::pseudo_fnptr;
+            break;
+
+          default:
+            break;
         }
 
         switch (tok.type)
@@ -4791,6 +4908,22 @@ namespace
 
         switch (tok.type)
         {
+          case Token::kw_using:
+            if (ctx.token(nexttok) == Token::identifier && (ctx.token(nexttok + 1) == Token::less || ctx.token(nexttok + 1) == Token::equal))
+              tok.type = Token::pseudo_alias;
+            break;
+
+          case Token::kw_fn:
+            if (ctx.token(nexttok) == Token::l_paren && (ctx.token(nexttok+1) == Token::star || ctx.token(nexttok+1) == Token::amp))
+              tok.type = Token::pseudo_fnptr;
+            break;
+
+          default:
+            break;
+        }
+
+        switch (tok.type)
+        {
           case Token::semi:
             ctx.diag.warn("extra semi", ctx.text, tok.loc);
             ctx.consume_token(Token::semi);
@@ -4824,8 +4957,16 @@ namespace
             decl = parse_enum_declaration(ctx, sema);
             break;
 
+          case Token::kw_import:
+            decl = parse_import_declaration(ctx, sema);
+            break;
+
           case Token::kw_using:
-            decl = parse_using_or_alias_declaration(ctx, sema);
+            decl = parse_using_declaration(ctx, sema);
+            break;
+
+          case Token::pseudo_alias:
+            decl = parse_typealias_declaration(ctx, sema);
             break;
 
           case Token::kw_case:
@@ -4838,6 +4979,8 @@ namespace
           case Token::kw_typeof:
           case Token::l_paren:
           case Token::identifier:
+          case Token::coloncolon:
+          case Token::pseudo_fnptr:
           case Token::dollar:
             if (tok == Token::dollar)
             {
@@ -4970,7 +5113,10 @@ namespace
         break;
 
       case Token::kw_using:
-        stmt->decl = parse_using_or_alias_declaration(ctx, sema);
+        if (ctx.token(1) == Token::identifier && (ctx.token(2) == Token::less || ctx.token(2) == Token::equal))
+          stmt->decl = parse_typealias_declaration(ctx, sema);
+        else
+          stmt->decl = parse_using_declaration(ctx, sema);
         break;
 
       case Token::kw_let:
@@ -5848,6 +5994,22 @@ namespace
 
       switch (tok.type)
       {
+        case Token::kw_using:
+          if (ctx.token(nexttok) == Token::identifier && (ctx.token(nexttok + 1) == Token::less || ctx.token(nexttok + 1) == Token::equal))
+            tok.type = Token::pseudo_alias;
+          break;
+
+        case Token::kw_fn:
+          if (ctx.token(nexttok) == Token::l_paren && (ctx.token(nexttok+1) == Token::star || ctx.token(nexttok+1) == Token::amp))
+            tok.type = Token::pseudo_fnptr;
+          break;
+
+        default:
+          break;
+      }
+
+      switch (tok.type)
+      {
         case Token::semi:
           ctx.diag.warn("extra semi", ctx.text, tok.loc);
           ctx.consume_token(Token::semi);
@@ -5885,12 +6047,16 @@ namespace
           decl = parse_enum_declaration(ctx, sema);
           break;
 
-        case Token::kw_using:
-          decl = parse_using_or_alias_declaration(ctx, sema);
-          break;
-
         case Token::kw_import:
           decl = parse_import_declaration(ctx, sema);
+          break;
+
+        case Token::kw_using:
+          decl = parse_using_declaration(ctx, sema);
+          break;
+
+        case Token::pseudo_alias:
+          decl = parse_typealias_declaration(ctx, sema);
           break;
 
         case Token::hash:

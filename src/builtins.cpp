@@ -183,12 +183,13 @@ namespace Builtin
         {
           tok = consume(cursor);
 
-          if (tok.text == "*")
+          if (tok == Token::r_square)
             type = new SliceType(type);
           else
             type = new ArrayType(type, find_type(tok.text));
 
-          consume(cursor);
+          if (tok != Token::r_square)
+            consume(cursor);
         }
 
         while (true)
@@ -502,7 +503,7 @@ namespace Builtin
     make_function(ArrayEnd, "pub fn end<T, N>(T[N] mut &) -> T mut *", __LINE__);
     make_function(ArrayEq, "pub const fn ==<T>(T&, T&) -> bool", FunctionDecl::Defaulted, __LINE__);
     make_function(ArrayCmp, "pub const fn <=><T>(T&, T&) -> int", FunctionDecl::Defaulted, __LINE__);
-    make_function(ArrayCreate, "pub const fn __array_literal<T>(T*, usize) -> T[*]", __LINE__);
+    make_function(ArrayCreate, "pub const fn __array_literal<T>(T*, usize) -> T[]", __LINE__);
 
     make_function(TupleLen, "pub const fn len<T>(T&) -> usize", __LINE__);
     make_function(TupleEq, "pub const fn ==<T>(T&, T&) -> bool", FunctionDecl::Defaulted, __LINE__);
@@ -520,6 +521,12 @@ namespace Builtin
     make_function(StringCreate, "pub const fn #string(u8*, usize) -> #string", __LINE__);
     make_function(StringCreate, "pub const fn __string_literal(u8*, usize) -> #string", __LINE__);
 
+    make_function(SliceLen, "pub const fn len<T>(T) -> usize", __LINE__);
+    make_function(SliceData, "pub fn data<T>(T[]) -> T*", __LINE__);
+    make_function(SliceIndex, "pub fn []<T>(T[], T*) -> T&", __LINE__);
+    make_function(SliceBegin, "pub fn begin<T>(T[]) -> T*", __LINE__);
+    make_function(SliceEnd, "pub fn end<T>(T[]) -> T*", __LINE__);
+
     make_function(Bool, "pub const fn bool<T>(T) -> bool", __LINE__);
 
     make_function(CallOp, "pub fn ()<R, V>(R(V...)&, V&&...) -> R", __LINE__);
@@ -535,6 +542,7 @@ namespace Builtin
     make_function(is_struct, "pub const fn __is_struct<T>() -> bool", __LINE__);
     make_function(is_vtable, "pub const fn __is_vtable<T>() -> bool", __LINE__);
     make_function(is_lambda, "pub const fn __is_lambda<T>() -> bool", __LINE__);
+    make_function(is_slice, "pub const fn __is_slice<T>() -> bool", __LINE__);
     make_function(is_builtin, "pub const fn __is_builtin<T>() -> bool", __LINE__);
     make_function(is_pointer, "pub const fn __is_pointer<T>() -> bool", __LINE__);
     make_function(is_reference, "pub const fn __is_reference<T>() -> bool", __LINE__);
@@ -608,10 +616,10 @@ namespace Builtin
     make_function(decl_name, "pub const fn __decl_name(#declid) -> #string", __LINE__);
     make_function(decl_flags, "pub const fn __decl_flags(#declid) -> #int", __LINE__);
     make_function(decl_parent, "pub const fn __decl_parent(#declid) -> #declid", __LINE__);
-    make_function(decl_children, "pub const fn __decl_children(#declid, #int = 0) -> #declid[*]", __LINE__);
+    make_function(decl_children, "pub const fn __decl_children(#declid, #int = 0) -> #declid[]", __LINE__);
     make_function(type_decl, "pub const fn #declid(#typeid) -> #declid", __LINE__);
     make_function(type_name, "pub const fn __type_name(#typeid) -> #string", __LINE__);
-    make_function(type_children, "pub const fn __type_children(#typeid, #int = 0) -> #declid[*]", __LINE__);
+    make_function(type_children, "pub const fn __type_children(#typeid, #int = 0) -> #declid[]", __LINE__);
     make_function(type_query, "pub const fn __type_query(#int, var ...) -> #typeid", __LINE__);
 
     make_function(__argc__, "pub fn __argc__() -> int", __LINE__);
@@ -827,6 +835,11 @@ namespace Builtin
           return is_array_type(T->second) || is_array_type(base_type(T->second));
         break;
 
+      case Builtin::SliceLen:
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
+          return is_slice_type(T->second);
+        break;
+
       case Builtin::Tuple_Constructor:
       case Builtin::Tuple_Copytructor:
       case Builtin::Tuple_Assignment:
@@ -938,6 +951,11 @@ namespace Builtin
       case Builtin::is_rvalue:
       case Builtin::is_array:
       case Builtin::is_tuple:
+      case Builtin::is_union:
+      case Builtin::is_struct:
+      case Builtin::is_vtable:
+      case Builtin::is_lambda:
+      case Builtin::is_slice:
       case Builtin::is_builtin:
       case Builtin::is_pointer:
       case Builtin::is_reference:

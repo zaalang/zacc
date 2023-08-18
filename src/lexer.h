@@ -174,6 +174,9 @@ struct Token
     kw_goto,
     kw_yield,
     kw_await,
+
+    pseudo_alias,
+    pseudo_fnptr,
   };
 
   Type type = unknown;

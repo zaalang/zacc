@@ -2180,9 +2180,9 @@ namespace
   {
     auto &[callee, args, loc] = call;
 
-    auto src = load_string(ctx, fx, args[0]);
+    auto lhs = load_slice<void>(ctx, fx, args[0]);
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Numeric::int_literal(1, src.length()));
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Numeric::int_literal(1, lhs.len));
 
     return true;
   }
@@ -2192,9 +2192,22 @@ namespace
   {
     auto &[callee, args, loc] = call;
 
-    auto src = load_string(ctx, fx, args[0]);
+    auto lhs = load_slice<void>(ctx, fx, args[0]);
 
-    store(ctx, fx.locals[dst].alloc, src.data());
+    store(ctx, fx.locals[dst].alloc, lhs.data);
+
+    return true;
+  }
+
+  //|///////////////////// slice_end ////////////////////////////////////////
+  bool eval_builtin_slice_end(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto lhs = load_slice<void>(ctx, fx, args[0]);
+    auto elemsize = sizeof_type(remove_const_type(remove_pointer_type((fx.locals[dst].type))));
+
+    store(ctx, fx.locals[dst].alloc, (void*)((size_t)lhs.data + lhs.len * elemsize));
 
     return true;
   }
@@ -2204,28 +2217,17 @@ namespace
   {
     auto &[callee, args, loc] = call;
 
-    auto lhs = load_string(ctx, fx, args[0]);
+    auto lhs = load_slice<void>(ctx, fx, args[0]);
+    auto elemsize = sizeof_type(remove_const_type(remove_pointer_type((fx.locals[dst].type))));
     auto rhs = load_ptr(ctx, fx, args[1]);
 
-    if (rhs < lhs.data() || lhs.data() + lhs.length() <= rhs)
+    if (rhs < lhs.data || (void*)((size_t)lhs.data + lhs.len * elemsize) <= rhs)
     {
-      ctx.diag.error("string subscript overflow", fx.scope, loc);
+      ctx.diag.error("slice subscript overflow", fx.scope, loc);
       return false;
     }
 
     store(ctx, fx.locals[dst].alloc, rhs);
-
-    return true;
-  }
-
-  //|///////////////////// slice_end ///////////////////////////////////////
-  bool eval_builtin_slice_end(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
-  {
-    auto &[callee, args, loc] = call;
-
-    auto src = load_string(ctx, fx, args[0]);
-
-    store(ctx, fx.locals[dst].alloc, src.data() + src.length());
 
     return true;
   }
@@ -2299,7 +2301,6 @@ namespace
     auto &[callee, args, loc] = call;
 
     auto lhs = load_ptr(ctx, fx, args[0]);
-
     auto arraytype = type_cast<ArrayType>(remove_const_type(remove_pointer_type(fx.locals[args[0]].type)));
 
     if (is_int_type(fx.locals[args[1]].type))
@@ -2337,7 +2338,6 @@ namespace
     auto &[callee, args, loc] = call;
 
     auto lhs = load_ptr(ctx, fx, args[0]);
-
     auto arraytype = type_cast<ArrayType>(remove_const_type(remove_pointer_type(fx.locals[args[0]].type)));
 
     store(ctx, fx.locals[dst].alloc, (void*)((size_t)lhs + array_len(arraytype) * sizeof_type(arraytype->type)));
@@ -3188,7 +3188,7 @@ namespace
         data[size++] = Numeric::int_literal(0, reinterpret_cast<uintptr_t>(results[i]));
     }
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Slice<Numeric::Int>{ size, data});
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Slice<Numeric::Int>{ size, data });
 
     return true;
   }
@@ -3275,7 +3275,7 @@ namespace
       }
     }
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Slice<Numeric::Int>{ size, data});
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Slice<Numeric::Int>{ size, data });
 
     return true;
   }
@@ -3864,18 +3864,23 @@ namespace
         case Builtin::MulCarry:
           return eval_builtin_binary_arithmetic_carry(ctx, fx, dst, call);
 
+        case Builtin::SliceLen:
         case Builtin::StringLen:
           return eval_builtin_slice_len(ctx, fx, dst, call);
 
+        case Builtin::SliceData:
         case Builtin::StringData:
+        case Builtin::SliceBegin:
         case Builtin::StringBegin:
           return eval_builtin_slice_data(ctx, fx, dst, call);
 
-        case Builtin::StringIndex:
-          return eval_builtin_slice_index(ctx, fx, dst, call);
-
+        case Builtin::SliceEnd:
         case Builtin::StringEnd:
           return eval_builtin_slice_end(ctx, fx, dst, call);
+
+        case Builtin::SliceIndex:
+        case Builtin::StringIndex:
+          return eval_builtin_slice_index(ctx, fx, dst, call);
 
         case Builtin::StringSlice:
           return eval_builtin_string_slice(ctx, fx, dst, call);

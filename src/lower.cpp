@@ -2007,9 +2007,6 @@ namespace
       if ((result.type.flags & (MIR::Local::RValue | MIR::Local::Const)) == MIR::Local::RValue)
         result.type.type = ctx.typetable.find_or_create<QualArgType>(QualArgType::RValue, result.type.type);
 
-      if (is_reference_type(result.type.defn))
-        result.type.type = ctx.typetable.find_or_create<ReferenceType>(result.type.type);
-
       return result.type.type;
     }
 
@@ -2170,10 +2167,10 @@ namespace
       case Decl::VTable:
       case Decl::Lambda:
       case Decl::Enum:
-        return resolve_type(ctx, scope, decl_cast<TagDecl>(typeref->decl));
+        return resolve_type(ctx, super_scope(scope, typeref->decl), decl_cast<TagDecl>(typeref->decl));
 
       case Decl::Concept:
-        return resolve_type(ctx, scope, decl_cast<ConceptDecl>(typeref->decl));
+        return resolve_type(ctx, super_scope(scope, typeref->decl), decl_cast<ConceptDecl>(typeref->decl));
 
       default:
         assert(ctx.diag.has_errored());
@@ -2706,9 +2703,9 @@ namespace
         {
           DeduceContext ttx;
 
-          ttx.allow_const_downcast = true;
+          ttx.allow_const_downcast = tx.allow_const_downcast;
           ttx.allow_object_downcast = false;
-          ttx.allow_pointer_downcast = true;
+          ttx.allow_pointer_downcast = tx.allow_pointer_downcast;
 
           if (type_cast<ArrayType>(lhs)->type == ctx.typetable.var_defn)
             return false;
@@ -2752,13 +2749,13 @@ namespace
 
             DeduceContext ttx;
 
-            ttx.allow_const_downcast = true;
+            ttx.allow_const_downcast = tx.allow_const_downcast;
             ttx.allow_object_downcast = false;
-            ttx.allow_pointer_downcast = true;
+            ttx.allow_pointer_downcast = tx.allow_pointer_downcast;
 
             if (i < type_cast<TupleType>(lhs)->defns.size() && is_reference_type(type_cast<TupleType>(lhs)->defns[i]))
             {
-              ttx.allow_object_downcast = true;
+              ttx.allow_object_downcast = tx.allow_object_downcast;
               ttx.pointerdepth += 1;
             }
 
@@ -2815,14 +2812,16 @@ namespace
 
         if (rhs->klass() == Type::Function)
         {
-          tx.allow_const_downcast = false;
-          tx.allow_object_downcast = false;
-          tx.allow_pointer_downcast = false;
+          DeduceContext ttx;
 
-          if (!deduce_type(ctx, tx, scope, fx, type_cast<FunctionType>(lhs)->returntype, type_cast<FunctionType>(rhs)->returntype))
+          ttx.allow_const_downcast = false;
+          ttx.allow_object_downcast = false;
+          ttx.allow_pointer_downcast = tx.allow_pointer_downcast;
+
+          if (!deduce_type(ctx, ttx, scope, fx, type_cast<FunctionType>(lhs)->returntype, type_cast<FunctionType>(rhs)->returntype))
             return false;
 
-          if (!deduce_type(ctx, tx, scope, fx, type_cast<FunctionType>(lhs)->paramtuple, type_cast<FunctionType>(rhs)->paramtuple))
+          if (!deduce_type(ctx, ttx, scope, fx, type_cast<FunctionType>(lhs)->paramtuple, type_cast<FunctionType>(rhs)->paramtuple))
             return false;
 
           return true;
@@ -3373,16 +3372,12 @@ namespace
 
               for ( ; k < n; ++k)
               {
+                auto defn = ctx.typetable.var_defn;
                 auto field = parms[k].type.type;
-
-                if (is_reference_type(parms[k].type.defn))
-                  field = resolve_as_value(ctx, parms[k].type).type;
-
-                defns.push_back(resolve_defn(ctx, parms[k].type.defn));
 
                 if (is_reference_type(type_cast<PackType>(parm->type)->type))
                 {
-                  defns.back() = ctx.typetable.find_or_create<ReferenceType>(defns.back());
+                  defn = ctx.typetable.find_or_create<ReferenceType>(defn);
 
                   if (parms[k].type.flags & MIR::Local::Const)
                     field = ctx.typetable.find_or_create<ConstType>(field);
@@ -3406,6 +3401,7 @@ namespace
                 literal &= (parms[k].type.flags & MIR::Local::Literal) != 0;
                 constref |= (parms[k].type.flags & MIR::Local::ConstRef) != 0;
 
+                defns.push_back(defn);
                 fields.push_back(field);
               }
 
@@ -3530,13 +3526,13 @@ namespace
               {
                 if (k < parms.size())
                 {
-                  if (!is_resolved_type(parms[k].type.type) && !deduce_type(ctx, fnscope, fx, parm, parms[k].type))
+                  if (is_indefinite_type(parms[k].type.type) && !deduce_type(ctx, fnscope, fx, parm, parms[k].type))
                     viable = false;
                 }
 
                 else if (auto j = namedparms.find(parm->name); j != namedparms.end())
                 {
-                  if (!is_resolved_type(j->second.type.type) && !deduce_type(ctx, fnscope, fx, parm, j->second.type))
+                  if (is_indefinite_type(j->second.type.type) && !deduce_type(ctx, fnscope, fx, parm, j->second.type))
                     viable = false;
                 }
               }
@@ -4022,19 +4018,24 @@ namespace
             auto typearg = type_cast<TypeArgType>(remove_qualifiers_type(parm->type));
 
             if (!typearg->koncept || decl_cast<ConceptDecl>(typearg->koncept)->name == Ident::kw_var)
-              rank += 1;
+              rank += 5;
           }
 
           if (!((is_pointer_type(parm->type) && !is_const_type(type_cast<PointerType>(parm->type)->type)) ||
                (is_reference_type(parm->type) && !is_const_type(type_cast<ReferenceType>(parm->type)->type)) ||
                (is_pack_type(parm->type) && is_reference_type(type_cast<PackType>(parm->type)->type) && !is_const_type(type_cast<ReferenceType>(type_cast<PackType>(parm->type)->type)->type))))
-            rank += 1;
+            rank += 5;
         }
 
         if (is_pack_type(parm->type))
           rank += 100000000;
 
         k = is_pack_type(parm->type) ? parms.size() : k + 1;
+      }
+
+      if (fx.fn->flags & FunctionDecl::Constructor)
+      {
+        rank += 1;
       }
 
       if (fx.fn->flags & FunctionDecl::Defaulted)
@@ -5486,6 +5487,10 @@ namespace
         match = is_lambda_type(type[0]);
         break;
 
+      case Builtin::is_slice:
+        match = is_slice_type(type[0]);
+        break;
+
       case Builtin::is_builtin:
         match = is_builtin_type(type[0]);
         break;
@@ -6671,6 +6676,7 @@ namespace
         case Builtin::is_struct:
         case Builtin::is_vtable:
         case Builtin::is_lambda:
+        case Builtin::is_slice:
         case Builtin::is_builtin:
         case Builtin::is_pointer:
         case Builtin::is_reference:
@@ -7170,7 +7176,7 @@ namespace
 
     for (size_t index = 0; index < values.size(); ++index)
     {
-      defns.push_back(ctx.typetable.var_defn);
+      defns.push_back(resolve_defn(ctx, values[index].type.defn));
       fields.push_back(values[index].type.type);
     }
 
@@ -7543,7 +7549,6 @@ namespace
       result = std::move(parms[0]);
 
       result.type = resolve_as_value(ctx, result.type);
-      result.type.defn = remove_const_type(remove_reference_type(result.type.defn));
 
       if (result.type.flags & MIR::Local::Unaligned)
         ctx.diag.error("cannot reference unaligned field", ctx.stack.back(), loc);
@@ -7569,6 +7574,8 @@ namespace
 
       if (result.type.flags & MIR::Local::Reference)
       {
+        result.type = resolve_as_value(ctx, result.type);
+
         if ((result.type.flags & (MIR::Local::RValue | MIR::Local::Const)) == MIR::Local::RValue)
           result.type.defn = ctx.typetable.find_or_create<QualArgType>(QualArgType::RValue, result.type.defn);
 
@@ -7827,7 +7834,7 @@ namespace
       auto lhs = type_cast<TupleType>(callee.fx.find_type(callee.fx.fn->args[0])->second);
       auto rhs = type_cast<TupleType>(callee.fx.find_type(callee.fx.fn->args[1])->second);
 
-      if (!is_resolved_type(rhs))
+      if (is_indefinite_type(rhs))
       {
         auto defns = rhs->defns;
         auto fields = rhs->fields;
@@ -7996,6 +8003,16 @@ namespace
 
     if (!lower_expr(ctx, parms[0], binaryop->lhs))
       return;
+
+    if (binaryop->op() == BinaryOpExpr::Mul || binaryop->op() == BinaryOpExpr::Div)
+    {
+      if (is_int_literal(ctx, parms[0]) && get<IntLiteralExpr*>(parms[0].value.get<MIR::RValue::Constant>())->value().value == 0)
+      {
+        result.type = MIR::Local(ctx.intliteraltype, MIR::Local::Const | MIR::Local::Literal);
+        result.value = std::move(parms[0].value);
+        return;
+      }
+    }
 
     if (binaryop->op() == BinaryOpExpr::LAnd || binaryop->op() == BinaryOpExpr::LOr)
     {
@@ -8251,6 +8268,12 @@ namespace
       type = resolve_type(ctx, ctx.stack.back(), &decl);
     }
 
+    if (is_incomplete_type(type))
+    {
+      ctx.diag.error("incomplete type for sizeof", ctx.stack.back(), call->loc());
+      return;
+    }
+
     if (is_unresolved_type(type))
     {
       ctx.diag.error("unresolved type for sizeof", ctx.stack.back(), call->loc());
@@ -8270,6 +8293,12 @@ namespace
     {
       auto type = resolve_type(ctx, call->type);
 
+      if (is_incomplete_type(type))
+      {
+        ctx.diag.error("incomplete type for alignof", ctx.stack.back(), call->loc());
+        return;
+      }
+
       if (is_unresolved_type(type))
       {
         ctx.diag.error("unresolved type for alignof", ctx.stack.back(), call->loc());
@@ -8283,15 +8312,8 @@ namespace
     {
       if (auto vardecl = find_vardecl(ctx, ctx.stack, decl_cast<DeclRefDecl>(call->decl)->name); vardecl)
       {
-        auto type = resolve_type(ctx, ctx.stack.back(), decl_cast<VarDecl>(vardecl));
-
-        if (is_unresolved_type(type))
-        {
-          ctx.diag.error("unresolved type for alignof", ctx.stack.back(), call->loc());
-          return;
-        }
-
-        align = alignof_type(type);
+        if (auto type = resolve_type(ctx, ctx.stack.back(), decl_cast<VarDecl>(vardecl)))
+          align = alignof_type(type);
       }
     }
 
@@ -11776,9 +11798,6 @@ namespace
 
       ctx.inducedscope = {};
 
-      if (is_reference_type(result.type.defn))
-        result.type = resolve_as_value(ctx, result.type);
-
       if (is_return_reference(ctx, retrn->expr))
       {
         if ((result.type.flags & (MIR::Local::RValue | MIR::Local::Const)) == MIR::Local::RValue)
@@ -11792,7 +11811,7 @@ namespace
         auto defns = type_cast<TupleType>(result.type.type)->defns;
         auto fields = type_cast<TupleType>(result.type.type)->fields;
 
-        for (size_t i = 0; i < defns.size(); ++i)
+        for (size_t i = 0; i < expr_cast<CompoundLiteralExpr>(retrn->expr)->fields.size(); ++i)
         {
           if (is_return_reference(ctx, expr_cast<CompoundLiteralExpr>(retrn->expr)->fields[i]))
             defns[i] = ctx.typetable.find_or_create<ReferenceType>(defns[i]);
@@ -12267,7 +12286,7 @@ namespace
           {
             auto &[op, arg, fields, loc] = statement->src.get<MIR::RValue::Variable>();
 
-            if (is_concrete_type(dst.type) && !is_resolved_type(mir.locals[arg].type))
+            if (is_concrete_type(dst.type) && is_indefinite_type(mir.locals[arg].type))
             {
               auto lhs = resolve_as_value(ctx, dst).type;
               auto rhs = mir.locals[arg].type;
@@ -12339,7 +12358,7 @@ namespace
           {
             auto &[callee, args, loc] = statement->src.get<MIR::RValue::Call>();
 
-            if (any_of(args.begin(), args.end(), [&](auto arg) { return !is_resolved_type(mir.locals[arg].type); }))
+            if (any_of(args.begin(), args.end(), [&](auto arg) { return is_indefinite_type(mir.locals[arg].type); }))
             {
               auto scope = Scope(callee.fn, callee.typeargs);
 
@@ -12357,7 +12376,7 @@ namespace
               {
                 scope.goalpost = parm;
 
-                if (!is_resolved_type(mir.locals[arg].type))
+                if (is_indefinite_type(mir.locals[arg].type))
                 {
                   auto parmtype = resolve_type_as_value(ctx, scope, decl_cast<ParmVarDecl>(parm));
 

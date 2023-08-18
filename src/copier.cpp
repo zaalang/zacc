@@ -156,6 +156,9 @@ namespace
       case Type::Reference:
         return new ReferenceType(copier_type(ctx, type_cast<ReferenceType>(type)->type));
 
+      case Type::Slice:
+        return new SliceType(copier_type(ctx, type_cast<SliceType>(type)->type));
+
       case Type::Array:
         return new ArrayType(copier_type(ctx, type_cast<ArrayType>(type)->type), copier_type(ctx, type_cast<ArrayType>(type)->size));
 

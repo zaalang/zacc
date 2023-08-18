@@ -47,7 +47,7 @@ class Type
     enum Flags
     {
       Concrete = 0x1,
-      Resolved = 0x2,
+      Indefinite = 0x2,
       Unresolved = 0x4,
       ZeroSized = 0x8,
       TrivialCopy = 0x10,
@@ -55,6 +55,7 @@ class Type
       TrivialDestroy = 0x40,
       LiteralCopy = 0x080,
       Packed = 0x100,
+      Incomplete = 0x8000,
     };
 
     long flags = 0;
@@ -449,8 +450,9 @@ bool is_enum_type(Type const *type);
 bool is_compound_type(Type const *type);
 
 bool is_concrete_type(Type const *type);
-bool is_resolved_type(Type const *type);
+bool is_indefinite_type(Type const *type);
 bool is_unresolved_type(Type const *type);
+bool is_incomplete_type(Type const *type);
 bool is_zerosized_type(Type const *type);
 bool is_trivial_copy_type(Type const *type);
 bool is_trivial_assign_type(Type const *type);

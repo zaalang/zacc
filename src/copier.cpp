@@ -934,6 +934,8 @@ namespace
     if (fn->body)
       result->body = copier_stmt(ctx, fn->body);
 
+    result->retvar = fn->retvar;
+
     return result;
   }
 

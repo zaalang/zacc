@@ -30,7 +30,7 @@ namespace QueryFlags
     Imports = 0x200,    // include import decls
     Usings = 0x400,     // include using decls
 
-    All = 0x7FFF,
+    All = 0x7fff,
 
     Public = 0x8000,    // exclude non public decls
   };

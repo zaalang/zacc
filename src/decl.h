@@ -208,6 +208,9 @@ class FunctionDecl : public Decl
     Expr *match = nullptr;
     Expr *where = nullptr;
 
+    int retcnt = 0;
+    Decl *retvar = nullptr;
+
     std::vector<Decl*> attributes;
     std::vector<Lifetime> lifetimes;
 
@@ -414,7 +417,8 @@ class VarDecl : public Decl
       Const = 0x02,
       Literal = 0x10,
       Static = 0x20,
-      Range = 0x40,
+      Mutable = 0x40,
+      Range = 0x80,
       ThreadLocal = 0x100,
       CacheAligned = 0x200,
       PageAligned = 0x400,

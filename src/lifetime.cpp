@@ -257,6 +257,12 @@ namespace
       tok.text = trim(src.substr(7), "( \t)");
     }
 
+    if (src.substr(0, 4) == "swap")
+    {
+      tok.type = Lifetime::swap;
+      tok.text = trim(src.substr(5), "( \t)");
+    }
+
     tok.loc = loc;
 
     return tok;
@@ -329,9 +335,22 @@ namespace
     {
       if (annotation.type == Lifetime::poison)
       {
-        if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of('.')));
+
+        if (decl_cast<ParmVarDecl>(parm)->name == lhs)
           return true;
       }
+
+#if 1
+      if (annotation.type == Lifetime::swap)
+      {
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of(',')));
+        auto rhs = trim(annotation.text.substr(annotation.text.find_first_of(',') + 1));
+
+        if (decl_cast<ParmVarDecl>(parm)->name == lhs || decl_cast<ParmVarDecl>(parm)->name == rhs)
+          return true;
+      }
+#endif
     }
 
     return false;
@@ -350,6 +369,19 @@ namespace
         if (decl_cast<ParmVarDecl>(parm1)->name == lhs && decl_cast<ParmVarDecl>(parm2)->name == rhs)
           return true;
       }
+#if 1
+      if (annotation.type == Lifetime::swap)
+      {
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of(',')));
+        auto rhs = trim(annotation.text.substr(annotation.text.find_first_of(',') + 1));
+
+        if (decl_cast<ParmVarDecl>(parm1)->name == lhs && decl_cast<ParmVarDecl>(parm2)->name == rhs)
+          return true;
+
+        if (decl_cast<ParmVarDecl>(parm1)->name == rhs && decl_cast<ParmVarDecl>(parm2)->name == lhs)
+          return true;
+      }
+#endif
     }
 
     return false;
@@ -552,6 +584,7 @@ namespace
       case Lifetime::append:
       case Lifetime::follow:
       case Lifetime::launder:
+      case Lifetime::swap:
         break;
 
       case Lifetime::repose: {
@@ -920,6 +953,32 @@ namespace
         else
         {
           ctx.diag.error("unknown follow parameter", callee.fn, annotation.loc);
+        }
+
+        break;
+      }
+
+      case Lifetime::swap: {
+
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of(',')));
+        auto rhs = trim(annotation.text.substr(annotation.text.find_first_of(',') + 1));
+
+        auto [parm1, arg1] = find_arg(ctx, callee, lhs);
+        auto [parm2, arg2] = find_arg(ctx, callee, rhs);
+
+        if (parm1 && parm2)
+        {
+          auto &src = ctx.threads[0].locals[args[arg1]].depends_upon;
+          auto &dst = ctx.threads[0].locals[args[arg2]].depends_upon;
+
+          for(size_t i = 0, end = std::min(src.size(), dst.size()); i != end; ++i)
+          {
+            swap(ctx.threads[0].locals[get<1>(*src[i])].depends_upon, ctx.threads[0].locals[get<1>(*dst[i])].depends_upon);
+          }
+        }
+        else
+        {
+          ctx.diag.error("unknown swap parameter", callee.fn, annotation.loc);
         }
 
         break;
@@ -1355,6 +1414,8 @@ namespace
       ctx.threads[0].locals[arg].live = true;
     }
 
+    ctx.threads[0].locals[0].live = true;
+
     for (auto &annotation : notations)
     {
       setup(ctx, mir, annotation);
@@ -1500,8 +1561,11 @@ namespace
           if (ctx.threads[0].locals[arg + mir.locals.size()].consumed && !has_consume(ctx, notations, parm))
             ctx.diag.warn("missing consume annotation", mir.fx.fn, parm->loc());
 
-          //if (ctx.threads[0].locals[arg + mir.locals.size()].toxic && !has_poison(ctx, notations, parm))
-          //  ctx.diag.warn("missing poison annotation", mir.fx.fn, parm->loc());
+          if (mir.fx.fn->flags & FunctionDecl::Lifetimed)
+          {
+            if (ctx.threads[0].locals[arg + mir.locals.size()].toxic && !has_poison(ctx, notations, parm))
+              ctx.diag.warn("missing poison annotation", mir.fx.fn, parm->loc());
+          }
         }
 
         ctx.threads[0].locals[arg].live = false;

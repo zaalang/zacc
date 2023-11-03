@@ -132,6 +132,7 @@ class MIR
           MutRef = 0x100,
           MoveRef = 0x200,
           ConstRef = 0x400,
+          ImplRef = 0x800,
 
           Unaligned = 0x1000,
           ThreadLocal = 0x2000,

@@ -33,20 +33,31 @@ using namespace std;
 
 namespace
 {
+#ifdef NDEBUG
+  struct uninit_t
+  {
+    union { uint8_t ch; };
+
+    uninit_t() { }
+  };
+#else
+  using uninit_t = uint8_t;
+#endif
+
   struct FunctionContext
   {
     Scope scope;
 
     struct Local
     {
-      long flags = 0;
-      Type *type = nullptr;
+      long flags;
+      Type *type;
 
-      size_t size = 0;
-      void *alloc = nullptr;
+      size_t size;
+      void *alloc;
     };
 
-    vector<Local> locals;
+    Local *locals;
 
     size_t errorarg = 0;
   };
@@ -58,7 +69,8 @@ namespace
 
     TypeTable &typetable;
 
-    vector<vector<uint8_t>> memory;
+    void *stackp;
+    vector<vector<uninit_t>> memory;
 
     map<tuple<Type*, ArrayLiteralExpr const *>, void*> arrayliterals;
     map<tuple<Type*, CompoundLiteralExpr const *>, void*> compoundliterals;
@@ -67,13 +79,26 @@ namespace
 
     vector<Decl*> fragments;
 
+    template<typename T>
+    T *push(size_t count = 1)
+    {
+      auto sp = new(stackp) T[count];
+
+      stackp = (void*)(((uintptr_t)(stackp) + count * sizeof(T) + alignof(void*) - 1) & -alignof(void*));
+
+      if (stackp >= memory[0].data() + memory[0].size())
+        throw runtime_error("interpreter stack overrun");
+
+      return sp;
+    }
+
     void *allocate(size_t size, size_t alignment)
     {
       auto page = &memory.back();
 
       if (page->capacity() - page->size() < size + alignment)
       {
-        memory.push_back(vector<uint8_t>());
+        memory.push_back({});
         memory.back().reserve(max(size + alignment, size_t(4096)));
         page = &memory.back();
       }
@@ -94,27 +119,6 @@ namespace
       return new T(std::forward<Args>(args)...);
     }
 
-    vector<vector<FunctionContext::Local>> stackpool;
-
-    vector<FunctionContext::Local> make_frame()
-    {
-      vector<FunctionContext::Local> frame;
-
-      if (!stackpool.empty())
-      {
-        frame = std::move(stackpool.back());
-        stackpool.pop_back();
-      }
-
-      return frame;
-    }
-
-    void pool_frame(vector<FunctionContext::Local> &&frame)
-    {
-      frame.clear();
-      stackpool.push_back(std::move(frame));
-    }
-
     Diag &outdiag;
 
     EvalContext(Scope const &dx, TypeTable &typetable, Diag &diag)
@@ -126,7 +130,9 @@ namespace
       exception = false;
 
       memory.resize(1);
-      memory.back().reserve(4096);
+      memory.back().reserve(768*1024);
+
+      stackp = allocate(512*1024, 16);
     }
 
     ~EvalContext()
@@ -174,7 +180,7 @@ namespace
     return false;
   }
 
-  bool eval_function(EvalContext &ctx, Scope const &scope, MIR const &mir, vector<FunctionContext::Local> &&args);
+  bool eval_function(EvalContext &ctx, Scope const &scope, MIR const &mir, FunctionContext::Local *locals);
 
   //|///////////////////// alloc ////////////////////////////////////////////
   FunctionContext::Local alloc(EvalContext &ctx, MIR::Local const &local)
@@ -184,7 +190,7 @@ namespace
     result.type = local.type;
     result.flags = local.flags;
     result.size = (local.flags & MIR::Local::Reference) ? sizeof(void*) : sizeof_type(local.type);
-    result.alloc = ctx.allocate(result.size, alignof(void*));
+    result.alloc = ctx.push<uint8_t>(result.size);
 
     return result;
   }
@@ -1043,13 +1049,15 @@ namespace
 
     if (j == ctx.arrayliterals.end())
     {
-      if (!store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal))
+      auto storage = ctx.allocate(fx.locals[dst].size, alignof(void*));
+
+      if (!store(ctx, storage, fx.locals[dst].type, literal))
       {
         ctx.diag.error("literal type incompatible with required type", fx.scope, literal->loc());
         return false;
       }
 
-      j = ctx.arrayliterals.emplace(make_tuple(type, literal), fx.locals[dst].alloc).first;
+      j = ctx.arrayliterals.emplace(make_tuple(type, literal), storage).first;
     }
 
     fx.locals[dst].alloc = j->second;
@@ -1073,13 +1081,15 @@ namespace
 
     if (j == ctx.compoundliterals.end())
     {
-      if (!store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, literal))
+      auto storage = ctx.allocate(fx.locals[dst].size, alignof(void*));
+
+      if (!store(ctx, storage, fx.locals[dst].type, literal))
       {
         ctx.diag.error("literal type incompatible with required type", fx.scope, literal->loc());
         return false;
       }
 
-      j = ctx.compoundliterals.emplace(make_tuple(fx.locals[dst].type, literal), fx.locals[dst].alloc).first;
+      j = ctx.compoundliterals.emplace(make_tuple(fx.locals[dst].type, literal), storage).first;
     }
 
     fx.locals[dst].alloc = j->second;
@@ -2382,27 +2392,27 @@ namespace
     if (ctx.diag.has_errored())
       return false;
 
-    auto paramtuple = type_cast<TupleType>(remove_const_type(remove_pointer_type(fx.locals[args[1]].type)));
+    auto stackframe = ctx.push<FunctionContext::Local>(mir.locals.size());
 
-    vector<FunctionContext::Local> parms;
-
-    parms.push_back(fx.locals[dst]);
+    stackframe[0] = fx.locals[dst];
 
     if (callee.throwtype)
     {
-      parms.push_back(fx.locals[fx.errorarg]);
+      stackframe[1] = fx.locals[fx.errorarg];
     }
 
-    for (size_t index = 0; index < paramtuple->fields.size(); ++index)
+    auto paramtuple = type_cast<TupleType>(remove_const_type(remove_pointer_type(fx.locals[args[1]].type)));
+
+    for (size_t i = 0; i < paramtuple->fields.size(); ++i)
     {
-      auto argtype = remove_const_type(remove_reference_type(paramtuple->fields[index]));
+      auto argtype = remove_const_type(remove_reference_type(paramtuple->fields[i]));
 
-      auto ptr = load_ptr(ctx, (void*)((size_t)rhs + offsetof_field(paramtuple, index)));
+      auto ptr = load_ptr(ctx, (void*)((size_t)rhs + offsetof_field(paramtuple, i)));
 
-      parms.push_back(FunctionContext::Local { 0, argtype, sizeof_type(argtype), ptr });
+      stackframe[mir.args_beg + i] = { 0, argtype, sizeof_type(argtype), ptr };
     }
 
-    return eval_function(ctx, mir.fx.fn, mir, std::move(parms));
+    return eval_function(ctx, mir.fx.fn, mir, stackframe);
   }
 
   //|///////////////////// bool /////////////////////////////////////////////
@@ -3991,6 +4001,9 @@ namespace
         case Builtin::atomic_thread_fence:
           return true;
 
+        case Builtin::relax:
+          return true;
+
         case Builtin::__argc__:
           return eval_builtin_argc(ctx, fx, dst, call);
 
@@ -4102,6 +4115,8 @@ namespace
       if (ctx.diag.has_errored())
         return false;
 
+      auto stackframe = ctx.push<FunctionContext::Local>(mir.locals.size());
+
       if (remove_qualifiers_type(fx.locals[dst].type) != remove_qualifiers_type(mir.locals[0].type))
       {
         ctx.diag.error("type mismatch", fx.scope, loc);
@@ -4109,23 +4124,19 @@ namespace
         return false;
       }
 
-      auto frame = ctx.make_frame();
-
-      frame.reserve(mir.locals.size());
-
-      frame.push_back(fx.locals[dst]);
+      stackframe[0] = fx.locals[dst];
 
       if (callee.throwtype)
       {
-        frame.push_back(fx.locals[fx.errorarg]);
+        stackframe[1] = fx.locals[fx.errorarg];
       }
 
       for (size_t i = 0; i < args.size(); ++i)
       {
-        frame.push_back(fx.locals[args[i]]);
+        stackframe[mir.args_beg + i] = fx.locals[args[i]];
       }
 
-      return eval_function(ctx, callee.fn, mir, std::move(frame));
+      return eval_function(ctx, callee.fn, mir, stackframe);
     }
   }
 
@@ -4325,20 +4336,12 @@ namespace
   }
 
   //|///////////////////// eval_function ////////////////////////////////////
-  bool eval_function(EvalContext &ctx, Scope const &scope, MIR const &mir, vector<FunctionContext::Local> &&args)
+  bool eval_function(EvalContext &ctx, Scope const &scope, MIR const &mir, FunctionContext::Local *locals)
   {
     FunctionContext fx;
 
     fx.scope = scope;
-    fx.locals = std::move(args);
-
-    if (fx.locals.size() != mir.args_end)
-    {
-      ctx.diag.error("invalid arguments");
-      return false;
-    }
-
-    fx.locals.resize(mir.locals.size());
+    fx.locals = locals;
 
     for (size_t i = mir.args_end, end = mir.locals.size(); i != end; ++i)
     {
@@ -4435,52 +4438,83 @@ namespace
       }
     }
 
-    ctx.pool_frame(std::move(fx.locals));
+    ctx.stackp = (uint8_t*)locals;
 
     return true;
   }
 
-  //|///////////////////// eval_function ////////////////////////////////////
-  bool eval_function(EvalContext &ctx, Scope const &scope, FnSig const &callee, FunctionContext::Local &returnvalue, vector<EvalResult> const &parms, SourceLocation loc)
+  //|///////////////////// eval_callee //////////////////////////////////////
+  EvalResult eval_callee_fast(FnSig const &callee, Type *returntype, vector<EvalResult> const &parms, SourceLocation loc)
   {
-    FunctionContext fx;
+    EvalResult result = {};
 
-    fx.scope = scope;
-
-    fx.locals.push_back(returnvalue);
-
-    if (callee.throwtype)
+    if (callee.fn->flags & FunctionDecl::Builtin)
     {
-      fx.locals.push_back(alloc(ctx, callee.throwtype));
-    }
-
-    size_t k = 0;
-    vector<MIR::local_t> args;
-
-    for (auto &parm : callee.parameters())
-    {
-      auto arg = fx.locals.size();
-
-      fx.locals.push_back(alloc(ctx, parms[k].type));
-
-      eval_assign_constant(ctx, fx, arg, MIR::RValue::literal(parms[k++].value));
-
-      if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type))
+      switch (callee.fn->builtin)
       {
-        fx.locals.push_back(alloc(ctx, ctx.typetable.find_or_create<ReferenceType>(parms[k-1].type)));
+        case Builtin::And:
+          if (is_int_type(returntype))
+            result.value = new IntLiteralExpr(expr_cast<IntLiteralExpr>(parms[0].value)->value() & expr_cast<IntLiteralExpr>(parms[1].value)->value(), loc);
+          break;
 
-        store(ctx, fx.locals.back().alloc, fx.locals[arg++].alloc);
+        case Builtin::Or:
+          if (is_int_type(returntype))
+            result.value = new IntLiteralExpr(expr_cast<IntLiteralExpr>(parms[0].value)->value() | expr_cast<IntLiteralExpr>(parms[1].value)->value(), loc);
+          break;
+
+        case Builtin::Xor:
+          if (is_int_type(returntype))
+            result.value = new IntLiteralExpr(expr_cast<IntLiteralExpr>(parms[0].value)->value() ^ expr_cast<IntLiteralExpr>(parms[1].value)->value(), loc);
+          break;
+
+        case Builtin::Add:
+          if (is_int_type(returntype))
+            result.value = new IntLiteralExpr(expr_cast<IntLiteralExpr>(parms[0].value)->value() + expr_cast<IntLiteralExpr>(parms[1].value)->value(), loc);
+          if (is_float_type(returntype))
+            result.value = new FloatLiteralExpr(expr_cast<FloatLiteralExpr>(parms[0].value)->value() + expr_cast<FloatLiteralExpr>(parms[1].value)->value(), loc);
+          break;
+
+        case Builtin::Sub:
+          if (is_int_type(returntype))
+            result.value = new IntLiteralExpr(expr_cast<IntLiteralExpr>(parms[0].value)->value() - expr_cast<IntLiteralExpr>(parms[1].value)->value(), loc);
+          if (is_float_type(returntype))
+            result.value = new FloatLiteralExpr(expr_cast<FloatLiteralExpr>(parms[0].value)->value() - expr_cast<FloatLiteralExpr>(parms[1].value)->value(), loc);
+          break;
+
+        case Builtin::Mul:
+          if (is_int_type(returntype))
+            result.value = new IntLiteralExpr(expr_cast<IntLiteralExpr>(parms[0].value)->value() * expr_cast<IntLiteralExpr>(parms[1].value)->value(), loc);
+          if (is_float_type(returntype))
+            result.value = new FloatLiteralExpr(expr_cast<FloatLiteralExpr>(parms[0].value)->value() * expr_cast<FloatLiteralExpr>(parms[1].value)->value(), loc);
+          break;
+
+        case Builtin::Shl:
+          if (is_builtin_type(returntype) && type_cast<BuiltinType>(returntype)->kind() == BuiltinType::IntLiteral)
+            result.value = new IntLiteralExpr(expr_cast<IntLiteralExpr>(parms[0].value)->value() << expr_cast<IntLiteralExpr>(parms[1].value)->value(), loc);
+          break;
+
+        case Builtin::Shr:
+          if (is_builtin_type(returntype) && type_cast<BuiltinType>(returntype)->kind() == BuiltinType::IntLiteral)
+            result.value = new IntLiteralExpr(expr_cast<IntLiteralExpr>(parms[0].value)->value() >> expr_cast<IntLiteralExpr>(parms[1].value)->value(), loc);
+          break;
+
+        default:
+          break;
       }
-
-      args.push_back(arg);
     }
 
-    if (ctx.diag.has_errored())
-      return false;
+    if ((callee.fn->flags & FunctionDecl::DeclType) == FunctionDecl::ConstDecl)
+    {
+      if (auto expr = stmt_cast<ReturnStmt>(callee.fn->body)->expr; is_literal_expr(expr))
+        result.value = expr;
+    }
 
-    return eval_call(ctx, fx, 0, MIR::RValue::call(callee, args, loc));
+    result.type = returntype;
+
+    return result;
   }
 
+  //|///////////////////// make_result //////////////////////////////////////
   EvalResult make_result(EvalContext &ctx, FunctionContext::Local &value, SourceLocation loc)
   {
     EvalResult result;
@@ -4514,47 +4548,17 @@ EvalResult evaluate(Scope const &scope, MIR const &mir, TypeTable &typetable, Di
 
   EvalContext ctx(scope, typetable, diag);
 
+  auto stackframe = ctx.push<FunctionContext::Local>(mir.locals.size());
+
   if (is_unresolved_type(mir.locals[0].type))
   {
     ctx.diag.error("unresolved expression type", scope, loc);
     return result;
   }
 
-  auto returnvalue = alloc(ctx, mir.locals[0]);
+  stackframe[0] = alloc(ctx, mir.locals[0]);
 
-  if (eval_function(ctx, scope, mir, { returnvalue }))
-  {
-    result = make_result(ctx, returnvalue, loc);
-  }
-
-  return result;
-}
-
-EvalResult evaluate(Scope const &scope, FnSig const &callee, Type *returntype, vector<EvalResult> const &parms, TypeTable &typetable, Diag &diag, SourceLocation loc)
-{
-  EvalResult result = {};
-
-  EvalContext ctx(scope, typetable, diag);
-
-  if (is_unresolved_type(returntype))
-  {
-    ctx.diag.error("unresolved return type", scope, loc);
-    return result;
-  }
-
-  if ((callee.fn->flags & FunctionDecl::DeclType) == FunctionDecl::ConstDecl)
-  {
-    if (auto expr = stmt_cast<ReturnStmt>(callee.fn->body)->expr; is_literal_expr(expr))
-    {
-      result.type = returntype;
-      result.value = expr;
-      return result;
-    }
-  }
-
-  auto returnvalue = alloc(ctx, returntype);
-
-  if (eval_function(ctx, scope, callee, returnvalue, parms, loc))
+  if (eval_function(ctx, scope, mir, stackframe))
   {
     if (ctx.exception)
     {
@@ -4562,42 +4566,64 @@ EvalResult evaluate(Scope const &scope, FnSig const &callee, Type *returntype, v
       return result;
     }
 
-    result = make_result(ctx, returnvalue, loc);
+    if (mir.locals[0].flags & MIR::Local::Reference)
+    {
+      stackframe[0].alloc = load_ptr(ctx, stackframe[0].alloc);
+      stackframe[0].type = remove_const_type(remove_pointer_type(stackframe[0].type));
+      stackframe[0].size = sizeof_type(stackframe[0].type);
+    }
+
+    result = make_result(ctx, stackframe[0], loc);
   }
 
   return result;
 }
 
-EvalResult evaluate(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fragment> const &symbols, TypeTable &typetable, Diag &diag, SourceLocation loc)
+EvalResult evaluate(Scope const &scope, FnSig const &callee, Type *returntype, vector<EvalResult> const &parms, TypeTable &typetable, Diag &diag, SourceLocation loc)
 {
-  EvalResult result = {};
-
-  EvalContext ctx(scope, typetable, diag);
-
-  auto mir = lower(scope, expr, symbols, typetable, ctx.diag);
-
-  if (ctx.diag.has_errored())
+  // optimisation: attempt some direct literal maths
+  if (auto result = eval_callee_fast(callee, returntype, parms, loc))
     return result;
 
-  if (is_unresolved_type(mir.locals[0].type))
-  {
-    ctx.diag.error("unresolved expression type", scope, loc);
-    return result;
-  }
+  MIR mir = {};
+  mir.add_local(MIR::Local(returntype));
 
-  auto returnvalue = alloc(ctx, mir.locals[0]);
+  if ((mir.throws = callee.throwtype))
+    mir.add_local(MIR::Local(callee.throwtype));
 
-  if (eval_function(ctx, scope, mir, { returnvalue }))
+  mir.args_beg = mir.args_end = mir.locals.size();
+
+  mir.add_block(MIR::Block());
+
+  std::vector<MIR::local_t> args;
+
+  for (auto const &[parm, expr] : zip(callee.parameters(), parms))
   {
-    if (mir.locals[0].flags & MIR::Local::Reference)
+    auto arg = mir.add_local(MIR::Local(expr.type));
+
+    mir.add_statement(MIR::Statement::assign(arg, MIR::RValue::literal(expr.value)));
+
+    if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type))
     {
-      returnvalue.alloc = load_ptr(ctx, returnvalue.alloc);
-      returnvalue.type = remove_const_type(remove_pointer_type(returnvalue.type));
-      returnvalue.size = sizeof_type(returnvalue.type);
+      arg = mir.add_local(MIR::Local(expr.type, MIR::Local::Reference));
+
+      mir.add_statement(MIR::Statement::assign(arg, MIR::RValue::local(MIR::RValue::Ref, arg - 1, loc)));
     }
 
-    result = make_result(ctx, returnvalue, loc);
+    args.push_back(arg);
   }
 
-  return result;
+  mir.add_statement(MIR::Statement::assign(0, MIR::RValue::call(callee, std::move(args), loc)));
+
+  return evaluate(scope, mir, typetable, diag, loc);
+}
+
+EvalResult evaluate(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fragment> const &symbols, TypeTable &typetable, Diag &diag, SourceLocation loc)
+{
+  auto mir = lower(scope, expr, symbols, typetable, diag);
+
+  if (diag.has_errored())
+    return {};
+
+  return evaluate(scope, mir, typetable, diag, loc);
 }

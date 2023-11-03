@@ -28,6 +28,7 @@ namespace
     string file;
 
     vector<Scope> stack;
+    vector<FunctionDecl*> fnstack;
 
     TypeTable typetable;
     unordered_map<Decl*, MIR::Fragment> symbols;
@@ -66,10 +67,32 @@ namespace
     return expr_cast<BoolLiteralExpr>(result.value)->value();
   }
 
-  //|///////////////////// decl_type ////////////////////////////////////////
-  Type *decl_type(SemanticContext &ctx, Decl *decl, Sema &sema)
+  //|///////////////////// find_vardecl /////////////////////////////////////
+  VarDecl *find_vardecl(SemanticContext &ctx, vector<Scope> const &stack, Ident *name, long queryflags)
   {
-    return sema.make_typeref(decl);
+    vector<Decl*> decls;
+
+    for (auto sx = stack.rbegin(); sx != stack.rend(); ++sx)
+    {
+      find_decls(*sx, name, queryflags, decls);
+
+      if (decls.empty())
+      {
+        if (is_fn_scope(*sx))
+          break;
+
+        continue;
+      }
+
+      break;
+    }
+
+    if (decls.size() == 1)
+    {
+      return decl_cast<VarDecl>(decls[0]);
+    }
+
+    return nullptr;
   }
 
   //|///////////////////// detect_captures //////////////////////////////////
@@ -122,15 +145,8 @@ namespace
 
     for (auto &name : visitor.unknowns)
     {
-      vector<Decl*> decls;
-
-      for (auto sx = ctx.stack.rbegin(); sx != ctx.stack.rend(); ++sx)
+      if (find_vardecl(ctx, ctx.stack, name, QueryFlags::Variables | QueryFlags::Parameters))
       {
-        find_decls(*sx, name, QueryFlags::Variables | QueryFlags::Parameters, decls);
-
-        if (decls.empty())
-          continue;
-
         auto loc = lambda->loc();
         auto var = sema.capture_declaration(loc);
 
@@ -141,12 +157,16 @@ namespace
         var->value = sema.make_declref_expression(sema.make_declref(var->name, loc), loc);
 
         captures.push_back(var);
-
-        break;
       }
     }
 
     return captures;
+  }
+
+  //|///////////////////// decl_type ////////////////////////////////////////
+  Type *decl_type(SemanticContext &ctx, Decl *decl, Sema &sema)
+  {
+    return sema.make_typeref(decl);
   }
 
   //|///////////////////// type /////////////////////////////////////////////
@@ -776,7 +796,7 @@ namespace
       ctor->builtin = Builtin::Default_Copytructor;
 
       auto thatvar = sema.parm_declaration(vtable->loc());
-      thatvar->type = sema.make_reference(sema.make_qualarg(vtabletype));
+      thatvar->type = sema.make_reference(sema.make_const(vtabletype));
 
       ctor->parms.push_back(thatvar);
 
@@ -797,7 +817,7 @@ namespace
       copy->parms.push_back(thisvar);
 
       auto thatvar = sema.parm_declaration(vtable->loc());
-      thatvar->type = sema.make_reference(sema.make_qualarg(vtabletype));
+      thatvar->type = sema.make_reference(sema.make_const(vtabletype));
 
       copy->parms.push_back(thatvar);
 
@@ -1181,6 +1201,7 @@ namespace
   void semantic_decl(SemanticContext &ctx, FunctionDecl *fn, Sema &sema)
   {
     ctx.stack.emplace_back(fn);
+    ctx.fnstack.emplace_back(fn);
 
     for (auto &arg : fn->args)
     {
@@ -1423,6 +1444,7 @@ namespace
       semantic_statement(ctx, fn->body, sema);
     }
 
+    ctx.fnstack.pop_back();
     ctx.stack.pop_back();
   }
 
@@ -1812,6 +1834,29 @@ namespace
     if (retrn->expr)
     {
       semantic_expr(ctx, retrn->expr, sema);
+
+      if (auto fn = !ctx.fnstack.empty() ? ctx.fnstack.back() : nullptr)
+      {
+        VarDecl *vardecl = nullptr;
+
+        if (retrn->expr->kind() == Expr::DeclRef && expr_cast<DeclRefExpr>(retrn->expr)->decl->kind() == Decl::DeclRef)
+        {
+          auto declref = decl_cast<DeclRefDecl>(expr_cast<DeclRefExpr>(retrn->expr)->decl);
+
+          if (!expr_cast<DeclRefExpr>(retrn->expr)->base && declref->argless)
+          {
+            vardecl = find_vardecl(ctx, ctx.stack, declref->name, QueryFlags::Variables);
+          }
+        }
+
+        if (fn->retcnt == 0)
+          fn->retvar = vardecl;
+
+        if (fn->retvar != vardecl)
+          fn->retvar = nullptr;
+
+        fn->retcnt += 1;
+      }
     }
   }
 

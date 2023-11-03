@@ -29,6 +29,7 @@ struct Lifetime
     follow,
     launder,
     repose,
+    swap,
     none,
   };
 

@@ -1,0 +1,53 @@
+//
+// test
+//
+
+import std.stdio;
+import std.list;
+import std.dyn;
+
+pub vtable Animal
+{
+  pub fn eat(this &) -> void;
+}
+
+struct Herbivore
+{
+  f32 i;
+
+  fn eat(this &) -> void
+  {
+    std::print("Herbivore: ", this.i);
+  }
+
+  Herbivore(f32 i) : i(i) {}
+  Herbivore(Herbivore&&) = default;
+  ~Herbivore() = default;
+}
+
+struct Carnivore
+{
+  f32 i;
+
+  fn eat(this &) -> void
+  {
+    std::print("Carnivore: ", this.i);
+  }
+
+  Carnivore(f32 i) : i(i) {}
+  Carnivore(Carnivore&&) = default;
+  ~Carnivore() = default;
+}
+
+fn main
+{
+  var list = std::vector<std::dyn<Animal>>();
+
+  list.push_back(Herbivore(1.2));
+  list.push_back(Carnivore(2.3));
+
+  std::print(list);
+
+  for(var &animal : list)
+    animal.eat(animal.self);
+}

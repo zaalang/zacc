@@ -176,7 +176,8 @@ struct Visitor
           visit(init);
         for (auto &decl : stmt_cast<SwitchStmt>(stmt)->decls)
           if (decl->kind() == Decl::Case)
-            visit(decl_cast<CaseDecl>(decl)->body);
+            if (decl_cast<CaseDecl>(decl)->body)
+              visit(decl_cast<CaseDecl>(decl)->body);
         break;
 
       case Stmt::Goto:

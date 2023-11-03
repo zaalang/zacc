@@ -258,6 +258,7 @@ class ExprRefExpr : public Expr
     {
       Mut = 0x1,
       Move = 0x2,
+      Impl = 0x4,
     };
 
     long qualifiers = 0;

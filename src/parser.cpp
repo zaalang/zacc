@@ -390,6 +390,7 @@ namespace
     {
       case Token::identifier:
       case Token::kw_move:
+      case Token::kw_impl:
       case Token::kw_vtable:
          ctx.consume_token();
 
@@ -1203,17 +1204,15 @@ namespace
       case Token::kw_fn: {
         ctx.consume_token(Token::kw_fn);
 
-        if (!ctx.try_consume_token(Token::l_paren))
-        {
-          ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-          return nullptr;
-        }
-
-        bool pointer = ctx.try_consume_token(Token::star);
-        bool reference = !pointer && ctx.try_consume_token(Token::amp);
+        bool pointer = (ctx.tok == Token::l_paren && ctx.token(1) == Token::star);
+        bool reference = (ctx.tok == Token::l_paren && ctx.token(1) == Token::amp);
 
         if (pointer || reference)
         {
+          ctx.consume_token(Token::l_paren);
+
+          ctx.consume_token();
+
           if (ctx.tok == Token::identifier || ctx.tok == Token::dollar)
           {
             ctx.fname = parse_ident(ctx, IdentUsage::VarName, sema);
@@ -1224,55 +1223,12 @@ namespace
             ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
             return nullptr;
           }
-
-          if (!ctx.try_consume_token(Token::l_paren))
-          {
-            ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-            return nullptr;
-          }
         }
 
-        auto parms = parse_typearg_list(ctx, sema);
+        type = parse_type(ctx, sema);
 
-        if (!ctx.try_consume_token(Token::r_paren))
-        {
-          ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+        if (!type)
           return nullptr;
-        }
-
-        auto throwtype = Builtin::type(Builtin::Type_Void);
-
-        if (ctx.try_consume_token(Token::kw_throws))
-        {
-          if (!ctx.try_consume_token(Token::l_paren))
-          {
-            ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-            return nullptr;
-          }
-
-          throwtype = parse_type(ctx, sema);
-
-          if (!ctx.try_consume_token(Token::r_paren))
-          {
-            ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
-            return nullptr;
-          }
-        }
-
-        auto returntype = Builtin::type(Builtin::Type_Void);
-
-        if (ctx.try_consume_token(Token::arrow))
-        {
-          returntype = parse_type(ctx, sema);
-
-          if (!returntype)
-          {
-            ctx.diag.error("expected requires type", ctx.text, ctx.tok.loc);
-            return nullptr;
-          }
-        }
-
-        type = sema.make_fntype(returntype, sema.make_tuple(parms), throwtype);
 
         if (pointer)
           type = sema.make_pointer(sema.make_const(type));
@@ -1292,6 +1248,43 @@ namespace
         {
           ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
           return nullptr;
+        }
+
+        if (ctx.tok == Token::kw_throws || ctx.tok == Token::arrow)
+        {
+          auto throwtype = Builtin::type(Builtin::Type_Void);
+
+          if (ctx.try_consume_token(Token::kw_throws))
+          {
+            if (!ctx.try_consume_token(Token::l_paren))
+            {
+              ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+              return nullptr;
+            }
+
+            throwtype = parse_type(ctx, sema);
+
+            if (!ctx.try_consume_token(Token::r_paren))
+            {
+              ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+              return nullptr;
+            }
+          }
+
+          auto returntype = Builtin::type(Builtin::Type_Void);
+
+          if (ctx.try_consume_token(Token::arrow))
+          {
+            returntype = parse_type(ctx, sema);
+
+            if (!returntype)
+            {
+              ctx.diag.error("expected requires type", ctx.text, ctx.tok.loc);
+              return nullptr;
+            }
+          }
+
+          type = sema.make_fntype(returntype, type, throwtype);
         }
 
         break;
@@ -1433,7 +1426,6 @@ namespace
         case Token::tilde:
         case Token::pipepipe:
         case Token::period:
-        case Token::arrow:
         case Token::kw_true:
         case Token::kw_false:
         case Token::kw_cast:
@@ -2467,6 +2459,11 @@ namespace
           ctx.consume_token(Token::amp);
           ctx.consume_token(Token::kw_move);
           return sema.make_ref_expression(parse_expression_left(ctx, sema), ExprRefExpr::Mut | ExprRefExpr::Move, op.loc);
+
+        case Token::kw_impl:
+          ctx.consume_token(Token::amp);
+          ctx.consume_token(Token::kw_impl);
+          return sema.make_ref_expression(parse_expression_left(ctx, sema), ExprRefExpr::Impl, op.loc);
 
         default:
           break;
@@ -3517,6 +3514,9 @@ namespace
     if (ctx.try_consume_token(Token::kw_pub))
       field->flags |= FieldVarDecl::Public;
 
+    if (ctx.try_consume_token(Token::kw_mut))
+      field->flags |= FieldVarDecl::Mutable;
+
     field->type = parse_type(ctx, sema);
 
     if (!field->type)
@@ -3741,6 +3741,10 @@ namespace
               }
             }
 
+            decl = parse_field_declaration(ctx, sema);
+            break;
+
+          case Token::kw_mut:
             decl = parse_field_declaration(ctx, sema);
             break;
 
@@ -4016,6 +4020,7 @@ namespace
           case Token::identifier:
           case Token::coloncolon:
           case Token::kw_move:
+          case Token::kw_impl:
           case Token::dollar:
             if (unnion->name == tok.text || tok.text == "this")
             {
@@ -4600,6 +4605,7 @@ namespace
 
           case Token::identifier:
           case Token::kw_move:
+          case Token::kw_impl:
           case Token::dollar:
             if (enumm->name == tok.text || tok.text == "this")
             {

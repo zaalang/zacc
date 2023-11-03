@@ -669,6 +669,8 @@ namespace
           type = Token::kw_if;
         else if (identifier == "import")
           type = Token::kw_import;
+        else if (identifier == "impl")
+          type = Token::kw_impl;
         break;
 
       case 'l':

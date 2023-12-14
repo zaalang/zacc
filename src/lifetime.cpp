@@ -1011,8 +1011,8 @@ namespace
           if (is_builtin_type(mir.locals[dst].type))
             break;
           ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[arg].depends_upon;
-          ctx.threads[0].locals[dst].sealed = ctx.threads[0].locals[arg].sealed;
           ctx.threads[0].locals[dst].immune = ctx.threads[0].locals[arg].immune;
+          ctx.threads[0].locals[dst].sealed = ctx.threads[0].locals[arg].sealed;
           break;
 
         case MIR::RValue::Ref:
@@ -1046,7 +1046,7 @@ namespace
         case MIR::RValue::Ref:
           for (auto dep : ctx.threads[0].locals[arg].depends_upon)
             ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(dep, fields));
-          ctx.threads[0].locals[dst].immune = true;
+          ctx.threads[0].locals[dst].immune = ctx.threads[0].locals[arg].immune;
           break;
 
         case MIR::RValue::Fer:
@@ -1056,6 +1056,9 @@ namespace
           assert(false);
           break;
       }
+
+      ctx.threads[0].locals[dst].poisoned = ctx.threads[0].locals[arg].poisoned;
+      ctx.threads[0].locals[dst].consumed = ctx.threads[0].locals[arg].consumed;
     }
 
     if (mir.locals[dst].flags & MIR::Local::MoveRef)

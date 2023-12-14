@@ -412,8 +412,16 @@ namespace
         break;
 
       case '~':
-        ptr += 1;
-        type = Token::tilde;
+        if (ptr[1] == '=')
+        {
+          ptr += 2;
+          type = Token::tildeequal;
+        }
+        else
+        {
+          ptr += 1;
+          type = Token::tilde;
+        }
         break;
 
       case '!':
@@ -1025,6 +1033,10 @@ void dump_token(Token const &tok)
 
     case Token::tilde:
       cout << "tilde '" << tok.text << "' Loc=<" << tok.loc << ">\n";
+      break;
+
+    case Token::tildeequal:
+      cout << "tildeequal '" << tok.text << "' Loc=<" << tok.loc << ">\n";
       break;
 
     case Token::exclaim:

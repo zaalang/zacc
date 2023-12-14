@@ -158,6 +158,9 @@ namespace Builtin
     SliceBegin,
     SliceEnd,
 
+    MatchRange,
+    MatchRangeEq,
+
     Bool,
 
     CallOp,

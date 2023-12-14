@@ -362,6 +362,7 @@ class BinaryOpExpr : public Expr
       EQ,
       NE,
       Cmp,
+      Match,
       Assign,
       AddAssign,
       SubAssign,
@@ -633,6 +634,9 @@ class FragmentExpr : public Expr
 //
 
 bool is_literal_expr(Expr *expr);
+bool is_declref_expr(Expr *expr);
+DeclRefDecl *is_declrefdecl_expr(Expr *expr);
+DeclScopedDecl *is_declscopeddecl_expr(Expr *expr);
 
 //|///////////////////// print //////////////////////////////////////////////
 std::ostream &operator <<(std::ostream &os, Expr const &expr);

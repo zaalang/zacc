@@ -55,6 +55,7 @@ Ident *BinaryOpExpr::binaryop_idents[] = {
   /* EQ,        */ Ident::from("=="),
   /* NE,        */ Ident::from("!="),
   /* Cmp,       */ Ident::from("<=>"),
+  /* Match,     */ Ident::from("~="),
   /* Assign,    */ Ident::from("="),
   /* AddAssign, */ Ident::from("+="),
   /* SubAssign, */ Ident::from("-="),
@@ -127,6 +128,30 @@ bool is_literal_expr(Expr *expr)
     default:
       return false;
   }
+}
+
+//|///////////////////// is_declref_expr ////////////////////////////////////
+bool is_declref_expr(Expr *expr)
+{
+  return expr->kind() == Expr::DeclRef;
+}
+
+//|///////////////////// is_declrefdecl_expr ////////////////////////////////
+DeclRefDecl *is_declrefdecl_expr(Expr *expr)
+{
+  if (expr->kind() == Expr::DeclRef && expr_cast<DeclRefExpr>(expr)->decl->kind() == Decl::DeclRef)
+    return decl_cast<DeclRefDecl>(expr_cast<DeclRefExpr>(expr)->decl);
+
+  return nullptr;
+}
+
+//|///////////////////// is_declscopeddecl_expr /////////////////////////////
+DeclScopedDecl *is_declscopeddecl_expr(Expr *expr)
+{
+  if (expr->kind() == Expr::DeclRef && expr_cast<DeclRefExpr>(expr)->decl->kind() == Decl::DeclScoped)
+    return decl_cast<DeclScopedDecl>(expr_cast<DeclRefExpr>(expr)->decl);
+
+  return nullptr;
 }
 
 //|///////////////////// print //////////////////////////////////////////////

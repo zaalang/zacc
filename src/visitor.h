@@ -106,6 +106,10 @@ struct Visitor
             visit(decl_cast<DeclRefDecl>(decl)->name);
         break;
 
+      case Expr::Lambda:
+        visit(decl_cast<LambdaDecl>(expr_cast<LambdaExpr>(expr)->decl)->fn);
+        break;
+
       default:
         break;
     }

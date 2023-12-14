@@ -79,7 +79,14 @@ namespace
       if (decls.empty())
       {
         if (is_fn_scope(*sx))
+        {
+          auto fn = decl_cast<FunctionDecl>(get<Decl*>(sx->owner));
+
+          if ((fn->flags & FunctionDecl::DeclType) == FunctionDecl::LambdaDecl)
+            find_decls(parent_scope(*sx), name, QueryFlags::Fields, decls);
+
           break;
+        }
 
         continue;
       }

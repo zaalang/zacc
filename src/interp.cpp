@@ -2373,6 +2373,72 @@ namespace
     return true;
   }
 
+  //|///////////////////// match_range //////////////////////////////////////
+  bool eval_builtin_match_range(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto type = callee.find_type(callee.fn->args[0])->second;
+
+    if (is_int_type(type) || is_char_type(type) || is_enum_type(type))
+    {
+      auto beg = load_int(ctx, (void*)((size_t)fx.locals[args[0]].alloc + offsetof_field(type_cast<TupleType>(fx.locals[args[0]].type), 0)), type);
+      auto end = load_int(ctx, (void*)((size_t)fx.locals[args[0]].alloc + offsetof_field(type_cast<TupleType>(fx.locals[args[0]].type), 1)), type);
+      auto value = load_int(ctx, fx, args[1]);
+
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, beg <= value && value < end);
+    }
+    else if (is_float_type(type))
+    {
+      auto beg = load_float(ctx, (void*)((size_t)fx.locals[args[0]].alloc + offsetof_field(type_cast<TupleType>(fx.locals[args[0]].type), 0)), type);
+      auto end = load_float(ctx, (void*)((size_t)fx.locals[args[0]].alloc + offsetof_field(type_cast<TupleType>(fx.locals[args[0]].type), 1)), type);
+      auto value = load_float(ctx, fx, args[1]);
+
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, beg <= value && value < end);
+    }
+    else
+    {
+      ctx.diag.error("invalid match arguments", fx.scope, loc);
+      ctx.diag << "  operand type: '" << *fx.locals[args[0]].type << "'\n";
+      return false;
+    }
+
+    return true;
+  }
+
+  //|///////////////////// match_range_eq ///////////////////////////////////
+  bool eval_builtin_match_range_eq(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto type = callee.find_type(callee.fn->args[0])->second;
+
+    if (is_int_type(type) || is_char_type(type) || is_enum_type(type))
+    {
+      auto beg = load_int(ctx, (void*)((size_t)fx.locals[args[0]].alloc + offsetof_field(type_cast<TupleType>(fx.locals[args[0]].type), 0)), type);
+      auto end = load_int(ctx, (void*)((size_t)fx.locals[args[0]].alloc + offsetof_field(type_cast<TupleType>(fx.locals[args[0]].type), 1)), type);
+      auto value = load_int(ctx, fx, args[1]);
+
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, beg <= value && value <= end);
+    }
+    else if (is_float_type(type))
+    {
+      auto beg = load_float(ctx, (void*)((size_t)fx.locals[args[0]].alloc + offsetof_field(type_cast<TupleType>(fx.locals[args[0]].type), 0)), type);
+      auto end = load_float(ctx, (void*)((size_t)fx.locals[args[0]].alloc + offsetof_field(type_cast<TupleType>(fx.locals[args[0]].type), 1)), type);
+      auto value = load_float(ctx, fx, args[1]);
+
+      store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, beg <= value && value <= end);
+    }
+    else
+    {
+      ctx.diag.error("invalid match arguments", fx.scope, loc);
+      ctx.diag << "  operand type: '" << *fx.locals[args[0]].type << "'\n";
+      return false;
+    }
+
+    return true;
+  }
+
   //|///////////////////// callop ///////////////////////////////////////////
   bool eval_builtin_callop(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &callop)
   {
@@ -3914,6 +3980,12 @@ namespace
         case Builtin::ArrayCreate:
           return eval_builtin_array_create(ctx, fx, dst, call);
 
+        case Builtin::MatchRange:
+          return eval_builtin_match_range(ctx, fx, dst, call);
+
+        case Builtin::MatchRangeEq:
+          return eval_builtin_match_range_eq(ctx, fx, dst, call);
+
         case Builtin::CallOp:
           return eval_builtin_callop(ctx, fx, dst, call);
 
@@ -4395,28 +4467,19 @@ namespace
           block = terminator.blockid;
           break;
 
-        case MIR::Terminator::Switch:
-          if (is_bool_type(fx.locals[terminator.value].type))
+        case MIR::Terminator::Switch: {
+          block = terminator.blockid;
+
+          auto cond = load_int(ctx, fx.locals[terminator.value].alloc, fx.locals[terminator.value].type);
+
+          for (auto &[k, v] : terminator.targets)
           {
-            auto cond = load_bool(ctx, fx.locals[terminator.value].alloc, fx.locals[terminator.value].type);
-
-            block = cond ? terminator.blockid : get<1>(terminator.targets[0]);
+            if (cond.sign * cond.value == k)
+              block = v;
           }
-          else if (is_int_type(fx.locals[terminator.value].type) || is_char_type(fx.locals[terminator.value].type) || is_enum_type(fx.locals[terminator.value].type))
-          {
-            auto cond = load_int(ctx, fx.locals[terminator.value].alloc, fx.locals[terminator.value].type);
 
-            block = terminator.blockid;
-
-            for (auto &[k, v] : terminator.targets)
-            {
-              if (cond.sign * cond.value == k)
-                block = v;
-            }
-          }
-          else
-            assert(false);
           break;
+        }
 
         case MIR::Terminator::Catch:
           block = ctx.exception ? terminator.blockid : terminator.blockid + 1;

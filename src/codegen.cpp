@@ -2970,6 +2970,12 @@ namespace
     auto lhs = load(ctx, fx, args[0]);
     auto rhs = load(ctx, fx, args[1]);
 
+    if (type_cast<CompoundType>(fx.mir.locals[dst].type)->fields[0] == ctx.booltype)
+      lhs = ctx.builder.CreateZExt(lhs, ctx.builder.getInt8Ty());
+
+    if (type_cast<CompoundType>(fx.mir.locals[dst].type)->fields[1] == ctx.booltype)
+      rhs = ctx.builder.CreateZExt(rhs, ctx.builder.getInt8Ty());
+
     auto insert0 = llvm::UndefValue::get(llvm_type(ctx, fx.mir.locals[dst].type));
     auto insert1 = ctx.builder.CreateInsertValue(insert0, lhs, 0);
     auto insert2 = ctx.builder.CreateInsertValue(insert1, rhs, 1);
@@ -3097,6 +3103,80 @@ namespace
     auto result = ctx.builder.CreateInBoundsGEP(arrayty, lhs, { ctx.builder.getInt32(0), ctx.builder.getInt32(arraylen) });
 
     store(ctx, fx, dst, result);
+  }
+
+  //|///////////////////// match_range //////////////////////////////////////
+  void codegen_builtin_match_range(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto lhs = load(ctx, fx, args[0]);
+    auto value = load(ctx, fx, args[1]);
+    auto valuecat = type_category(fx.mir.locals[args[1]].type);
+
+    if (valuecat == TypeCategory::UnsignedInteger)
+    {
+      auto beg = ctx.builder.CreateICmpULE(ctx.builder.CreateExtractValue(lhs, 0), value);
+      auto end = ctx.builder.CreateICmpULT(value, ctx.builder.CreateExtractValue(lhs, 1));
+
+      store(ctx, fx, dst, ctx.builder.CreateAnd(beg, end));
+    }
+    else if (valuecat == TypeCategory::SignedInteger)
+    {
+      auto beg = ctx.builder.CreateICmpSLE(ctx.builder.CreateExtractValue(lhs, 0), value);
+      auto end = ctx.builder.CreateICmpSLT(value, ctx.builder.CreateExtractValue(lhs, 1));
+
+      store(ctx, fx, dst, ctx.builder.CreateAnd(beg, end));
+    }
+    else if (valuecat == TypeCategory::FloatingPoint)
+    {
+      auto beg = ctx.builder.CreateFCmpOLE(ctx.builder.CreateExtractValue(lhs, 0), value);
+      auto end = ctx.builder.CreateFCmpOLT(value, ctx.builder.CreateExtractValue(lhs, 1));
+
+      store(ctx, fx, dst, ctx.builder.CreateAnd(beg, end));
+    }
+    else
+    {
+      fx.diag.error("invalid match arguments", fx.fn, loc);
+      fx.diag << "  lhs type: '" << *fx.mir.locals[args[0]].type << "' rhs type: '" << *fx.mir.locals[args[1]].type << "'\n";
+    }
+  }
+
+  //|///////////////////// match_range_eq ///////////////////////////////////
+  void codegen_builtin_match_range_eq(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto lhs = load(ctx, fx, args[0]);
+    auto value = load(ctx, fx, args[1]);
+    auto valuecat = type_category(fx.mir.locals[args[1]].type);
+
+    if (valuecat == TypeCategory::UnsignedInteger)
+    {
+      auto beg = ctx.builder.CreateICmpULE(ctx.builder.CreateExtractValue(lhs, 0), value);
+      auto end = ctx.builder.CreateICmpULE(value, ctx.builder.CreateExtractValue(lhs, 1));
+
+      store(ctx, fx, dst, ctx.builder.CreateAnd(beg, end));
+    }
+    else if (valuecat == TypeCategory::SignedInteger)
+    {
+      auto beg = ctx.builder.CreateICmpSLE(ctx.builder.CreateExtractValue(lhs, 0), value);
+      auto end = ctx.builder.CreateICmpSLE(value, ctx.builder.CreateExtractValue(lhs, 1));
+
+      store(ctx, fx, dst, ctx.builder.CreateAnd(beg, end));
+    }
+    else if (valuecat == TypeCategory::FloatingPoint)
+    {
+      auto beg = ctx.builder.CreateFCmpOLE(ctx.builder.CreateExtractValue(lhs, 0), value);
+      auto end = ctx.builder.CreateFCmpOLE(value, ctx.builder.CreateExtractValue(lhs, 1));
+
+      store(ctx, fx, dst, ctx.builder.CreateAnd(beg, end));
+    }
+    else
+    {
+      fx.diag.error("invalid match arguments", fx.fn, loc);
+      fx.diag << "  lhs type: '" << *fx.mir.locals[args[0]].type << "' rhs type: '" << *fx.mir.locals[args[1]].type << "'\n";
+    }
   }
 
   //|///////////////////// callop ///////////////////////////////////////////
@@ -3934,6 +4014,12 @@ namespace
           codegen_builtin_array_end(ctx, fx, dst, call);
           break;
 
+        case Builtin::MatchRange:
+          return codegen_builtin_match_range(ctx, fx, dst, call);
+
+        case Builtin::MatchRangeEq:
+          return codegen_builtin_match_range_eq(ctx, fx, dst, call);
+
         case Builtin::CallOp:
           codegen_builtin_callop(ctx, fx, dst, call);
           break;
@@ -4322,12 +4408,27 @@ namespace
 
     if (is_bool_type(type))
     {
-      assert(targets.size() == 1 && get<0>(targets[0]) == 0);
+      assert(targets.size() == 1);
 
-      if (auto constant = llvm::dyn_cast<llvm::ConstantInt>(cond); constant)
-        ctx.builder.CreateBr(constant->isOne() ? fx.blocks[blockid].bx : fx.blocks[get<1>(targets[0])].bx);
-      else
-        ctx.builder.CreateCondBr(cond, fx.blocks[blockid].bx, fx.blocks[get<1>(targets[0])].bx);
+      switch (get<0>(targets[0]))
+      {
+        case 0:
+          if (auto constant = llvm::dyn_cast<llvm::ConstantInt>(cond); constant)
+            ctx.builder.CreateBr(constant->isOne() ? fx.blocks[blockid].bx : fx.blocks[get<1>(targets[0])].bx);
+          else
+            ctx.builder.CreateCondBr(cond, fx.blocks[blockid].bx, fx.blocks[get<1>(targets[0])].bx);
+          break;
+
+        case 1:
+          if (auto constant = llvm::dyn_cast<llvm::ConstantInt>(cond); constant)
+            ctx.builder.CreateBr(constant->isOne() ? fx.blocks[get<1>(targets[0])].bx : fx.blocks[blockid].bx);
+          else
+            ctx.builder.CreateCondBr(cond, fx.blocks[get<1>(targets[0])].bx, fx.blocks[blockid].bx);
+          break;
+
+        default:
+          assert(false);
+      }
     }
     else if (is_int_type(type) || is_char_type(type) || is_enum_type(type))
     {

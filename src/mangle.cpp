@@ -169,6 +169,7 @@ namespace
     if (name == "<=") return "le";
     if (name == ">=") return "ge";
     if (name == "<=>") return "ss";
+    if (name == "~=") return "5matchD0";
     if (name == "!") return "nt";
     if (name == "&&") return "aa";
     if (name == "||") return "oo";

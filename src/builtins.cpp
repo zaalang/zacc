@@ -527,6 +527,9 @@ namespace Builtin
     make_function(SliceBegin, "pub fn begin<T>(T[]) -> T*", __LINE__);
     make_function(SliceEnd, "pub fn end<T>(T[]) -> T*", __LINE__);
 
+    make_function(MatchRange, "pub const fn ~=<T>((T, T), T) -> bool", __LINE__);
+    make_function(MatchRangeEq, "pub const fn ~=<T>((T, T, void), T) -> bool", __LINE__);
+
     make_function(Bool, "pub const fn bool<T>(T) -> bool", __LINE__);
 
     make_function(CallOp, "pub fn ()<R, V>(R(V...)&, V&&...) -> R", __LINE__);
@@ -861,6 +864,12 @@ namespace Builtin
       case Builtin::TupleLen:
         if (auto T = find_type(fn->args[0]); T != typeargs.end())
           return is_tuple_type(T->second) || is_tuple_type(base_type(T->second));
+        break;
+
+      case Builtin::MatchRange:
+      case Builtin::MatchRangeEq:
+        if (auto T = find_type(fn->args[0]); T != typeargs.end())
+          return is_numeric(T->second) || is_char(T->second) || is_enum(T->second);
         break;
 
       case Builtin::Bool:

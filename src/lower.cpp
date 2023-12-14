@@ -1899,10 +1899,8 @@ namespace
     vector<Scope> stack;
     seed_stack(stack, scope);
 
-    if (typedecl->expr->kind() == Expr::DeclRef && expr_cast<DeclRefExpr>(typedecl->expr)->decl->kind() == Decl::DeclRef)
+    if (auto declref = is_declrefdecl_expr(typedecl->expr))
     {
-      auto declref = decl_cast<DeclRefDecl>(expr_cast<DeclRefExpr>(typedecl->expr)->decl);
-
       if (!expr_cast<DeclRefExpr>(typedecl->expr)->base && declref->argless)
       {
         if (declref->name == string_view("__decl__"))
@@ -1926,11 +1924,11 @@ namespace
       }
     }
 
-    if (typedecl->expr->kind() == Expr::DeclRef && expr_cast<DeclRefExpr>(typedecl->expr)->decl->kind() == Decl::DeclScoped)
+    if (auto declscoped = is_declscopeddecl_expr(typedecl->expr))
     {
       long queryflags = 0;
 
-      if (Scoped declref = find_scoped(ctx, stack, decl_cast<DeclScopedDecl>(expr_cast<DeclRefExpr>(typedecl->expr)->decl), queryflags))
+      if (Scoped declref = find_scoped(ctx, stack, declscoped, queryflags))
       {
         if (declref.decl->argless)
         {
@@ -6045,13 +6043,13 @@ namespace
 
       if ((tagtype->decl->flags & Decl::Public) || get_module(tagtype->decl) == ctx.module)
       {
-        if (label->kind() == Expr::DeclRef && expr_cast<DeclRefExpr>(label)->decl->kind() == Decl::DeclRef)
+        if (auto declref = is_declrefdecl_expr(label))
         {
           vector<Decl*> decls;
 
           auto typescope = type_scope(ctx, type);
 
-          find_decls(ctx, typescope, decl_cast<DeclRefDecl>(expr_cast<DeclRefExpr>(label)->decl)->name, QueryFlags::Enums, decls);
+          find_decls(ctx, typescope, declref->name, QueryFlags::Enums, decls);
 
           if (decls.size() == 1)
           {
@@ -6349,35 +6347,30 @@ namespace
           break;
       }
 
-      if (expr->kind() == Expr::DeclRef)
+      if (auto declref = is_declrefdecl_expr(expr))
       {
-        auto declref = expr_cast<DeclRefExpr>(expr);
+        auto name = declref->name;
 
-        if (declref->decl->kind() == Decl::DeclRef)
+        if (name->kind() == Ident::Hash)
+          name = static_cast<HashIdent*>(name)->value();
+
+        if (auto vardecl = find_vardecl(ctx, ctx.stack, name); vardecl && is_pack_type(vardecl->type))
         {
-          auto name = decl_cast<DeclRefDecl>(declref->decl)->name;
+          size_t len = 0;
 
-          if (name->kind() == Ident::Hash)
-            name = static_cast<HashIdent*>(name)->value();
-
-          if (auto vardecl = find_vardecl(ctx, ctx.stack, name); vardecl && is_pack_type(vardecl->type))
+          if (auto j = ctx.stack.back().find_type(vardecl); j != ctx.stack.back().typeargs.end())
           {
-            size_t len = 0;
+            if (auto type = resolve_type_as_reference(ctx, ctx.stack.back(), decl_cast<ParmVarDecl>(vardecl)); is_tuple_type(type))
+              len = tuple_len(type_cast<TupleType>(type));
+          }
 
-            if (auto j = ctx.stack.back().find_type(vardecl); j != ctx.stack.back().typeargs.end())
-            {
-              if (auto type = resolve_type_as_reference(ctx, ctx.stack.back(), decl_cast<ParmVarDecl>(vardecl)); is_tuple_type(type))
-                len = tuple_len(type_cast<TupleType>(type));
-            }
+          if (iterations == size_t(-1))
+            iterations = len;
 
-            if (iterations == size_t(-1))
-              iterations = len;
-
-            if (iterations != len)
-            {
-              ctx.diag.error("inconsistant tuple sizes", ctx.stack.back(), loc);
-              return false;
-            }
+          if (iterations != len)
+          {
+            ctx.diag.error("inconsistant tuple sizes", ctx.stack.back(), loc);
+            return false;
           }
         }
       }
@@ -7058,8 +7051,8 @@ namespace
             (is_int_type(elemtype) && element->kind() != Expr::IntLiteral) ||
             (is_float_type(elemtype) && element->kind() != Expr::FloatLiteral) ||
             (is_string_type(elemtype) && element->kind() != Expr::StringLiteral) ||
-            (is_array_type(elemtype) && element->kind() != Expr::ArrayLiteral) ||
-            (is_compound_type(elemtype) && element->kind() != Expr::CompoundLiteral))
+            (is_array_type(elemtype) && (element->kind() != Expr::ArrayLiteral || expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(expr_cast<ArrayLiteralExpr>(element)->size)->value)->value().value != array_len(type_cast<ArrayType>(elemtype)))) ||
+            (is_compound_type(elemtype) && (element->kind() != Expr::CompoundLiteral || expr_cast<CompoundLiteralExpr>(element)->fields.size() != type_cast<CompoundType>(elemtype)->fields.size())))
         {
           ctx.diag.error("literal type incompatible with required type", ctx.stack.back(), element->loc());
           ctx.diag << "  required type: '" << *elemtype << "'\n";
@@ -7362,7 +7355,7 @@ namespace
 
 #if !ASSOCIATED_DEREF
       while (is_pointference_type(parms[0].type.type))
-        if (!lower_base_deref(ctx, parms[0], declref->base->loc()))
+        if (!lower_base_deref(ctx, parms[0], declref->loc()))
           return false;
 #endif
 
@@ -7905,6 +7898,11 @@ namespace
       }
     }
 
+    if (!callee && binaryop == BinaryOpExpr::Match)
+    {
+      callee = find_callee(ctx, ctx.stack, BinaryOpExpr::EQ, parms, namedparms);
+    }
+
     if (!callee && binaryop == BinaryOpExpr::NE)
     {
       callee = find_callee(ctx, ctx.stack, BinaryOpExpr::EQ, parms, namedparms);
@@ -7984,7 +7982,7 @@ namespace
 
     if (binaryop->op() == BinaryOpExpr::Assign)
     {
-      if (binaryop->lhs->kind() == Expr::DeclRef && expr_cast<DeclRefExpr>(binaryop->lhs)->base && expr_cast<DeclRefExpr>(binaryop->lhs)->decl->kind() == Decl::DeclRef)
+      if (auto declref = is_declrefdecl_expr(binaryop->lhs); declref && expr_cast<DeclRefExpr>(binaryop->lhs)->base)
       {
         if (!lower_expr(ctx, parms[0], expr_cast<DeclRefExpr>(binaryop->lhs)->base))
           return;
@@ -7998,7 +7996,7 @@ namespace
 
         for (;;)
         {
-          auto name = Ident::from(decl_cast<DeclRefDecl>(expr_cast<DeclRefExpr>(binaryop->lhs)->decl)->name->str() + '=');
+          auto name = Ident::from(declref->name->str() + '=');
 
           while (is_pointference_type(parms[0].type.type))
             if (!lower_base_deref(ctx, parms[0], binaryop->lhs->loc()))
@@ -8591,7 +8589,7 @@ namespace
   {
     auto casttype = resolve_type(ctx, cast->type);
 
-    if (is_function_type(casttype) && cast->expr->kind() == Expr::DeclRef)
+    if (is_function_type(casttype) && is_declref_expr(cast->expr))
     {
       lower_function_cast(ctx, result, ctx.stack.back(), type_cast<FunctionType>(casttype), expr_cast<DeclRefExpr>(cast->expr)->decl, cast->loc());
 
@@ -9977,12 +9975,6 @@ namespace
 
     auto type = thistype->type;
     auto arraylen = array_len(thistype);
-
-    if (is_zerosized_type(type))
-    {
-      ctx.diag.error("arrays of zerosized types not implemented", ctx.stack.back(), fn->loc());
-      return;
-    }
 
     if (arraylen != 0)
     {
@@ -11384,7 +11376,7 @@ namespace
       {
         auto expr = stmt_cast<ExprStmt>(iter)->expr;
 
-        if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->subexpr->kind() == Expr::DeclRef && !expr_cast<DeclRefExpr>(expr_cast<UnaryOpExpr>(expr)->subexpr)->base)
+        if (expr->kind() == Expr::UnaryOp && is_declrefdecl_expr(expr_cast<UnaryOpExpr>(expr)->subexpr) && !expr_cast<DeclRefExpr>(expr_cast<UnaryOpExpr>(expr)->subexpr)->base)
         {
           auto unaryop = expr_cast<UnaryOpExpr>(expr);
           auto declref = decl_cast<DeclRefDecl>(expr_cast<DeclRefExpr>(unaryop->subexpr)->decl);
@@ -11396,7 +11388,7 @@ namespace
           }
         }
 
-        if (expr->kind() == Expr::BinaryOp && expr_cast<BinaryOpExpr>(expr)->lhs->kind() == Expr::DeclRef && !expr_cast<DeclRefExpr>(expr_cast<BinaryOpExpr>(expr)->lhs)->base)
+        if (expr->kind() == Expr::BinaryOp && is_declrefdecl_expr(expr_cast<BinaryOpExpr>(expr)->lhs) && !expr_cast<DeclRefExpr>(expr_cast<BinaryOpExpr>(expr)->lhs)->base)
         {
           auto binaryop = expr_cast<BinaryOpExpr>(expr);
           auto declref = decl_cast<DeclRefDecl>(expr_cast<DeclRefExpr>(binaryop->lhs)->decl);
@@ -11535,13 +11527,9 @@ namespace
 
     MIR::Fragment base;
     MIR::Fragment condition;
-    vector<MIR::block_t> block_bodys;
 
     if (!lower_expr(ctx, condition, swtch->cond))
       return;
-
-    if (is_bool_type(condition.type.type))
-      lower_base_cast(ctx, condition, condition, ctx.usizetype, swtch->cond->loc());
 
     if (is_union_type(condition.type.type))
     {
@@ -11565,15 +11553,27 @@ namespace
         return;
     }
 
-    auto cond = ctx.add_local();
+    auto cond = ctx.add_temporary();
 
     realise_as_value(ctx, cond, condition);
 
     commit_type(ctx, cond, condition.type.type, condition.type.flags);
 
+    if (!(ctx.mir.locals[cond].flags & MIR::Local::Reference))
+      realise_destructor(ctx, cond, swtch->cond->loc());
+
     Unreachable unreachable = Unreachable::Yes;
 
-    auto block_cond = ctx.add_block(MIR::Terminator::switcher(cond, ctx.currentblockid));
+    vector<MIR::block_t> block_conds;
+    vector<MIR::block_t> block_bodys;
+    unordered_map<size_t, MIR::block_t> block_labels;
+
+    auto block_cond = ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid));
+
+    if (is_int_type(condition.type.type) || is_char_type(condition.type.type) || is_enum_type(condition.type.type))
+    {
+      ctx.mir.blocks[block_cond].terminator = MIR::Terminator::switcher(cond, block_cond);
+    }
 
     vector<Decl*> decls;
     find_decls(ctx, ctx.stack.back(), swtch->decls, decls);
@@ -11588,61 +11588,109 @@ namespace
 
       auto casse = decl_cast<CaseDecl>(decl);
 
-      if (casse->label)
+      if (is_int_type(condition.type.type) || is_char_type(condition.type.type) || is_enum_type(condition.type.type))
       {
-        vector<size_t> labels;
-
-        if (!lower_label(ctx, labels, condition.type.type, casse->label))
-          return;
-
-        if (casse->parm)
+        if (casse->label)
         {
-          auto casevar = decl_cast<CaseVarDecl>(casse->parm);
+          vector<size_t> labels;
 
-          if (!base)
-          {
-            ctx.diag.error("case parameter requires union condition", ctx.stack.back(), decl->loc());
+          if (!lower_label(ctx, labels, condition.type.type, casse->label))
             return;
-          }
 
-          if (labels.size() != 1)
+          if (casse->parm)
           {
-            ctx.diag.error("case parameter requires unique label", ctx.stack.back(), decl->loc());
-            return;
-          }
+            auto casevar = decl_cast<CaseVarDecl>(casse->parm);
 
-          MIR::Fragment value;
-
-          if (casevar->value)
-          {
-            if (!lower_expr(ctx, value, casevar->value))
+            if (!base)
+            {
+              ctx.diag.error("case parameter requires union condition", ctx.stack.back(), decl->loc());
               return;
-          }
-          else
-          {
-            auto field = find_field(ctx, type_cast<CompoundType>(base.type.type), labels[0]);
+            }
 
-            if (!lower_field(ctx, value, base, field, casevar->loc()))
+            if (labels.size() != 1)
+            {
+              ctx.diag.error("case parameter requires unique label", ctx.stack.back(), decl->loc());
               return;
+            }
+
+            MIR::Fragment value;
+
+            if (casevar->value)
+            {
+              if (!lower_expr(ctx, value, casevar->value))
+                return;
+            }
+            else
+            {
+              auto field = find_field(ctx, type_cast<CompoundType>(base.type.type), labels[0]);
+
+              if (!lower_field(ctx, value, base, field, casevar->loc()))
+                return;
+            }
+
+            lower_decl(ctx, casevar, value);
           }
 
-          lower_decl(ctx, casevar, value);
+          for (auto label : labels)
+          {
+            if (block_labels.find(label) != block_labels.end())
+              ctx.diag.error("duplicate label in switch", ctx.stack.back(), decl->loc());
+
+            ctx.mir.blocks[block_cond].terminator.targets.emplace_back(label, ctx.currentblockid);
+
+            block_labels.emplace(label, ctx.currentblockid);
+          }
         }
-
-        for (auto value : labels)
+        else
         {
-          if (std::find_if(ctx.mir.blocks[block_cond].terminator.targets.begin(), ctx.mir.blocks[block_cond].terminator.targets.end(), [&](auto &target) { return get<0>(target) == value; }) != ctx.mir.blocks[block_cond].terminator.targets.end())
-            ctx.diag.error("duplicate label in switch", ctx.stack.back(), decl->loc());
+          if (ctx.mir.blocks[block_cond].terminator.blockid != block_cond)
+            ctx.diag.error("duplicate else in switch", ctx.stack.back(), decl->loc());
 
-          ctx.mir.blocks[block_cond].terminator.targets.emplace_back(value, ctx.currentblockid);
+          ctx.mir.blocks[block_cond].terminator.blockid = ctx.currentblockid;
         }
       }
       else
       {
-        if (ctx.mir.blocks[block_cond].terminator.blockid != block_cond)
-          ctx.diag.error("duplicate else in switch", ctx.stack.back(), decl->loc());
-
         ctx.mir.blocks[block_cond].terminator.blockid = ctx.currentblockid;
+
+        if (casse->label)
+        {
+          MIR::Fragment testcase;
+
+          vector<MIR::Fragment> parms(2);
+          map<Ident*, MIR::Fragment> namedparms;
+
+          if (!lower_expr(ctx, parms[0], casse->label))
+            return;
+
+          if (!is_constant(ctx, parms[0]))
+            ctx.diag.error("case not a literal value", ctx.stack.back(), decl->loc());
+
+          if (casse->parm)
+            ctx.diag.error("case parameter requires union condition", ctx.stack.back(), decl->loc());
+
+          parms[1].type = ctx.mir.locals[cond];
+          parms[1].value = MIR::RValue::local(MIR::RValue::Val, cond, decl->loc());
+
+          if (!lower_expr(ctx, testcase, BinaryOpExpr::Match, parms, namedparms, decl->loc()))
+            return;
+
+          auto flg = ctx.add_variable();
+
+          realise_as_value(ctx, flg, testcase);
+
+          commit_type(ctx, flg, testcase.type.type, testcase.type.flags);
+
+          block_conds.push_back(block_cond = ctx.add_block(MIR::Terminator::switcher(flg, ctx.currentblockid)));
+        }
+
+        if (casse->body)
+        {
+          for (auto block_cond : block_conds)
+            ctx.mir.blocks[block_cond].terminator.targets.emplace_back(1, ctx.currentblockid);
+
+          block_conds.clear();
+        }
       }
 
       if (casse->body)
@@ -11667,34 +11715,34 @@ namespace
     if (ctx.mir.blocks[block_cond].terminator.blockid == block_cond)
       ctx.mir.blocks[block_cond].terminator.blockid = ctx.currentblockid;
 
-    for (auto &block_body : block_bodys)
+    for (auto block_body : block_bodys)
       ctx.mir.blocks[block_body].terminator.blockid = ctx.currentblockid;
 
     for (auto i = ctx.barriers.back().firstgoto; i < ctx.gotos.size(); ++i)
     {
       auto [blk, label] = ctx.gotos[i];
 
-      if (label->kind() == Expr::DeclRef && expr_cast<DeclRefExpr>(label)->decl->kind() == Decl::DeclRef && decl_cast<DeclRefDecl>(expr_cast<DeclRefExpr>(label)->decl)->name == Ident::kw_else)
+      if (auto declref = is_declrefdecl_expr(label); declref && declref->name == Ident::kw_else)
       {
         ctx.mir.blocks[blk].terminator.blockid = ctx.mir.blocks[block_cond].terminator.blockid;
 
         continue;
       }
 
-      vector<size_t> values;
+      vector<size_t> labels;
 
-      if (!lower_label(ctx, values, condition.type.type, label))
+      if (!lower_label(ctx, labels, condition.type.type, label))
         return;
 
-      if (values.size() != 1)
+      if (labels.size() != 1)
         ctx.diag.error("invalid label in goto", ctx.stack.back(), label->loc());
 
-      auto j = std::find_if(ctx.mir.blocks[block_cond].terminator.targets.begin(), ctx.mir.blocks[block_cond].terminator.targets.end(), [&](auto &target) { return get<0>(target) == values[0]; });
+      auto j = block_labels.find(labels[0]);
 
-      if (j == ctx.mir.blocks[block_cond].terminator.targets.end())
+      if (j == block_labels.end())
         ctx.diag.error("unknown label in goto", ctx.stack.back(), label->loc());
 
-      if (j != ctx.mir.blocks[block_cond].terminator.targets.end())
+      if (j != block_labels.end())
         ctx.mir.blocks[blk].terminator.blockid = get<1>(*j);
     }
 

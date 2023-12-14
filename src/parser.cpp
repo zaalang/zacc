@@ -193,6 +193,9 @@ namespace
       case Token::spaceship:
         return PrecLevel::Spaceship;
 
+      case Token::tildeequal:
+        return PrecLevel::Assignment;
+
       case Token::plus:
       case Token::minus:
         return PrecLevel::Additive;
@@ -269,6 +272,7 @@ namespace
       case Token::equalequal: return BinaryOpExpr::EQ;
       case Token::exclaimequal: return BinaryOpExpr::NE;
       case Token::spaceship: return BinaryOpExpr::Cmp;
+      case Token::tildeequal: return BinaryOpExpr::Match;
       case Token::equal: return BinaryOpExpr::Assign;
       case Token::starequal: return BinaryOpExpr::MulAssign;
       case Token::slashequal: return BinaryOpExpr::DivAssign;
@@ -415,6 +419,7 @@ namespace
       case Token::questionquestion:
       case Token::questionexclaim:
       case Token::spaceship:
+      case Token::tildeequal:
       case Token::kw_yield:
       case Token::kw_await:
       case Token::kw_void:

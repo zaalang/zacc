@@ -56,6 +56,7 @@ class Ident
     static inline Ident *op_assign = from("=");
     static inline Ident *op_equality = from("==");
     static inline Ident *op_compare = from("<=>");
+    static inline Ident *op_match = from("~=");
     static inline Ident *op_deref = from("*");
     static inline Ident *op_run = from("#run");
     static inline Ident *op_requires = from("#requires");

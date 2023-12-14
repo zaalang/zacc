@@ -90,6 +90,7 @@ struct Token
     arrow,
     arrowstar,
     tilde,
+    tildeequal,
     exclaim,
     exclaimequal,
     slash,

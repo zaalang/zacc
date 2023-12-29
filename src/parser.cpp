@@ -171,8 +171,10 @@ namespace
         return PrecLevel::Range;
 
       case Token::question:
-      case Token::questionquestion:
         return PrecLevel::Conditional;
+
+      case Token::questionquestion:
+        return PrecLevel::PointerToMember;
 
       case Token::pipepipe:
         return PrecLevel::LogicalOr;
@@ -194,7 +196,7 @@ namespace
         return PrecLevel::Spaceship;
 
       case Token::tildeequal:
-        return PrecLevel::Assignment;
+        return PrecLevel::Spaceship;
 
       case Token::plus:
       case Token::minus:
@@ -1398,7 +1400,6 @@ namespace
     auto lexcursor = ctx.lexcursor;
     auto maybe = false;
     auto leftid = false;
-    auto comma = false;
 
     auto skip_bracketed = [&]() {
       for (int indent = 0; tok != Token::eof; )
@@ -1409,9 +1410,6 @@ namespace
         if (tok == Token::r_paren)
           if (--indent <= 0)
             break;
-
-        if (tok == Token::comma)
-          comma = true;
 
         lexcursor = lex(ctx.text, lexcursor, tok);
       }
@@ -1459,40 +1457,37 @@ namespace
           leftid = true;
           break;
 
-        case Token::l_paren:
-          comma = false;
-          switch (lex(ctx.text, lexcursor, tok); tok.type)
+        case Token::l_paren: {
+          bool comma = false;
+          lexcursor = lex(ctx.text, lexcursor, tok);
+          if (tok.type == Token::r_paren)
+            comma = true;
+
+          while (tok != Token::eof)
           {
-            case Token::r_paren:
+            if (tok == Token::comma)
               comma = true;
+
+            if (tok == Token::r_paren)
               break;
 
-            case Token::char_constant:
-            case Token::numeric_constant:
-            case Token::string_literal:
-            case Token::kw_true:
-            case Token::kw_false:
-              maybe = true;
-              break;
-
-            default:
-              break;
-          }
-
-          tok.type = Token::l_paren;
-
-          skip_bracketed();
-
-          if (leftid || !comma)
-            maybe = true;
-          break;
-
-        case Token::l_square:
-          for (int indent = 0; tok != Token::eof; )
-          {
             if (tok == Token::l_paren)
               skip_bracketed();
 
+            lexcursor = lex(ctx.text, lexcursor, tok);
+          }
+
+          if (leftid || !comma)
+            maybe = true;
+
+          break;
+        }
+
+        case Token::l_square: {
+          int indent = 0;
+
+          while (tok != Token::eof)
+          {
             if (tok == Token::l_square)
               indent += 1;
 
@@ -1502,19 +1497,20 @@ namespace
             if (indent <= 0)
               break;
 
-            lexcursor = lex(ctx.text, lexcursor, tok);
-          }
-          if (!leftid)
-            maybe = true;
-          break;
-
-        case Token::less: {
-          int indent = 0;
-          while (tok != Token::eof)
-          {
             if (tok == Token::l_paren)
               skip_bracketed();
 
+            lexcursor = lex(ctx.text, lexcursor, tok);
+          }
+
+          break;
+        }
+
+        case Token::less: {
+          int indent = 0;
+
+          while (tok != Token::eof)
+          {
             if (tok == Token::less)
               indent += 1;
 
@@ -1526,6 +1522,9 @@ namespace
 
             if (indent <= 0)
               break;
+
+            if (tok == Token::l_paren)
+              skip_bracketed();
 
             lexcursor = lex(ctx.text, lexcursor, tok);
           }

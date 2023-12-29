@@ -942,11 +942,17 @@ namespace
             type = tagtype->fields[0];
           }
 
-          if (is_array_type(type) && rhs == "[]")
-            target.type = Lifetime::depend;
+          if (is_string_type(type) || is_array_type(type))
+          {
+            if (rhs == "[]")
+              target.type = Lifetime::depend;
 
-          if (is_array_type(type) && rhs == "data")
-            target.type = Lifetime::depend;
+            if (rhs == "len")
+              target.type = Lifetime::clone;
+
+            if (rhs == "data")
+              target.type = Lifetime::depend;
+          }
 
           apply(ctx, mir, target, dst, callee, args, loc);
         }
@@ -1044,9 +1050,11 @@ namespace
           break;
 
         case MIR::RValue::Ref:
+          if (ctx.is_poisoned(arg))
+            ctx.diag.error("potentially poisoned reference", mir.fx.fn, loc);
           for (auto dep : ctx.threads[0].locals[arg].depends_upon)
             ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(dep, fields));
-          ctx.threads[0].locals[dst].immune = ctx.threads[0].locals[arg].immune;
+          ctx.threads[0].locals[dst].immune = true;
           break;
 
         case MIR::RValue::Fer:
@@ -1127,7 +1135,7 @@ namespace
 
       if (callee.fn->flags & FunctionDecl::Lifetimed)
       {
-        if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type) && is_mutable_reference(ctx, mir.locals[arg]))
+        if (is_reference_type(decl_cast<ParmVarDecl>(parm)->type) && !is_const_reference(decl_cast<ParmVarDecl>(parm)->type) && is_mutable_reference(ctx, mir.locals[arg]))
         {
           for (auto const &[other_parm, other_arg] : zip(callee.parameters(), args))
           {

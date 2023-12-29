@@ -4294,6 +4294,9 @@ namespace
       for (auto scope = type_scope(ctx, parms[0].type.type); scope; scope = base_scope(ctx, scope, QueryFlags::Public))
       {
         find_overloads(ctx, tx, scope, parms, namedparms, callee.candidates, callee.overloads);
+
+        if (op == BinaryOpExpr::Assign || (BinaryOpExpr::AddAssign <= op && op <= BinaryOpExpr::XorAssign))
+          break;
       }
     }
 
@@ -4301,6 +4304,9 @@ namespace
     {
       for (auto scope = type_scope(ctx, parms[1].type.type); scope; scope = base_scope(ctx, scope, QueryFlags::Public))
       {
+        if (op == BinaryOpExpr::Assign || (BinaryOpExpr::AddAssign <= op && op <= BinaryOpExpr::XorAssign))
+          break;
+
         find_overloads(ctx, tx, scope, parms, namedparms, callee.candidates, callee.overloads);
       }
     }
@@ -6840,6 +6846,12 @@ namespace
   //|///////////////////// lower_new ////////////////////////////////////////
   bool lower_new(LowerContext &ctx, MIR::Fragment &result, Type *type, vector<MIR::Fragment> &parms, map<Ident*, MIR::Fragment> &namedparms, SourceLocation loc)
   {
+    if (type->klass() == Type::TypeLit)
+    {
+      result.type = type;
+      return false;
+    }
+
     if (parms.size() == 1 && namedparms.size() == 0 && parms[0].type.type == type && (parms[0].type.flags & MIR::Local::RValue))
     {
       result = std::move(parms[0]);

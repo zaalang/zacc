@@ -35,7 +35,6 @@ namespace
       bool consumed = false;
       bool immune = false;
       bool poisoned = false;
-      bool sealed = false;
       bool toxic = false;
       size_t borrowed = 0;
       vector<MIR::RValue::VariableData const *> depends_upon;
@@ -277,7 +276,7 @@ namespace
 
     while (i < lifetime.length() - 1)
     {
-      auto j = lifetime.find_first_of("(", i);
+      auto j = lifetime.find('(', i);
 
       for (int indent = 0; j != string_view::npos; )
       {
@@ -302,7 +301,7 @@ namespace
   }
 
   //|///////////////////// has_launder //////////////////////////////////////
-  bool has_launder(Context &ctx, vector<Lifetime> const &annotations)
+  [[maybe_unused]] bool has_launder(Context &ctx, vector<Lifetime> const &annotations)
   {
     for (auto &annotation : annotations)
     {
@@ -335,7 +334,7 @@ namespace
     {
       if (annotation.type == Lifetime::poison)
       {
-        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of('.')));
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find('.')));
 
         if (decl_cast<ParmVarDecl>(parm)->name == lhs)
           return true;
@@ -344,8 +343,8 @@ namespace
 #if 1
       if (annotation.type == Lifetime::swap)
       {
-        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of(',')));
-        auto rhs = trim(annotation.text.substr(annotation.text.find_first_of(',') + 1));
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find(',')));
+        auto rhs = trim(annotation.text.substr(annotation.text.find(',') + 1));
 
         if (decl_cast<ParmVarDecl>(parm)->name == lhs || decl_cast<ParmVarDecl>(parm)->name == rhs)
           return true;
@@ -363,8 +362,8 @@ namespace
     {
       if (annotation.type == Lifetime::repose)
       {
-        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of(',')));
-        auto rhs = trim(annotation.text.substr(annotation.text.find_first_of(',') + 1));
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find(',')));
+        auto rhs = trim(annotation.text.substr(annotation.text.find(',') + 1));
 
         if (decl_cast<ParmVarDecl>(parm1)->name == lhs && decl_cast<ParmVarDecl>(parm2)->name == rhs)
           return true;
@@ -372,8 +371,8 @@ namespace
 #if 1
       if (annotation.type == Lifetime::swap)
       {
-        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of(',')));
-        auto rhs = trim(annotation.text.substr(annotation.text.find_first_of(',') + 1));
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find(',')));
+        auto rhs = trim(annotation.text.substr(annotation.text.find(',') + 1));
 
         if (decl_cast<ParmVarDecl>(parm1)->name == lhs && decl_cast<ParmVarDecl>(parm2)->name == rhs)
           return true;
@@ -382,6 +381,22 @@ namespace
           return true;
       }
 #endif
+    }
+
+    return false;
+  }
+
+  //|///////////////////// is_reference /////////////////////////////////////
+  [[maybe_unused]] bool is_reference(Context &ctx, MIR::Local const &local)
+  {
+    if (local.flags & MIR::Local::Reference)
+    {
+      return true;
+    }
+
+    if (is_pointference_type(local.type))
+    {
+      return true;
     }
 
     return false;
@@ -500,7 +515,7 @@ namespace
 
     ctx.threads[0].locals[get<1>(*dep)].toxic = true;
 
-    if (ctx.threads[0].locals[arg].sealed && dep != ctx.threads[0].locals[arg].depends_upon.back())
+    if (mir.locals[get<1>(*dep)].type != mir.locals[arg].type)
       return;
 
     for (auto &local : ctx.threads[0].locals)
@@ -509,9 +524,6 @@ namespace
         continue;
 
       if (local.immune)
-        continue;
-
-      if (local.sealed && local.depends_upon.back() == dep)
         continue;
 
       for (auto fld : local.depends_upon)
@@ -559,7 +571,6 @@ namespace
       ctx.threads[0].locals[get<1>(*dep)].consumed = false;
       ctx.threads[0].locals[get<1>(*dep)].poisoned = false;
       ctx.threads[0].locals[get<1>(*dep)].toxic = false;
-      ctx.threads[0].locals[get<1>(*dep)].sealed = false;
       ctx.threads[0].locals[get<1>(*dep)].depends_upon.clear();
       ctx.threads[0].locals[get<1>(*dep)].consumed_fields.clear();
     }
@@ -589,8 +600,8 @@ namespace
 
       case Lifetime::repose: {
 
-        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of(',')));
-        auto rhs = trim(annotation.text.substr(annotation.text.find_first_of(',') + 1));
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find(',')));
+        auto rhs = trim(annotation.text.substr(annotation.text.find(',') + 1));
 
         auto [parm1, arg1] = find_arg(ctx, mir.fx, lhs);
         auto [parm2, arg2] = find_arg(ctx, mir.fx, rhs);
@@ -626,6 +637,74 @@ namespace
     }
   }
 
+  //|///////////////////// prepare //////////////////////////////////////////
+  void prepare(Context &ctx, MIR const &mir, vector<Lifetime> const &annotations, MIR::local_t dst, FnSig const &callee, vector<MIR::local_t> const &args, SourceLocation loc)
+  {
+    if (callee.fn->name == Ident::op_assign)
+    {
+      for (auto dep : ctx.threads[0].locals[args[0]].depends_upon)
+        launder(ctx, mir, args[0], dep);
+    }
+
+    for (auto &annotation : annotations)
+    {
+      if (annotation.type == Lifetime::launder)
+      {
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find('.')));
+
+        if (auto [parm, arg] = find_arg(ctx, callee, lhs); parm)
+        {
+          if (lhs == annotation.text)
+          {
+            for (auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+              launder(ctx, mir, args[arg], dep);
+          }
+          else
+          {
+            auto rhs = trim(annotation.text.substr(annotation.text.find('.') + 1));
+
+            Decl *target = nullptr;
+            vector<MIR::RValue::Field> subfields;
+            for (auto type = mir.locals[args[arg]].type; is_tag_type(type); )
+            {
+              auto tagtype = type_cast<TagType>(type);
+
+              for (auto &decl : tagtype->fieldvars)
+              {
+                if (decl_cast<VarDecl>(decl)->name == rhs)
+                {
+                  target = decl;
+                  subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, size_t(&decl - &tagtype->fieldvars.front()) });
+
+                  for (auto dep : ctx.threads[0].locals[args[arg]].depends_upon)
+                    launder(ctx, mir, args[arg], ctx.make_field(dep, subfields));
+
+                  break;
+                }
+              }
+
+              if (target)
+                break;
+
+              if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype)
+                break;
+
+              type = tagtype->fields[0];
+              subfields.push_back(MIR::RValue::Field{ MIR::RValue::Ref, 0 });
+            }
+
+            if (!target)
+              ctx.diag.error("unknown launder subfield", callee.fn, annotation.loc);;
+          }
+        }
+        else
+        {
+          ctx.diag.error("unknown launder parameter", callee.fn, annotation.loc);
+        }
+      }
+    }
+  }
+
   //|///////////////////// apply ////////////////////////////////////////////
   void apply(Context &ctx, MIR const &mir, Lifetime const &annotation, MIR::local_t dst, FnSig const &callee, vector<MIR::local_t> const &args, SourceLocation loc)
   {
@@ -633,7 +712,7 @@ namespace
     {
       case Lifetime::consume: {
 
-        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of('.')));
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find('.')));
 
         if (auto [parm, arg] = find_arg(ctx, callee, lhs); parm)
         {
@@ -644,7 +723,7 @@ namespace
           }
           else
           {
-            auto rhs = trim(annotation.text.substr(annotation.text.find_first_of('.') + 1));
+            auto rhs = trim(annotation.text.substr(annotation.text.find('.') + 1));
 
             Decl *target = nullptr;
             vector<MIR::RValue::Field> subfields;
@@ -729,7 +808,7 @@ namespace
 
       case Lifetime::depend: {
 
-        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of('.')));
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find('.')));
 
         if (auto [parm, arg] = find_arg(ctx, callee, lhs); parm)
         {
@@ -740,7 +819,7 @@ namespace
           }
           else
           {
-            auto rhs = trim(annotation.text.substr(annotation.text.find_first_of('.') + 1));
+            auto rhs = trim(annotation.text.substr(annotation.text.find('.') + 1));
 
             Decl *target = nullptr;
             vector<MIR::RValue::Field> subfields;
@@ -786,7 +865,7 @@ namespace
 
       case Lifetime::poison: {
 
-        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of('.')));
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find('.')));
 
         if (auto [parm, arg] = find_arg(ctx, callee, lhs); parm)
         {
@@ -797,7 +876,7 @@ namespace
           }
           else
           {
-            auto rhs = trim(annotation.text.substr(annotation.text.find_first_of('.') + 1));
+            auto rhs = trim(annotation.text.substr(annotation.text.find('.') + 1));
 
             Decl *target = nullptr;
             vector<MIR::RValue::Field> subfields;
@@ -843,11 +922,11 @@ namespace
 
       case Lifetime::assign: {
 
-        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of(',')));
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find(',')));
 
         if (auto [parm, arg] = find_arg(ctx, callee, lhs); parm)
         {
-          auto rhs = parse(trim(annotation.text.substr(annotation.text.find_first_of(',') + 1)), annotation.loc);
+          auto rhs = parse(trim(annotation.text.substr(annotation.text.find(',') + 1)), annotation.loc);
 
           for (auto dst : ctx.threads[0].locals[args[arg]].depends_upon)
           {
@@ -855,7 +934,6 @@ namespace
             ctx.threads[0].locals[get<1>(*dst)].consumed = false;
             ctx.threads[0].locals[get<1>(*dst)].poisoned = false;
             ctx.threads[0].locals[get<1>(*dst)].toxic = false;
-            ctx.threads[0].locals[get<1>(*dst)].sealed = false;
             ctx.threads[0].locals[get<1>(*dst)].depends_upon.clear();
             ctx.threads[0].locals[get<1>(*dst)].consumed_fields.clear();
 
@@ -872,11 +950,11 @@ namespace
 
       case Lifetime::append: {
 
-        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of(',')));
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find(',')));
 
         if (auto [parm, arg] = find_arg(ctx, callee, lhs); parm)
         {
-          auto rhs = parse(trim(annotation.text.substr(annotation.text.find_first_of(',') + 1)), annotation.loc);
+          auto rhs = parse(trim(annotation.text.substr(annotation.text.find(',') + 1)), annotation.loc);
 
           for (auto dst : ctx.threads[0].locals[args[arg]].depends_upon)
           {
@@ -893,15 +971,22 @@ namespace
 
       case Lifetime::follow: {
 
-        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of('.')));
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find('.')));
 
         if (auto [parm, arg] = find_arg(ctx, callee, lhs); parm)
         {
-          auto rhs = trim(annotation.text.substr(annotation.text.find_first_of('.') + 1));
+          auto rhs = trim(annotation.text.substr(annotation.text.find('.') + 1));
 
           Lifetime target;
           target.text = lhs;
           target.loc = annotation.loc;
+
+          if (auto j = rhs.find(','); j != std::string_view::npos)
+          {
+            target.text = trim(rhs.substr(j + 1));
+
+            rhs = trim(rhs.substr(0, j));
+          }
 
           auto type = mir.locals[args[arg]].type;
 
@@ -917,7 +1002,16 @@ namespace
 
                 for (auto &annotation : decl_cast<FunctionDecl>(decl)->lifetimes)
                 {
-                  target.type = annotation.type;
+                  switch (annotation.type)
+                  {
+                    case Lifetime::clone:
+                    case Lifetime::depend:
+                      target.type = annotation.type;
+                      break;
+
+                    default:
+                      continue;
+                  }
 
                   break;
                 }
@@ -966,8 +1060,8 @@ namespace
 
       case Lifetime::swap: {
 
-        auto lhs = trim(annotation.text.substr(0, annotation.text.find_first_of(',')));
-        auto rhs = trim(annotation.text.substr(annotation.text.find_first_of(',') + 1));
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find(',')));
+        auto rhs = trim(annotation.text.substr(annotation.text.find(',') + 1));
 
         auto [parm1, arg1] = find_arg(ctx, callee, lhs);
         auto [parm2, arg2] = find_arg(ctx, callee, rhs);
@@ -1009,16 +1103,13 @@ namespace
   {
     auto &[op, arg, fields, loc] = variable;
 
-    if (all_of(fields.begin(), fields.end(), [](auto k){ return k.op != MIR::RValue::Val; }))
+    if ((mir.locals[dst].flags & MIR::Local::Reference) || is_pointference_type(mir.locals[dst].type))
     {
       switch (op)
       {
         case MIR::RValue::Val:
-          if (is_builtin_type(mir.locals[dst].type))
-            break;
           ctx.threads[0].locals[dst].depends_upon = ctx.threads[0].locals[arg].depends_upon;
           ctx.threads[0].locals[dst].immune = ctx.threads[0].locals[arg].immune;
-          ctx.threads[0].locals[dst].sealed = ctx.threads[0].locals[arg].sealed;
           break;
 
         case MIR::RValue::Ref:
@@ -1027,10 +1118,13 @@ namespace
           break;
 
         case MIR::RValue::Fer:
+
           if (ctx.state(arg) != State::ok)
             ctx.diag.error("potentially invalid dereference", mir.fx.fn, loc);
+
           for (auto dep : ctx.threads[0].locals[arg].depends_upon)
             ctx.threads[0].locals[dst].depends_upon.insert(ctx.threads[0].locals[dst].depends_upon.end(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.begin(), ctx.threads[0].locals[get<1>(*dep)].depends_upon.end());
+
           break;
 
         case MIR::RValue::Idx:
@@ -1038,31 +1132,14 @@ namespace
           break;
       }
 
-      ctx.threads[0].locals[dst].poisoned = ctx.threads[0].locals[arg].poisoned;
-      ctx.threads[0].locals[dst].consumed = ctx.threads[0].locals[arg].consumed;
-    }
-
-    if (fields.size() != 0 && fields[0].op == MIR::RValue::Val && all_of(fields.begin() + 1, fields.end(), [](auto k){ return k.op != MIR::RValue::Val; }))
-    {
-      switch (op)
+      if (any_of(fields.begin(), fields.end(), [](auto k){ return k.op == MIR::RValue::Val; }))
       {
-        case MIR::RValue::Val:
-          break;
+        if (ctx.is_poisoned(arg))
+          ctx.diag.error("potentially poisoned reference", mir.fx.fn, loc);
 
-        case MIR::RValue::Ref:
-          if (ctx.is_poisoned(arg))
-            ctx.diag.error("potentially poisoned reference", mir.fx.fn, loc);
-          for (auto dep : ctx.threads[0].locals[arg].depends_upon)
-            ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(dep, fields));
-          ctx.threads[0].locals[dst].immune = true;
-          break;
-
-        case MIR::RValue::Fer:
-          break;
-
-        case MIR::RValue::Idx:
-          assert(false);
-          break;
+        ctx.threads[0].locals[dst].depends_upon.clear();
+        for (auto dep : ctx.threads[0].locals[arg].depends_upon)
+          ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(dep, fields));
       }
 
       ctx.threads[0].locals[dst].poisoned = ctx.threads[0].locals[arg].poisoned;
@@ -1092,8 +1169,20 @@ namespace
       for (auto dep : ctx.threads[0].locals[dst].depends_upon)
         consume(ctx, mir, dst, dep);
 
-      ctx.threads[0].locals[dst].sealed = false;
       ctx.threads[0].locals[dst].depends_upon.clear();
+
+      if (is_reference_type(mir.locals[dst].type))
+      {
+        auto arg = ctx.threads[0].locals.size();
+
+        for (auto &thread : ctx.threads)
+          thread.locals.push_back(Context::Storage());
+
+        for (auto &thread : ctx.threads)
+          thread.locals[arg].live = true;
+
+        ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(arg));
+      }
     }
   }
 
@@ -1107,11 +1196,7 @@ namespace
 
     auto &notations = callee.fn->lifetimes;
 
-    if (callee.fn->name == Ident::op_assign || has_launder(ctx, notations))
-    {
-      for (auto dep : ctx.threads[0].locals[args[0]].depends_upon)
-        launder(ctx, mir, args[0], dep);
-    }
+    prepare(ctx, mir, notations, dst, callee, args, loc);
 
     for (auto const &[parm, arg] : zip(callee.parameters(), args))
     {
@@ -1253,7 +1338,7 @@ namespace
       ctx.threads[0].locals[dst].depends_upon.clear();
     }
 
-    if ((callee.fn->name == Ident::op_index || callee.fn->name == Ident::op_deref || is_reference_type(mir.locals[dst].type)) && dst != 0)
+    if (is_reference_type(mir.locals[dst].type))
     {
       auto arg = ctx.threads[0].locals.size();
 
@@ -1263,7 +1348,6 @@ namespace
       for (auto &thread : ctx.threads)
         thread.locals[arg].live = true;
 
-      ctx.threads[0].locals[dst].sealed = true;
       ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(arg));
     }
   }
@@ -1365,8 +1449,8 @@ namespace
     };
 
 #if 0
-      for (auto dep : ctx.threads[0].locals[arg].depends_upon)
-        cout << "loop: " << *dep << endl;
+    for (auto dep : ctx.threads[0].locals[arg].depends_upon)
+      cout << "loop: " << *dep << endl;
 #endif
 
     switch (ctx.state(arg))

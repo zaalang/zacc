@@ -219,17 +219,26 @@ namespace
         semantic_type(ctx, type_cast<UnpackType>(type)->type, sema);
         break;
 
-      case Type::TypeRef:
-        if (type_cast<TypeRefType>(type)->decl->kind() == Decl::TypeOf)
-          semantic_decl(ctx, type_cast<TypeRefType>(type)->decl, sema);
-        break;
-
       case Type::QualArg:
         semantic_type(ctx, type_cast<QualArgType>(type)->type, sema);
         break;
 
       case Type::TypeLit:
         semantic_expr(ctx, type_cast<TypeLitType>(type)->value, sema);
+        break;
+
+      case Type::TypeRef:
+        switch (type_cast<TypeRefType>(type)->decl->kind())
+        {
+          case Decl::DeclRef:
+          case Decl::DeclScoped:
+          case Decl::TypeOf:
+            semantic_decl(ctx, type_cast<TypeRefType>(type)->decl, sema);
+            break;
+
+          default:
+            break;
+        }
         break;
 
       case Type::TypeArg:
@@ -403,6 +412,12 @@ namespace
     semantic_decl(ctx, reqires->decl, sema);
   }
 
+  //|///////////////////// where_expression /////////////////////////////////
+  void semantic_expr(SemanticContext &ctx, WhereExpr *where, Sema &sema)
+  {
+    semantic_expr(ctx, where->expr, sema);
+  }
+
   //|///////////////////// match_expression /////////////////////////////////
   void semantic_expr(SemanticContext &ctx, MatchExpr *match, Sema &sema)
   {
@@ -515,6 +530,10 @@ namespace
 
       case Expr::Requires:
         semantic_expr(ctx, expr_cast<RequiresExpr>(expr), sema);
+        break;
+
+      case Expr::Where:
+        semantic_expr(ctx, expr_cast<WhereExpr>(expr), sema);
         break;
 
       case Expr::Match:
@@ -1319,7 +1338,7 @@ namespace
         if (fn->parms.size() != 2)
           ctx.diag.error("invalid defaulted assignment operator parameters", ctx.file, fn->loc());
 
-        if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[0])->type))
+        if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[0])->type) || is_const_reference(decl_cast<ParmVarDecl>(fn->parms[0])->type))
           ctx.diag.error("non-reference first parameter", ctx.file, fn->loc());
 
         if (!is_reference_type(decl_cast<ParmVarDecl>(fn->parms[1])->type))
@@ -1431,14 +1450,9 @@ namespace
       semantic_type(ctx, fn->throws, sema);
     }
 
-    if (fn->match)
+    for (auto &expr : fn->constraints)
     {
-      semantic_expr(ctx, fn->match, sema);
-    }
-
-    if (fn->where)
-    {
-      semantic_expr(ctx, fn->where, sema);
+      semantic_expr(ctx, expr, sema);
     }
 
     for (auto &init : fn->inits)

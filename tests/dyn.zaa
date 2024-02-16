@@ -41,13 +41,13 @@ struct Carnivore
 
 fn main
 {
-  var list = std::vector<std::dyn<Animal>>();
+  var animals = std::vector<std::dyn<Animal>>();
 
-  list.push_back(Herbivore(1.2));
-  list.push_back(Carnivore(2.3));
+  animals.push_back(Herbivore(1.2));
+  animals.push_back(Carnivore(2.3));
 
-  std::print(list);
+  std::print(animals);
 
-  for(var &animal : list)
+  for (var &animal : animals)
     animal.eat(animal.self);
 }

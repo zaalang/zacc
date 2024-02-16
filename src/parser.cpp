@@ -1342,9 +1342,6 @@ namespace
 
       else if (ctx.try_consume_token(Token::l_square))
       {
-        if (kw_const)
-          type = sema.make_const(type);
-
         auto size = parse_type_ex(ctx, sema);
 
         if (!size)
@@ -1375,27 +1372,6 @@ namespace
   //|///////////////////// parse_type ///////////////////////////////////////
   Type *parse_type_ex(ParseContext &ctx, Sema &sema)
   {
-//    if (ctx.tok == Token::hash)
-//    {
-//      ctx.consume_token(Token::hash);
-
-//      auto expr = parse_expression(ctx, sema);
-
-//      if (!expr)
-//      {
-//        ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-//        return nullptr;
-//      }
-
-//      if (!ctx.try_consume_token(Token::semi))
-//      {
-//        ctx.diag.error("expected semi after type expression", ctx.text, ctx.tok.loc);
-//        return nullptr;
-//      }
-
-//      return sema.make_typelit(expr);
-//    }
-
     auto tok = ctx.tok;
     auto lexcursor = ctx.lexcursor;
     auto maybe = false;
@@ -1429,6 +1405,7 @@ namespace
         case Token::tilde:
         case Token::pipepipe:
         case Token::period:
+        case Token::equalequal:
         case Token::kw_true:
         case Token::kw_false:
         case Token::kw_cast:
@@ -1438,7 +1415,6 @@ namespace
         case Token::char_constant:
         case Token::numeric_constant:
         case Token::string_literal:
-        case Token::dollar:
           maybe = true;
           leftid = false;
           break;
@@ -2138,6 +2114,22 @@ namespace
     return sema.make_requires_expression(fn, fn->loc());
   }
 
+  //|///////////////////// parse_where //////////////////////////////////////
+  Expr *parse_where(ParseContext &ctx, Sema &sema)
+  {
+    ctx.consume_token(Token::identifier);
+
+    auto where = parse_expression(ctx, sema);
+
+    if (!where)
+    {
+      ctx.diag.error("expected where condition", ctx.text, ctx.tok.loc);
+      return nullptr;
+    }
+
+    return sema.make_where_expression(where, where->loc());
+  }
+
   //|///////////////////// parse_match //////////////////////////////////////
   Expr *parse_match(ParseContext &ctx, Sema &sema)
   {
@@ -2167,22 +2159,6 @@ namespace
     fn->body = parse_compound_statement(ctx, sema);
 
     return sema.make_match_expression(fn, fn->loc());
-  }
-
-  //|///////////////////// parse_where //////////////////////////////////////
-  Expr *parse_where(ParseContext &ctx, Sema &sema)
-  {
-    ctx.consume_token(Token::identifier);
-
-    auto where = parse_expression(ctx, sema);
-
-    if (!where)
-    {
-      ctx.diag.error("expected where condition", ctx.text, ctx.tok.loc);
-      return nullptr;
-    }
-
-    return where;
   }
 
   //|///////////////////// parse_lambda /////////////////////////////////////
@@ -2266,15 +2242,17 @@ namespace
       }
     }
 
-    if (ctx.tok == Token::identifier && ctx.tok.text == "match")
+    while (ctx.tok.text == "where" || ctx.tok.text == "match")
     {
-      fn->match = parse_match(ctx, sema);
+      if (ctx.tok.text == "where")
+        fn->constraints.push_back(parse_where(ctx, sema));
+
+      if (ctx.tok.text == "match")
+        fn->constraints.push_back(parse_match(ctx, sema));
     }
 
-    if (ctx.tok == Token::identifier && ctx.tok.text == "where")
-    {
-      fn->where = parse_where(ctx, sema);
-    }
+    if (any_of(fn->constraints.begin(), fn->constraints.end(), [](auto &k) { return !k; }))
+      return nullptr;
 
     if (ctx.tok != Token::l_brace)
     {
@@ -2385,6 +2363,7 @@ namespace
     }
 
     lambda->fn = fn;
+    lambda->flags |= LambdaDecl::Quick;
     lambda->decls.push_back(fn);
 
     return sema.make_lambda_expression(lambda, lambda->loc());
@@ -3299,15 +3278,17 @@ namespace
       }
     }
 
-    if (ctx.tok == Token::identifier && ctx.tok.text == "match")
+    while (ctx.tok.text == "where" || ctx.tok.text == "match")
     {
-      fn->match = parse_match(ctx, sema);
+      if (ctx.tok.text == "where")
+        fn->constraints.push_back(parse_where(ctx, sema));
+
+      if (ctx.tok.text == "match")
+        fn->constraints.push_back(parse_match(ctx, sema));
     }
 
-    if (ctx.tok == Token::identifier && ctx.tok.text == "where")
-    {
-      fn->where = parse_where(ctx, sema);
-    }
+    if (any_of(fn->constraints.begin(), fn->constraints.end(), [](auto &k) { return !k; }))
+      return nullptr;
 
     if (ctx.tok != Token::semi && ctx.tok != Token::l_brace)
     {
@@ -3421,15 +3402,17 @@ namespace
       }
     }
 
-    if (ctx.tok == Token::identifier && ctx.tok.text == "match")
+    while (ctx.tok.text == "where" || ctx.tok.text == "match")
     {
-      fn->match = parse_match(ctx, sema);
+      if (ctx.tok.text == "where")
+        fn->constraints.push_back(parse_where(ctx, sema));
+
+      if (ctx.tok.text == "match")
+        fn->constraints.push_back(parse_match(ctx, sema));
     }
 
-    if (ctx.tok == Token::identifier && ctx.tok.text == "where")
-    {
-      fn->where = parse_where(ctx, sema);
-    }
+    if (any_of(fn->constraints.begin(), fn->constraints.end(), [](auto &k) { return !k; }))
+      return nullptr;
 
     if (ctx.try_consume_token(Token::colon))
     {
@@ -4735,6 +4718,7 @@ namespace
             break;
 
           case Token::l_square:
+          case Token::dollar:
             if (casse->label = sema.make_declref_expression(parse_qualified_name(ctx, sema), ctx.tok.loc); !casse->label)
               return nullptr;
             break;

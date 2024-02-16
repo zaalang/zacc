@@ -56,6 +56,7 @@ class Expr
       Cast,
       New,
       Requires,
+      Where,
       Match,
       Lambda,
       Fragment,
@@ -586,6 +587,20 @@ class RequiresExpr : public Expr
 };
 
 
+//---------------------- WhereExpr ------------------------------------------
+//---------------------------------------------------------------------------
+
+class WhereExpr : public Expr
+{
+  public:
+    WhereExpr(Expr *expr, SourceLocation loc);
+
+    Expr *expr;
+
+    void dump(int indent) const override;
+};
+
+
 //---------------------- MatchExpr ------------------------------------------
 //---------------------------------------------------------------------------
 
@@ -671,6 +686,7 @@ template<> inline auto expr_cast<TypeidExpr>(Expr *expr) { assert(expr && expr->
 template<> inline auto expr_cast<CastExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Cast); return static_cast<CastExpr*>(expr); };
 template<> inline auto expr_cast<NewExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::New); return static_cast<NewExpr*>(expr); };
 template<> inline auto expr_cast<RequiresExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Requires); return static_cast<RequiresExpr*>(expr); };
+template<> inline auto expr_cast<WhereExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Where); return static_cast<WhereExpr*>(expr); };
 template<> inline auto expr_cast<MatchExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Match); return static_cast<MatchExpr*>(expr); };
 template<> inline auto expr_cast<LambdaExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Lambda); return static_cast<LambdaExpr*>(expr); };
 template<> inline auto expr_cast<FragmentExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Fragment); return static_cast<FragmentExpr*>(expr); };

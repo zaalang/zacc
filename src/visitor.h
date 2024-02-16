@@ -322,10 +322,8 @@ struct Visitor
           visit(decl);
         for (auto &decl : decl_cast<FunctionDecl>(decl)->inits)
           visit(decl);
-        if (decl_cast<FunctionDecl>(decl)->match)
-          visit(decl_cast<FunctionDecl>(decl)->match);
-        if (decl_cast<FunctionDecl>(decl)->where)
-          visit(decl_cast<FunctionDecl>(decl)->where);
+        for (auto &expr : decl_cast<FunctionDecl>(decl)->constraints)
+          visit(expr);
         if (decl_cast<FunctionDecl>(decl)->body)
           visit(decl_cast<FunctionDecl>(decl)->body);
         break;

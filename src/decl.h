@@ -184,11 +184,11 @@ class FunctionDecl : public Decl
       ExternMask = ExternC | ExternWin64 | ExternSysv64 | ExternNaked | ExternInterrupt,
 
       DeclType = 0x70000000,
-      ConstDecl = 0x20000000,
-      LambdaDecl = 0x30000000,
-      RequiresDecl = 0x40000000,
-      MatchDecl = 0x50000000,
-      RunDecl = 0x60000000,
+      ConstDecl = 0x10000000,
+      LambdaDecl = 0x20000000,
+      RequiresDecl = 0x30000000,
+      MatchDecl = 0x40000000,
+      RunDecl = 0x50000000,
     };
 
   public:
@@ -200,13 +200,12 @@ class FunctionDecl : public Decl
     std::vector<Decl*> args;
     std::vector<Decl*> parms;
     std::vector<Decl*> inits;
+    Type *throws = nullptr;
     Stmt *body = nullptr;
 
     Builtin::Kind builtin;
 
-    Type *throws = nullptr;
-    Expr *match = nullptr;
-    Expr *where = nullptr;
+    std::vector<Expr*> constraints;
 
     int retcnt = 0;
     Decl *retvar = nullptr;
@@ -547,6 +546,7 @@ class LambdaDecl : public TagDecl
 
     enum Flags
     {
+      Quick = 0x2,
       Capture = 0x10,
       Captures = 0x20,
     };

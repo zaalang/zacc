@@ -1165,7 +1165,9 @@ namespace
   {
     auto &[callee, args, loc] = call;
 
-    if (is_int(fx.locals[args[0]].type))
+    auto lhstype = fx.locals[args[0]].type;
+
+    if (is_int(lhstype))
     {
       bool ok = false;
       Numeric::Int result;
@@ -1180,7 +1182,7 @@ namespace
 
         case Builtin::Minus:
           result = -lhs;
-          if (!is_signed_type(fx.locals[args[0]].type))
+          if (!is_signed_type(lhstype))
             ok = true;
           break;
 
@@ -1213,7 +1215,7 @@ namespace
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
     }
-    else if (is_float(fx.locals[args[0]].type))
+    else if (is_float(lhstype))
     {
       Numeric::Float result;
 
@@ -1269,7 +1271,7 @@ namespace
     else
     {
       ctx.diag.error("invalid unary arithmetic arguments", fx.scope, loc);
-      ctx.diag << "  operand type: '" << *fx.locals[args[0]].type << "'\n";
+      ctx.diag << "  operand type: '" << *lhstype << "'\n";
       return false;
     }
 
@@ -1282,13 +1284,13 @@ namespace
     auto &[callee, args, loc] = call;
 
     auto arg = load_ptr(ctx, fx, args[0]);
-    auto argtype = fx.locals[args[0]].type;
+    auto lhstype = fx.locals[args[0]].type;
 
-    if (is_int(argtype))
+    if (is_int(lhstype))
     {
       Numeric::Int result;
 
-      auto lhs = load_int(ctx, arg, argtype);
+      auto lhs = load_int(ctx, arg, lhstype);
 
       switch (callee.fn->builtin)
       {
@@ -1304,20 +1306,20 @@ namespace
           assert(false);
       }
 
-      if (!is_literal_valid(type_cast<BuiltinType>(argtype)->kind(), result))
+      if (!is_literal_valid(type_cast<BuiltinType>(lhstype)->kind(), result))
       {
         ctx.diag.error("literal value out of range for required type", fx.scope, loc);
-        ctx.diag << "  literal value: '" << result << "' required type: '" << *argtype << "'\n";
+        ctx.diag << "  literal value: '" << result << "' required type: '" << *lhstype << "'\n";
         return false;
       }
 
-      store(ctx, arg, argtype, result);
+      store(ctx, arg, lhstype, result);
     }
-    else if (is_float(argtype))
+    else if (is_float(lhstype))
     {
       Numeric::Float result;
 
-      auto lhs = load_float(ctx, arg, argtype);
+      auto lhs = load_float(ctx, arg, lhstype);
 
       switch (callee.fn->builtin)
       {
@@ -1333,16 +1335,16 @@ namespace
           assert(false);
       }
 
-      if (!is_literal_valid(type_cast<BuiltinType>(argtype)->kind(), result))
+      if (!is_literal_valid(type_cast<BuiltinType>(lhstype)->kind(), result))
       {
         ctx.diag.error("literal value out of range for required type", fx.scope, loc);
-        ctx.diag << "  literal value: '" << result << "' required type: '" << *argtype << "'\n";
+        ctx.diag << "  literal value: '" << result << "' required type: '" << *lhstype << "'\n";
         return false;
       }
 
-      store(ctx, arg, argtype, result);
+      store(ctx, arg, lhstype, result);
     }
-    else if (is_pointference_type(argtype))
+    else if (is_pointference_type(lhstype))
     {
       void *result;
 
@@ -1351,11 +1353,11 @@ namespace
       switch (callee.fn->builtin)
       {
         case Builtin::PreInc:
-          result = (void*)((size_t)lhs + sizeof_type(remove_pointference_type(argtype)));
+          result = (void*)((size_t)lhs + sizeof_type(remove_pointference_type(lhstype)));
           break;
 
         case Builtin::PreDec:
-          result = (void*)((size_t)lhs - sizeof_type(remove_pointference_type(argtype)));
+          result = (void*)((size_t)lhs - sizeof_type(remove_pointference_type(lhstype)));
           break;
 
         default:
@@ -1367,7 +1369,7 @@ namespace
     else
     {
       ctx.diag.error("invalid unary arithmetic assign arguments", fx.scope, loc);
-      ctx.diag << "  operand type: '" << *fx.locals[args[0]].type << "'\n";
+      ctx.diag << "  operand type: '" << *lhstype << "'\n";
       return false;
     }
 
@@ -1381,7 +1383,10 @@ namespace
   {
     auto &[callee, args, loc] = call;
 
-    if (is_int(fx.locals[args[0]].type) && is_int(fx.locals[args[1]].type))
+    auto lhstype = fx.locals[args[0]].type;
+    auto rhstype = fx.locals[args[1]].type;
+
+    if (is_int(lhstype) && is_int(rhstype))
     {
       bool ok = false;
       Numeric::Int result;
@@ -1485,7 +1490,7 @@ namespace
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
     }
-    else if (is_float(fx.locals[args[0]].type) && is_float(fx.locals[args[1]].type))
+    else if (is_float(lhstype) && is_float(rhstype))
     {
       Numeric::Float result;
 
@@ -1539,14 +1544,14 @@ namespace
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
     }
-    else if (is_pointference_type(fx.locals[args[0]].type) && is_int_type(fx.locals[args[1]].type))
+    else if (is_pointference_type(lhstype) && is_int_type(rhstype))
     {
       void *result;
 
       auto lhs = load_ptr(ctx, fx, args[0]);
       auto rhs = load_int(ctx, fx, args[1]);
 
-      auto size = sizeof_type(remove_pointference_type(fx.locals[args[0]].type));
+      auto size = sizeof_type(remove_pointference_type(lhstype));
 
       if (size == 0)
       {
@@ -1570,7 +1575,7 @@ namespace
 
       store(ctx, fx.locals[dst].alloc, result);
     }
-    else if (is_pointference_type(fx.locals[args[0]].type) && is_pointference_type(fx.locals[args[1]].type))
+    else if (is_pointference_type(lhstype) && is_pointference_type(rhstype))
     {
       void *result;
 
@@ -1596,7 +1601,7 @@ namespace
     else
     {
       ctx.diag.error("invalid binary arithmetic arguments", fx.scope, loc);
-      ctx.diag << "  lhs type: '" << *fx.locals[args[0]].type << "' rhs type: '" << *fx.locals[args[1]].type << "'\n";
+      ctx.diag << "  lhs type: '" << *lhstype << "' rhs type: '" << *rhstype << "'\n";
       return false;
     }
 
@@ -1635,15 +1640,18 @@ namespace
   {
     auto &[callee, args, loc] = call;
 
-    if (is_int(fx.locals[args[0]].type) && is_int(fx.locals[args[1]].type))
+    auto lhstype = fx.locals[args[0]].type;
+    auto rhstype = fx.locals[args[1]].type;
+
+    if (is_int(lhstype) && is_int(rhstype))
     {
       Numeric::Int result, carry;
 
       auto lhs = load_int(ctx, fx, args[0]);
       auto rhs = load_int(ctx, fx, args[1]);
 
-      auto width = 8*sizeof_type(fx.locals[args[0]].type);
-      auto is_signed = is_signed_type(fx.locals[args[0]].type);
+      auto width = 8*sizeof_type(lhstype);
+      auto is_signed = is_signed_type(lhstype);
 
       switch (callee.fn->builtin)
       {
@@ -1671,7 +1679,7 @@ namespace
     else
     {
       ctx.diag.error("invalid binary arithmetic arguments", fx.scope, loc);
-      ctx.diag << "  lhs type: '" << *fx.locals[args[0]].type << "' rhs type: '" << *fx.locals[args[1]].type << "'\n";
+      ctx.diag << "  lhs type: '" << *lhstype << "' rhs type: '" << *rhstype << "'\n";
     }
 
     return true;
@@ -1683,14 +1691,15 @@ namespace
     auto &[callee, args, loc] = call;
 
     auto arg = load_ptr(ctx, fx, args[0]);
-    auto argtype = fx.locals[args[0]].type;
+    auto lhstype = fx.locals[args[0]].type;
+    auto rhstype = fx.locals[args[1]].type;
 
-    if (is_int(argtype) && is_int(fx.locals[args[1]].type))
+    if (is_int(lhstype) && is_int(rhstype))
     {
       bool ok = false;
       Numeric::Int result;
 
-      auto lhs = load_int(ctx, arg, argtype);
+      auto lhs = load_int(ctx, arg, lhstype);
       auto rhs = load_int(ctx, fx, args[1]);
 
       switch (callee.fn->builtin)
@@ -1768,20 +1777,20 @@ namespace
           assert(false);
       }
 
-      if (!ok && !is_literal_valid(type_cast<BuiltinType>(argtype)->kind(), result))
+      if (!ok && !is_literal_valid(type_cast<BuiltinType>(lhstype)->kind(), result))
       {
         ctx.diag.error("literal value out of range for required type", fx.scope, loc);
-        ctx.diag << "  literal value: '" << result << "' required type: '" << *argtype << "'\n";
+        ctx.diag << "  literal value: '" << result << "' required type: '" << *lhstype << "'\n";
         return false;
       }
 
-      store(ctx, arg, argtype, result);
+      store(ctx, arg, lhstype, result);
     }
-    else if (is_float(argtype) && is_float(fx.locals[args[1]].type))
+    else if (is_float(lhstype) && is_float(rhstype))
     {
       Numeric::Float result;
 
-      auto lhs = load_float(ctx, arg, argtype);
+      auto lhs = load_float(ctx, arg, lhstype);
       auto rhs = load_float(ctx, fx, args[1]);
 
       switch (callee.fn->builtin)
@@ -1824,23 +1833,23 @@ namespace
           assert(false);
       }
 
-      if (!is_literal_valid(type_cast<BuiltinType>(argtype)->kind(), result))
+      if (!is_literal_valid(type_cast<BuiltinType>(lhstype)->kind(), result))
       {
         ctx.diag.error("literal value out of range for required type", fx.scope, loc);
-        ctx.diag << "  literal value: '" << result << "' required type: '" << *argtype << "'\n";
+        ctx.diag << "  literal value: '" << result << "' required type: '" << *lhstype << "'\n";
         return false;
       }
 
-      store(ctx, arg, argtype, result);
+      store(ctx, arg, lhstype, result);
     }
-    else if (is_pointference_type(argtype) && is_int_type(fx.locals[args[1]].type))
+    else if (is_pointference_type(lhstype) && is_int_type(rhstype))
     {
       void *result;
 
       auto lhs = load_ptr(ctx, arg);
       auto rhs = load_int(ctx, fx, args[1]);
 
-      auto size = sizeof_type(remove_pointference_type(argtype));
+      auto size = sizeof_type(remove_pointference_type(lhstype));
 
       if (size == 0)
       {
@@ -1867,7 +1876,7 @@ namespace
     else
     {
       ctx.diag.error("invalid binary arithmetic assign arguments", fx.scope, loc);
-      ctx.diag << "  lhs type: '" << *fx.locals[args[0]].type << "' rhs type: '" << *fx.locals[args[1]].type << "'\n";
+      ctx.diag << "  lhs type: '" << *lhstype << "' rhs type: '" << *rhstype << "'\n";
       return false;
     }
 
@@ -1919,7 +1928,10 @@ namespace
   {
     auto &[callee, args, loc] = call;
 
-    if (is_int(fx.locals[args[0]].type) && is_int(fx.locals[args[1]].type))
+    auto lhstype = fx.locals[args[0]].type;
+    auto rhstype = fx.locals[args[1]].type;
+
+    if (is_int(lhstype) && is_int(rhstype))
     {
       bool result;
 
@@ -1958,7 +1970,7 @@ namespace
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
     }
-    else if (is_float(fx.locals[args[0]].type) && is_float(fx.locals[args[1]].type))
+    else if (is_float(lhstype) && is_float(rhstype))
     {
       bool result;
 
@@ -1997,15 +2009,15 @@ namespace
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
     }
-    else if (is_void_type(fx.locals[args[0]].type) && is_void_type(fx.locals[args[1]].type))
+    else if (is_void_type(lhstype) && is_void_type(rhstype))
     {
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, callee.fn->builtin == Builtin::EQ);
     }
-    else if (is_null_type(fx.locals[args[0]].type) && is_null_type(fx.locals[args[1]].type))
+    else if (is_null_type(lhstype) && is_null_type(rhstype))
     {
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, callee.fn->builtin == Builtin::EQ);
     }
-    else if (is_string_type(fx.locals[args[0]].type) && is_string_type(fx.locals[args[1]].type))
+    else if (is_string_type(lhstype) && is_string_type(rhstype))
     {
       bool result;
 
@@ -2044,7 +2056,7 @@ namespace
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
     }
-    else if (is_pointference_type(fx.locals[args[0]].type) && is_pointference_type(fx.locals[args[1]].type))
+    else if (is_pointference_type(lhstype) && is_pointference_type(rhstype))
     {
       bool result;
 
@@ -2086,7 +2098,7 @@ namespace
     else
     {
       ctx.diag.error("invalid binary compare arguments", fx.scope, loc);
-      ctx.diag << "  lhs type: '" << *fx.locals[args[0]].type << "' rhs type: '" << *fx.locals[args[1]].type << "'\n";
+      ctx.diag << "  lhs type: '" << *lhstype << "' rhs type: '" << *rhstype << "'\n";
       return false;
     }
 
@@ -2098,30 +2110,33 @@ namespace
   {
     auto &[callee, args, loc] = call;
 
+    auto lhstype = fx.locals[args[0]].type;
+    auto rhstype = fx.locals[args[1]].type;
+
     int result = 0;
 
-    if (is_int(fx.locals[args[0]].type) && is_int(fx.locals[args[1]].type))
+    if (is_int(lhstype) && is_int(rhstype))
     {
       auto lhs = load_int(ctx, fx, args[0]);
       auto rhs = load_int(ctx, fx, args[1]);
 
       result = (lhs == rhs) ? 0 : (lhs < rhs) ? -1 : +1;
     }
-    else if (is_float(fx.locals[args[0]].type) && is_float(fx.locals[args[1]].type))
+    else if (is_float(lhstype) && is_float(rhstype))
     {
       auto lhs = load_float(ctx, fx, args[0]);
       auto rhs = load_float(ctx, fx, args[1]);
 
       result = (lhs == rhs) ? 0 : (lhs < rhs) ? -1 : +1;
     }
-    else if (is_string_type(fx.locals[args[0]].type) && is_string_type(fx.locals[args[1]].type))
+    else if (is_string_type(lhstype) && is_string_type(rhstype))
     {
       auto lhs = load_string(ctx, fx, args[0]);
       auto rhs = load_string(ctx, fx, args[1]);
 
       result = (lhs == rhs) ? 0 : (lhs < rhs) ? -1 : +1;
     }
-    else if (is_pointference_type(fx.locals[args[0]].type) && is_pointference_type(fx.locals[args[1]].type))
+    else if (is_pointference_type(lhstype) && is_pointference_type(rhstype))
     {
       auto lhs = load_ptr(ctx, fx, args[0]);
       auto rhs = load_ptr(ctx, fx, args[1]);
@@ -2131,7 +2146,7 @@ namespace
     else
     {
       ctx.diag.error("invalid compare arguments", fx.scope, loc);
-      ctx.diag << "  lhs type: '" << *fx.locals[args[0]].type << "' rhs type: '" << *fx.locals[args[1]].type << "'\n";
+      ctx.diag << "  lhs type: '" << *lhstype << "' rhs type: '" << *rhstype << "'\n";
       return false;
     }
 
@@ -2486,7 +2501,9 @@ namespace
   {
     auto &[callee, args, loc] = call;
 
-    if (is_int_type(fx.locals[args[0]].type))
+    auto lhstype = fx.locals[args[0]].type;
+
+    if (is_int_type(lhstype))
     {
       auto lhs = load_int(ctx, fx, args[0]);
 
@@ -2498,23 +2515,23 @@ namespace
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, lhs.value != 0);
     }
-    else if (is_pointference_type(fx.locals[args[0]].type))
+    else if (is_pointference_type(lhstype))
     {
       auto lhs = load_ptr(ctx, fx, args[0]);
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, lhs != nullptr);
     }
-    else if (is_null_type(fx.locals[args[0]].type))
+    else if (is_null_type(lhstype))
     {
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, false);
     }
-    else if (is_declid_type(fx.locals[args[0]].type))
+    else if (is_declid_type(lhstype))
     {
       auto lhs = load_int(ctx, fx, args[0]);
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, lhs.value != 0);
     }
-    else if (is_typeid_type(fx.locals[args[0]].type))
+    else if (is_typeid_type(lhstype))
     {
       auto lhs = load_int(ctx, fx, args[0]);
 
@@ -2523,7 +2540,7 @@ namespace
     else
     {
       ctx.diag.error("invalid bool arguments", fx.scope, loc);
-      ctx.diag << "  operand type: '" << *fx.locals[args[0]].type << "'\n";
+      ctx.diag << "  operand type: '" << *lhstype << "'\n";
       return false;
     }
 
@@ -4217,79 +4234,79 @@ namespace
   {
     auto &[arg, loc] = cast;
 
-    auto lhs = fx.locals[dst].type;
-    auto rhs = fx.locals[arg].type;
+    auto lhstype = fx.locals[dst].type;
+    auto rhstype = fx.locals[arg].type;
 
     if (fx.locals[dst].flags & MIR::Local::Reference)
-      lhs = ctx.typetable.find_or_create<ReferenceType>(lhs);
+      lhstype = ctx.typetable.find_or_create<ReferenceType>(lhstype);
 
     if (fx.locals[arg].flags & MIR::Local::Reference)
-      rhs = ctx.typetable.find_or_create<ReferenceType>(rhs);
+      rhstype = ctx.typetable.find_or_create<ReferenceType>(rhstype);
 
-    if (is_int(lhs) && is_int(rhs))
+    if (is_int(lhstype) && is_int(rhstype))
     {
       auto value = load_int(ctx, fx.locals[arg].alloc, fx.locals[arg].type);
 
-      if (is_enum_type(lhs))
-        lhs = type_cast<TagType>(lhs)->fields[0];
+      if (is_enum_type(lhstype))
+        lhstype = type_cast<TagType>(lhstype)->fields[0];
 
-      if (!is_literal_valid(type_cast<BuiltinType>(lhs)->kind(), value))
+      if (!is_literal_valid(type_cast<BuiltinType>(lhstype)->kind(), value))
       {
         ctx.diag.error("value out of range for required type", fx.scope, loc);
-        ctx.diag << "  cast value: '" << value << "' required type: '" << *lhs << "'\n";
+        ctx.diag << "  cast value: '" << value << "' required type: '" << *lhstype << "'\n";
         return false;
       }
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, value);
     }
-    else if (is_float(lhs) && is_float(rhs))
+    else if (is_float(lhstype) && is_float(rhstype))
     {
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, load_float(ctx, fx.locals[arg].alloc, fx.locals[arg].type));
     }
-    else if (is_int(lhs) && is_float(rhs))
+    else if (is_int(lhstype) && is_float(rhstype))
     {
       auto value = Numeric::int_cast<double>(load_float(ctx, fx.locals[arg].alloc, fx.locals[arg].type));
 
-      if (is_enum_type(lhs))
-        lhs = type_cast<TagType>(lhs)->fields[0];
+      if (is_enum_type(lhstype))
+        lhstype = type_cast<TagType>(lhstype)->fields[0];
 
-      if (!is_literal_valid(type_cast<BuiltinType>(lhs)->kind(), value))
+      if (!is_literal_valid(type_cast<BuiltinType>(lhstype)->kind(), value))
       {
         ctx.diag.error("value out of range for required type", fx.scope, loc);
-        ctx.diag << "  cast value: '" << value << "' required type: '" << *lhs << "'\n";
+        ctx.diag << "  cast value: '" << value << "' required type: '" << *lhstype << "'\n";
         return false;
       }
 
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, value);
     }
-    else if (is_float(lhs) && is_int(rhs))
+    else if (is_float(lhstype) && is_int(rhstype))
     {
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Numeric::float_cast<double>(load_int(ctx, fx.locals[arg].alloc, fx.locals[arg].type)));
     }
-    else if (is_pointference_type(lhs) && is_null_type(rhs))
+    else if (is_pointference_type(lhstype) && is_null_type(rhstype))
     {
       store(ctx, fx.locals[dst].alloc, nullptr);
     }
-    else if (is_pointference_type(lhs) && is_pointference_type(rhs))
+    else if (is_pointference_type(lhstype) && is_pointference_type(rhstype))
     {
       store(ctx, fx.locals[dst].alloc, load_ptr(ctx, fx.locals[arg].alloc));
     }
-    else if (is_pointference_type(lhs) && is_int_type(rhs))
+    else if (is_pointference_type(lhstype) && is_int_type(rhstype))
     {
       store(ctx, fx.locals[dst].alloc, (void*)(load_int(ctx, fx.locals[arg].alloc, fx.locals[arg].type).value));
     }
-    else if (is_int_type(lhs) && is_pointference_type(rhs))
+    else if (is_int_type(lhstype) && is_pointference_type(rhstype))
     {
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Numeric::int_literal(1, (size_t)load_ptr(ctx, fx.locals[arg].alloc)));
     }
-    else if (is_bool_type(lhs) && is_pointference_type(rhs))
+    else if (is_bool_type(lhstype) && is_pointference_type(rhstype))
     {
       store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, load_ptr(ctx, fx.locals[arg].alloc) != nullptr);
     }
     else
     {
       ctx.diag.error("invalid static cast", fx.scope, loc);
-      ctx.diag << "  src type: '" << *rhs << "' dst type: '" << *lhs << "'\n";
+      ctx.diag << "  src type: '" << *rhstype << "' dst type: '" << *lhstype << "'\n";
     }
 
     return true;
@@ -4600,53 +4617,53 @@ namespace
 
     return result;
   }
+
+  EvalResult evaluate(EvalContext &ctx, Scope const &scope, MIR const &mir, SourceLocation loc)
+  {
+    EvalResult result = {};
+
+    auto stackframe = ctx.push<FunctionContext::Local>(mir.locals.size());
+
+    if (is_unresolved_type(mir.locals[0].type))
+    {
+      ctx.diag.error("unresolved expression type", ctx.dx, loc);
+      return result;
+    }
+
+    stackframe[0] = alloc(ctx, mir.locals[0]);
+
+    if (eval_function(ctx, scope, mir, stackframe))
+    {
+      if (ctx.exception)
+      {
+        ctx.diag.error("exception occured in compile time context", ctx.dx, loc);
+        return result;
+      }
+
+      if (mir.locals[0].flags & MIR::Local::Reference)
+      {
+        stackframe[0].alloc = load_ptr(ctx, stackframe[0].alloc);
+        stackframe[0].type = remove_const_type(remove_pointer_type(stackframe[0].type));
+        stackframe[0].size = sizeof_type(stackframe[0].type);
+      }
+
+      result = make_result(ctx, stackframe[0], loc);
+    }
+
+    return result;
+  }
 }
 
 //|--------------------- Evaluate -------------------------------------------
 //|--------------------------------------------------------------------------
-
-EvalResult evaluate(Scope const &scope, MIR const &mir, TypeTable &typetable, Diag &diag, SourceLocation loc)
-{
-  EvalResult result = {};
-
-  EvalContext ctx(scope, typetable, diag);
-
-  auto stackframe = ctx.push<FunctionContext::Local>(mir.locals.size());
-
-  if (is_unresolved_type(mir.locals[0].type))
-  {
-    ctx.diag.error("unresolved expression type", scope, loc);
-    return result;
-  }
-
-  stackframe[0] = alloc(ctx, mir.locals[0]);
-
-  if (eval_function(ctx, scope, mir, stackframe))
-  {
-    if (ctx.exception)
-    {
-      ctx.diag.error("exception occured in compile time context", scope, loc);
-      return result;
-    }
-
-    if (mir.locals[0].flags & MIR::Local::Reference)
-    {
-      stackframe[0].alloc = load_ptr(ctx, stackframe[0].alloc);
-      stackframe[0].type = remove_const_type(remove_pointer_type(stackframe[0].type));
-      stackframe[0].size = sizeof_type(stackframe[0].type);
-    }
-
-    result = make_result(ctx, stackframe[0], loc);
-  }
-
-  return result;
-}
 
 EvalResult evaluate(Scope const &scope, FnSig const &callee, Type *returntype, vector<EvalResult> const &parms, TypeTable &typetable, Diag &diag, SourceLocation loc)
 {
   // optimisation: attempt some direct literal maths
   if (auto result = eval_callee_fast(callee, returntype, parms, loc))
     return result;
+
+  EvalContext ctx(scope, typetable, diag);
 
   MIR mir = {};
   mir.add_local(MIR::Local(returntype));
@@ -4678,15 +4695,24 @@ EvalResult evaluate(Scope const &scope, FnSig const &callee, Type *returntype, v
 
   mir.add_statement(MIR::Statement::assign(0, MIR::RValue::call(callee, std::move(args), loc)));
 
-  return evaluate(scope, mir, typetable, diag, loc);
+  return evaluate(ctx, scope, mir, loc);
 }
 
 EvalResult evaluate(Scope const &scope, Expr *expr, unordered_map<Decl*, MIR::Fragment> const &symbols, TypeTable &typetable, Diag &diag, SourceLocation loc)
 {
-  auto mir = lower(scope, expr, symbols, typetable, diag);
+  EvalContext ctx(scope, typetable, diag);
 
-  if (diag.has_errored())
+  auto mir = lower(scope, expr, symbols, typetable, ctx.diag);
+
+  if (ctx.diag.has_errored())
     return {};
 
-  return evaluate(scope, mir, typetable, diag, loc);
+  return evaluate(ctx, scope, mir, loc);
+}
+
+EvalResult evaluate(Scope const &scope, MIR const &mir, TypeTable &typetable, Diag &diag, SourceLocation loc)
+{
+  EvalContext ctx(scope, typetable, diag);
+
+  return evaluate(ctx, scope, mir, loc);
 }

@@ -1,0 +1,100 @@
+//
+// visitor
+//
+
+import std.stdio;
+
+struct circle
+{
+  float radius;
+
+  circle(float radius)
+    : radius(radius)
+  {
+  }
+
+  circle(circle&) = default;
+  ~circle() = default;
+}
+
+struct rectangle
+{
+  float width;
+  float height;
+
+  rectangle(float width, float height)
+    : width(width), height(height)
+  {
+  }
+
+  rectangle(rectangle&) = default;
+  ~rectangle() = default;
+}
+
+union shape
+{
+  circle(circle),
+  rectangle(rectangle),
+
+  shape(circle &)
+    : circle(circle)
+  {
+  }
+
+  shape(rectangle &)
+    : rectangle(rectangle)
+  {
+  }
+
+  shape(shape&&) = default;
+  ~shape() = default;
+}
+
+struct draw
+{
+  fn ()(this mut &, circle &circle)
+  {
+    std::print(circle);
+  }
+
+  fn ()(this mut &, rectangle &rectangle)
+  {
+    std::print(rectangle);
+  }
+
+  draw() = default;
+  ~draw() = default;
+}
+
+fn visit<Visitor, Variant>(Visitor &&visitor, Variant &variant) -> void
+{
+  //#for (const k = 1; k != std::meta::fields_of($Variant).len; ++k)
+  //  if (variant.kind == cast(k))
+  //    visitor(variant.#k);
+
+  switch (variant)
+  {
+    #{
+      #for (const k = 1; k < std::meta::fields_of($Variant).len; ++k)
+      {
+        -> {
+          case $(cast<typeof(Variant::kind)>(k))[value]:
+            visitor(value);
+        }
+      }
+    }
+  }
+}
+
+fn main
+{
+  var shapes = std::vector<shape>();
+
+  shapes.push_back(circle(1.1));
+  shapes.push_back(rectangle(10.0, 5.0));
+
+  for (var &shape : shapes)
+  {
+    visit(draw(), shape);
+  }
+}

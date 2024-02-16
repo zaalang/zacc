@@ -263,6 +263,10 @@ std::ostream &operator <<(std::ostream &os, Expr const &expr)
       os << "requires";
       break;
 
+    case Expr::Where:
+      os << "where";
+      break;
+
     case Expr::Match:
       os << "match";
       break;
@@ -1004,6 +1008,28 @@ void RequiresExpr::dump(int indent) const
   if (decl)
   {
     decl->dump(indent + 2);
+  }
+}
+
+
+//|--------------------- WhereExpr ------------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// WhereExpr::Constructor /////////////////////////////
+WhereExpr::WhereExpr(Expr *expr, SourceLocation loc)
+  : Expr(Where, loc),
+    expr(expr)
+{
+}
+
+//|///////////////////// WhereExpr::dump ////////////////////////////////////
+void WhereExpr::dump(int indent) const
+{
+  cout << spaces(indent) << "WhereExpr " << this << " <" << m_loc << "> " << *this << "\n";
+
+  if (expr)
+  {
+    expr->dump(indent + 2);
   }
 }
 

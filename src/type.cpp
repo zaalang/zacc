@@ -817,6 +817,9 @@ ArrayType::ArrayType(Type *type, Type *size)
       flags |= Type::TrivialDestroy;
       flags |= Type::LiteralCopy;
     }
+
+    if (expr_cast<IntLiteralExpr>(type_cast<TypeLitType>(size)->value)->value().value > 0x7fffffffffffffff)
+      flags |= Type::Unresolved;
   }
 
   if (size->klass() != Type::TypeLit || type_cast<TypeLitType>(size)->value->kind() != Expr::IntLiteral)

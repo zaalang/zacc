@@ -384,9 +384,14 @@ void FunctionDecl::dump(int indent) const
     parm->dump(indent + 2);
   }
 
-  for (auto &init: inits)
+  for (auto &init : inits)
   {
     init->dump(indent + 2);
+  }
+
+  for (auto &expr : constraints)
+  {
+    expr->dump(indent + 2);
   }
 
   if (body)

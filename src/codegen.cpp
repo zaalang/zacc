@@ -2060,6 +2060,13 @@ namespace
           {
             if (auto constant = llvm::dyn_cast<llvm::Constant>(rhs); !constant || constant->isZeroValue())
               codegen_assert_div0(ctx, fx, ctx.builder.CreateICmpEQ(rhs, llvm_zero(rhs->getType())));
+
+            if (auto constant = llvm::dyn_cast<llvm::ConstantInt>(rhs); !constant || constant->isMinusOne())
+            {
+              auto minusone = llvm_int(rhs->getType(), -1);
+              auto minusmin = llvm_int(lhs->getType(), ~0ull << (llvm::cast<llvm::IntegerType>(lhs->getType())->getBitWidth() - 1));
+              codegen_assert_carry(ctx, fx, ctx.builder.CreateAnd(ctx.builder.CreateICmpEQ(lhs, minusmin), ctx.builder.CreateICmpEQ(rhs, minusone)));
+            }
           }
           result = ctx.builder.CreateSRem(lhs, rhs);
           break;

@@ -1652,6 +1652,12 @@ namespace
     typer_decl(ctx, reqires->decl, sema);
   }
 
+  //|///////////////////// where_expression /////////////////////////////////
+  void resolve_expr(TyperContext &ctx, Scope const &scope, WhereExpr *where, Sema &sema)
+  {
+    resolve_expr(ctx, scope, where->expr, sema);
+  }
+
   //|///////////////////// match_expression /////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, MatchExpr *match, Sema &sema)
   {
@@ -1775,6 +1781,10 @@ namespace
 
       case Expr::Requires:
         resolve_expr(ctx, scope, expr_cast<RequiresExpr>(expr), sema);
+        break;
+
+      case Expr::Where:
+        resolve_expr(ctx, scope, expr_cast<WhereExpr>(expr), sema);
         break;
 
       case Expr::Match:
@@ -2087,19 +2097,45 @@ namespace
       }
     }
 
-    if (fn->match)
+    for (auto &expr : fn->constraints)
     {
-      resolve_expr(ctx, ctx.stack.back(), fn->match, sema);
-    }
-
-    if (fn->where)
-    {
-      resolve_expr(ctx, ctx.stack.back(), fn->where, sema);
+      resolve_expr(ctx, ctx.stack.back(), expr, sema);
     }
 
     for (auto &init : fn->inits)
     {
       typer_decl(ctx, init, sema);
+    }
+
+    if (fn->builtin == Builtin::Default_Copytructor)
+    {
+      auto lhstype = fn->returntype;
+      auto rhstype = remove_qualifiers_type(decl_cast<ParmVarDecl>(fn->parms[0])->type);
+
+      if (!is_tag_type(lhstype) || !is_tag_type(rhstype) || type_cast<TagType>(lhstype)->decl != type_cast<TagType>(rhstype)->decl)
+        ctx.diag.error("incompatible defaulted constructor parameter", fn, fn->parms[0]->loc());
+    }
+
+    if (fn->builtin == Builtin::Default_Assignment || fn->builtin == Builtin::Default_Equality || fn->builtin == Builtin::Default_Compare)
+    {
+      auto rettype = remove_qualifiers_type(fn->returntype);
+      auto lhstype = remove_qualifiers_type(decl_cast<ParmVarDecl>(fn->parms[0])->type);
+      auto rhstype = remove_qualifiers_type(decl_cast<ParmVarDecl>(fn->parms[1])->type);
+
+      if (!is_tag_type(lhstype) || !is_tag_type(rhstype) || type_cast<TagType>(lhstype)->decl != type_cast<TagType>(rhstype)->decl)
+        ctx.diag.error("incompatible defaulted operator parameters", fn, fn->loc());
+
+      if (fn->builtin == Builtin::Default_Assignment)
+        if (!is_reference_type(fn->returntype) || !is_tag_type(rettype) || type_cast<TagType>(rettype)->decl != type_cast<TagType>(lhstype)->decl)
+          ctx.diag.error("incompatible defaulted operator return type", fn, fn->loc());
+
+      if (fn->builtin == Builtin::Default_Equality)
+        if (fn->returntype != type(Builtin::Type_Bool))
+          ctx.diag.error("invalid defaulted operator return type", fn, fn->loc());
+
+      if (fn->builtin == Builtin::Default_Compare)
+        if (fn->returntype != type(Builtin::Type_I32))
+          ctx.diag.error("invalid defaulted operator return type", fn, fn->loc());
     }
 
     if (fn->body)

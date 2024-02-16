@@ -590,6 +590,12 @@ Expr *Sema::make_requires_expression(Decl *decl, SourceLocation loc)
   return ast->make_expr<RequiresExpr>(decl, loc);
 }
 
+//|///////////////////// make_where_expression //////////////////////////////
+Expr *Sema::make_where_expression(Expr *expr, SourceLocation loc)
+{
+  return ast->make_expr<WhereExpr>(expr, loc);
+}
+
 //|///////////////////// make_match_expression //////////////////////////////
 Expr *Sema::make_match_expression(Decl *decl, SourceLocation loc)
 {

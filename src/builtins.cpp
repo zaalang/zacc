@@ -770,7 +770,7 @@ namespace Builtin
 
     auto find_type = [&](Decl *decl) { return std::find_if(typeargs.begin(), typeargs.end(), [&](auto &k) { return k.first == decl; }); };
 
-    auto tuple_ex_match = [&](TupleType *lhs, TupleType *rhs) {
+    auto tuple_ex_match = [&](auto &self, TupleType *lhs, TupleType *rhs) {
 
       if (lhs->fields.size() != rhs->fields.size())
         return false;
@@ -800,6 +800,10 @@ namespace Builtin
 
         if (rhsfield == type(Builtin::Type_PtrLiteral) && is_pointer_type(lhsfield))
           continue;
+
+        if (is_tuple_type(lhs->fields[index]) && is_tuple_type(rhs->fields[index]))
+          if (self(self, type_cast<TupleType>(lhs->fields[index]), type_cast<TupleType>(rhs->fields[index])))
+            continue;
 
         if (lhsfield != rhsfield)
           return false;
@@ -858,7 +862,7 @@ namespace Builtin
       case Builtin::TupleEqEx:
       case Builtin::TupleCmpEx:
         if (auto T = find_type(fn->args[0]), U = find_type(fn->args[1]); T != typeargs.end() && U != typeargs.end())
-          return is_tuple_type(T->second) && is_tuple_type(U->second) && T->second != U->second && tuple_ex_match(type_cast<TupleType>(T->second), type_cast<TupleType>(U->second));
+          return is_tuple_type(T->second) && is_tuple_type(U->second) && T->second != U->second && tuple_ex_match(tuple_ex_match, type_cast<TupleType>(T->second), type_cast<TupleType>(U->second));
         break;
 
       case Builtin::TupleLen:

@@ -47,7 +47,7 @@ fn test_as_tuple()
     #{                                    // compile time block in declaritive context
       var tuple = $typeof(());            // type reflection of empty tuple
 
-      #for(const k : std::meta::fields_of($T))
+      #for (const k : std::meta::fields_of($T))
         tuple = std::meta::tuple_append(tuple, $T::#k);  // append reflection of field
 
       -> { using type = $(tuple); }       // injection of type alias into struct scope
@@ -79,7 +79,7 @@ fn test_as_soa()
   struct soa<T, N>
   {
     #{
-      #for(const k : std::meta::fields_of($T))
+      #for (const k : std::meta::fields_of($T))
         -> { $($typeof(T::#k))[N] $(std::meta::name_of(k)); }
     }
 
@@ -94,6 +94,54 @@ fn test_as_soa()
   std::assert(vec3x4.z.len == 4);
 }
 
+fn test_soa_vector()
+{
+  struct soa_vector<T>
+  {
+    pub fn push_back(this mut &, T &value) -> void
+    {
+      #for (const k = 0; k != std::meta::fields_of($T).len; ++k)
+        this.#k.push_back(value.#k);
+    }
+
+    pub fn [](this &, usize index) -> T
+    {
+      var value = T(void);
+
+      #for (const k = 0; k != std::meta::fields_of($T).len; ++k)
+        new<typeof(value.#k)>(&value.#k)(this.#k[index]);
+
+      return value;
+    }
+
+    #{
+      #for (const k : std::meta::fields_of($T))
+        -> { pub std::vector<$($typeof(T::#k))> $(std::meta::name_of(k)); }
+    }
+
+    pub soa_vector() = default;
+    pub ~soa_vector() = default;
+  }
+
+  struct X
+  {
+    i32 i = 1;
+    f64 j = 2.2;
+    bool k = true;
+
+    X() = default;
+    ~X() = default;
+  }
+
+  var soa = soa_vector<X>();
+
+  soa.push_back(X());
+
+  std::assert(soa.i.len == 1);
+  std::assert(soa.j.len == 1);
+  std::assert(soa.k.len == 1);
+}
+
 fn main()
 {
   #test_empty();
@@ -102,4 +150,5 @@ fn main()
   #test_subset();
   #test_as_tuple();
   #test_as_soa();
+  #test_soa_vector();
 }

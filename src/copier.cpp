@@ -127,6 +127,8 @@ namespace
         {
           return reinterpret_cast<Type*>(expr_cast<IntLiteralExpr>(expr_cast<CastExpr>(expr)->expr)->value().value);
         }
+
+        return new TypeLitType(expr);
       }
     }
 
@@ -352,6 +354,12 @@ namespace
     return new RequiresExpr(copier_decl(ctx, reqires->decl), reqires->loc());
   }
 
+  //|///////////////////// where_expression /////////////////////////////////
+  Expr *copier_expr(CopierContext &ctx, WhereExpr *where)
+  {
+    return new WhereExpr(copier_expr(ctx, where->expr), where->loc());
+  }
+
   //|///////////////////// match_expression /////////////////////////////////
   Expr *copier_expr(CopierContext &ctx, MatchExpr *match)
   {
@@ -463,6 +471,9 @@ namespace
 
       case Expr::Requires:
         return copier_expr(ctx, expr_cast<RequiresExpr>(expr));
+
+      case Expr::Where:
+        return copier_expr(ctx, expr_cast<WhereExpr>(expr));
 
       case Expr::Match:
         return copier_expr(ctx, expr_cast<MatchExpr>(expr));
@@ -922,11 +933,8 @@ namespace
     if (fn->returntype)
       result->returntype = copier_type(ctx, fn->returntype);
 
-    if (fn->match)
-      result->match = copier_expr(ctx, fn->match);
-
-    if (fn->where)
-      result->where = copier_expr(ctx, fn->where);
+    for (auto &expr : fn->constraints)
+      result->constraints.push_back(copier_expr(ctx, expr));
 
     for (auto &init : fn->inits)
       result->inits.push_back(copier_decl(ctx, init));

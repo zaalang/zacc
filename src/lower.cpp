@@ -11631,6 +11631,11 @@ namespace
     if (!lower_expr(ctx, condition, swtch->cond))
       return;
 
+    if (is_bool_type(condition.type.type))
+    {
+      lower_base_cast(ctx, condition, condition, ctx.usizetype, swtch->cond->loc());
+    }
+
     if (is_union_type(condition.type.type))
     {
       auto arg = ctx.add_variable();
@@ -11653,9 +11658,14 @@ namespace
         return;
     }
 
+    auto is_native = is_int_type(condition.type.type) || is_char_type(condition.type.type) || is_enum_type(condition.type.type);
+
     auto cond = ctx.add_temporary();
 
-    realise_as_value(ctx, cond, condition);
+    if (is_native)
+      realise_as_value(ctx, cond, condition);
+    else
+      realise_as_reference(ctx, cond, condition);
 
     commit_type(ctx, cond, condition.type.type, condition.type.flags);
 
@@ -11670,7 +11680,7 @@ namespace
 
     auto block_cond = ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid));
 
-    if (is_int_type(condition.type.type) || is_char_type(condition.type.type) || is_enum_type(condition.type.type))
+    if (is_native)
     {
       ctx.mir.blocks[block_cond].terminator = MIR::Terminator::switcher(cond, block_cond);
     }
@@ -11688,7 +11698,7 @@ namespace
 
       auto casse = decl_cast<CaseDecl>(decl);
 
-      if (is_int_type(condition.type.type) || is_char_type(condition.type.type) || is_enum_type(condition.type.type))
+      if (is_native)
       {
         if (casse->label)
         {

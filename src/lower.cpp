@@ -1260,6 +1260,9 @@ namespace
     {
       find_decls(ctx, *sx, name, queryflags, decls);
 
+      if (decls.size() != 0 && sx->goalpost == decls[0])
+        decls.clear();
+
       if (decls.empty())
       {
         if (is_fn_scope(*sx))
@@ -1276,13 +1279,6 @@ namespace
         {
           queryflags &= ~QueryFlags::Fields;
         }
-
-        continue;
-      }
-
-      if (sx->goalpost == decls[0])
-      {
-        decls.clear();
 
         continue;
       }
@@ -12346,9 +12342,6 @@ namespace
 
     if (ctx.mir.args_beg <= id && id < ctx.mir.args_end)
     {
-      if (ctx.mir.locals[id].type == ctx.ptrliteraltype && is_pointer_type(type))
-        return true;
-
       switch (ctx.mir.fx.fn->flags & FunctionDecl::DeclType)
       {
         case FunctionDecl::MatchDecl:

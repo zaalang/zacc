@@ -10,7 +10,6 @@
 #include "typer.h"
 #include "diag.h"
 #include "query.h"
-#include "numeric.h"
 #include "sema.h"
 #include <iostream>
 #include <algorithm>

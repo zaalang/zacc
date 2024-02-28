@@ -1036,13 +1036,12 @@ namespace
             type = tagtype->fields[0];
           }
 
-          if (is_string_type(type) || is_array_type(type))
+          if (is_builtin_type(type) || is_pointer_type(type) || is_string_type(type) || is_array_type(type))
           {
+            target.type = Lifetime::clone;
+
             if (rhs == "[]")
               target.type = Lifetime::depend;
-
-            if (rhs == "len")
-              target.type = Lifetime::clone;
 
             if (rhs == "data")
               target.type = Lifetime::depend;

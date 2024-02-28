@@ -24,19 +24,17 @@
 #include <llvm/CodeGen/MachineFunctionPass.h>
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
-#include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/MC/TargetRegistry.h>
-#include <llvm/Support/Host.h>
+#include <llvm/TargetParser/Host.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/ToolOutputFile.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/CommandLine.h>
 #include <sstream>
-#include <climits>
 
 using namespace std;
 
@@ -5232,10 +5230,6 @@ namespace
     ctx.difile = ctx.di.createFile(target, ctx.current_directory);
     ctx.diunit = ctx.di.createCompileUnit(llvm::dwarf::DW_LANG_C_plus_plus, ctx.difile, "zacc 0.0", 0, "", 0);
 
-#if LLVM_VERSION_MAJOR == 14
-    ctx.context.enableOpaquePointers();
-#endif
-
     if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
     {
       // div0_chk_fail
@@ -5419,15 +5413,9 @@ namespace
     options.AllowFPOpFusion = llvm::FPOpFusion::Standard;
     options.ExceptionModel = llvm::ExceptionHandling::None;
 
-#if LLVM_VERSION_MAJOR == 16
     auto relocmodel = std::optional<llvm::Reloc::Model>();
     auto codemodel = std::optional<llvm::CodeModel::Model>();
     auto optlevel = llvm::CodeGenOpt::None;
-#else
-    auto relocmodel = llvm::Optional<llvm::Reloc::Model>();
-    auto codemodel = llvm::Optional<llvm::CodeModel::Model>();
-    auto optlevel = llvm::CodeGenOpt::None;
-#endif
 
     switch (ctx.genopts.reloc)
     {

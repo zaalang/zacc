@@ -11,8 +11,8 @@ jobs:
       - name: Create Build Environment
         run: |
           sudo wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-          sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-15 main"
-          sudo apt-get install -y gcc-12 llvm-15
+          sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-17 main"
+          sudo apt-get install -y gcc-12 llvm-17
           cmake -E make_directory ${{github.workspace}}/build
       - name: Configure
         env:
@@ -35,13 +35,13 @@ jobs:
       - name: Create Build Environment
         run: |
           sudo wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-          sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-15 main"
-          sudo apt-get install -y clang-15 llvm-15
+          sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-17 main"
+          sudo apt-get install -y clang-17 llvm-17
           cmake -E make_directory ${{github.workspace}}/build
       - name: Configure
         env:
-          CC: clang-15
-          CXX: clang++-15
+          CC: clang-17
+          CXX: clang++-17
         shell: bash
         working-directory: ${{github.workspace}}/build
         run: |
@@ -61,11 +61,11 @@ jobs:
         uses: actions/cache@v3
         with:
           path: llvm
-          key: llvm-libs-15.0.6
+          key: llvm-libs-17.0.6
       - name: Download LLVM
         if: steps.cache-llvm.outputs.cache-hit != 'true'
         run: |
-          iwr https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.6/llvm-project-15.0.6.src.tar.xz -OutFile llvm.tar.xz
+          iwr https://github.com/llvm/llvm-project/releases/download/llvmorg-17.0.6/llvm-project-17.0.6.src.tar.xz -OutFile llvm.tar.xz
           7z x llvm.tar.xz
           7z x llvm.tar
           mv llvm-* llvm-project

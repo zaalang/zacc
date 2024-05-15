@@ -1,7 +1,7 @@
 //
 // codegen.cpp
 //
-// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -11,6 +11,7 @@
 #include "diag.h"
 #include "mangle.h"
 #include "lower.h"
+#include "lifetime.h"
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -748,7 +749,7 @@ namespace
         ditype = ctx.di.createBasicType(type->name()->sv(), sizeof_type(type) * 8, llvm::dwarf::DW_ATE_boolean);
 
       else if (type->is_char_type())
-        ditype = ctx.di.createBasicType(type->name()->sv(), sizeof_type(type) * 8, llvm::dwarf::DW_ATE_UTF);
+        ditype = ctx.di.createBasicType("char32_t", sizeof_type(type) * 8, llvm::dwarf::DW_ATE_UTF);
 
       else if (type->is_int_type())
         ditype = ctx.di.createBasicType(type->name()->sv(), sizeof_type(type) * 8, type->is_signed_type() ? llvm::dwarf::DW_ATE_signed : llvm::dwarf::DW_ATE_unsigned);
@@ -897,11 +898,10 @@ namespace
       return llvm_int(llvm_type(ctx, type, addressable), literal->value());
     }
 
-    {
-      fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
-      fx.diag << "  literal type: 'bool' required type: '" << *type << "'\n";
-      return nullptr;
-    }
+    fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
+    fx.diag << "  literal type: 'bool' required type: '" << *type << "'\n";
+
+    return nullptr;
   }
 
   //|///////////////////// llvm_constant ////////////////////////////////////
@@ -919,11 +919,10 @@ namespace
       return llvm_int(llvm_type(ctx, type), literal->value().sign * literal->value().value);
     }
 
-    {
-      fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
-      fx.diag << "  literal type: '#char' required type: '" << *type << "'\n";
-      return nullptr;
-    }
+    fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
+    fx.diag << "  literal type: '#char' required type: '" << *type << "'\n";
+
+    return nullptr;
   }
 
   //|///////////////////// llvm_constant ////////////////////////////////////
@@ -958,11 +957,10 @@ namespace
       return llvm_float(llvm_type(ctx, type), literal->value().sign * literal->value().value);
     }
 
-    {
-      fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
-      fx.diag << "  literal type: '#int' required type: '" << *type << "'\n";
-      return nullptr;
-    }
+    fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
+    fx.diag << "  literal type: '#int' required type: '" << *type << "'\n";
+
+    return nullptr;
   }
 
   //|///////////////////// llvm_constant ////////////////////////////////////
@@ -992,11 +990,10 @@ namespace
       return llvm_float(llvm_type(ctx, type), literal->value().value);
     }
 
-    {
-      fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
-      fx.diag << "  literal type: '#float' required type: '" << *type << "'\n";
-      return nullptr;
-    }
+    fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
+    fx.diag << "  literal type: '#float' required type: '" << *type << "'\n";
+
+    return nullptr;
   }
 
   //|///////////////////// llvm_constant ////////////////////////////////////
@@ -1012,11 +1009,10 @@ namespace
       return llvm_zero(llvm_type(ctx, type));
     }
 
-    {
-      fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
-      fx.diag << "  literal type: 'null' required type: '" << *type << "'\n";
-      return nullptr;
-    }
+    fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
+    fx.diag << "  literal type: 'null' required type: '" << *type << "'\n";
+
+    return nullptr;
   }
 
   //|///////////////////// llvm_constant ////////////////////////////////////
@@ -1055,11 +1051,10 @@ namespace
       return llvm::ConstantStruct::get(llvm::cast<llvm::StructType>(llvm_type(ctx, type)), { len, data});
     }
 
-    {
-      fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
-      fx.diag << "  literal type: '#string' required type: '" << *type << "'\n";
-      return nullptr;
-    }
+    fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
+    fx.diag << "  literal type: '#string' required type: '" << *type << "'\n";
+
+    return nullptr;
   }
 
   //|///////////////////// llvm_constant ////////////////////////////////////
@@ -1089,11 +1084,10 @@ namespace
       return llvm::ConstantArray::get(llvm::cast<llvm::ArrayType>(llvm_type(ctx, type)), elements);
     }
 
-    {
-      fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
-      fx.diag << "  literal type: '#array' required type: '" << *type << "'\n";
-      return nullptr;
-    }
+    fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
+    fx.diag << "  literal type: '#array' required type: '" << *type << "'\n";
+
+    return nullptr;
   }
 
   //|///////////////////// llvm_constant ////////////////////////////////////
@@ -1133,11 +1127,10 @@ namespace
       return llvm::ConstantStruct::get(llvm::cast<llvm::StructType>(llvm_type(ctx, type)), elements);
     }
 
-    {
-      fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
-      fx.diag << "  literal type: '#struct' required type: '" << *type << "'\n";
-      return nullptr;
-    }
+    fx.diag.error("literal type incompatible with required type", fx.fn, literal->loc());
+    fx.diag << "  literal type: '#struct' required type: '" << *type << "'\n";
+
+    return nullptr;
   }
 
   //|///////////////////// llvm_constant ////////////////////////////////////
@@ -1538,12 +1531,12 @@ namespace
 
     switch (op)
     {
-      case MIR::RValue::Val:
-        codegen_cpy_value(ctx, fx, dst, variable);
-        break;
-
       case MIR::RValue::Ref:
         codegen_ref_value(ctx, fx, dst, variable);
+        break;
+
+      case MIR::RValue::Val:
+        codegen_cpy_value(ctx, fx, dst, variable);
         break;
 
       case MIR::RValue::Fer:
@@ -3033,10 +3026,21 @@ namespace
 
     auto elemtype = ctx.builder.getInt8Ty();
 
-    if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
+    if (is_int_type(fx.mir.locals[args[1]].type))
     {
-      codegen_assert_carry(ctx, fx, ctx.builder.CreateICmpULT(rhs, ctx.builder.CreateExtractValue(lhs, 1)));
-      codegen_assert_carry(ctx, fx, ctx.builder.CreateICmpULE(ctx.builder.CreateInBoundsGEP(elemtype, ctx.builder.CreateExtractValue(lhs, 1), ctx.builder.CreateExtractValue(lhs, 0)), rhs));
+      if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
+        codegen_assert_carry(ctx, fx, ctx.builder.CreateICmpUGE(rhs, ctx.builder.CreateExtractValue(lhs, 0)));
+
+      rhs = ctx.builder.CreateInBoundsGEP(elemtype, ctx.builder.CreateExtractValue(lhs, 1), rhs);
+    }
+
+    if (is_pointer_type(fx.mir.locals[args[1]].type))
+    {
+      if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
+      {
+        codegen_assert_carry(ctx, fx, ctx.builder.CreateICmpULT(rhs, ctx.builder.CreateExtractValue(lhs, 1)));
+        codegen_assert_carry(ctx, fx, ctx.builder.CreateICmpULE(ctx.builder.CreateInBoundsGEP(elemtype, ctx.builder.CreateExtractValue(lhs, 1), ctx.builder.CreateExtractValue(lhs, 0)), rhs));
+      }
     }
 
     store(ctx, fx, dst, rhs);
@@ -4163,10 +4167,11 @@ namespace
           store(ctx, fx, dst, ctx.builder.getInt1(false));
           break;
 
-        case Builtin::StringSlice:
-        case Builtin::StringAppend:
-        case Builtin::StringCreate:
         case Builtin::ArrayCreate:
+        case Builtin::StringCreate:
+        case Builtin::StringAppend:
+        case Builtin::StringSlice:
+        case Builtin::SliceSlice:
           fx.diag.error("function not callable in runtime context", fx.fn, loc);
           break;
 
@@ -5005,6 +5010,10 @@ namespace
       fx.locals[var.local].info = &var;
     }
 
+#if 1
+    lifetime(fx.mir, ctx.typetable, ctx.diag);
+#endif
+
     if (ctx.diag.has_errored())
       return;
 
@@ -5038,7 +5047,7 @@ namespace
           parameters.back() = ctx.di.createReferenceType(llvm::dwarf::DW_TAG_pointer_type, llvm::cast<llvm::DIType>(parameters.back()));
       }
 
-      for (size_t i = fx.mir.args_beg, end = fx.mir.locals.size(); i != end; ++i)
+      for (size_t i = 0, end = fx.mir.locals.size(); i != end; ++i)
       {
         if (fx.locals[i].info)
           fx.locals[i].addressable = true;
@@ -5119,9 +5128,9 @@ namespace
 
     if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None)
     {
-      for (size_t i = fx.mir.args_beg, end = fx.mir.args_end; i != end; ++i)
+      for (size_t i = 0, end = fx.mir.args_end; i != end; ++i)
       {
-        if (fx.locals[i].info->vardecl->name)
+        if (fx.locals[i].info && fx.locals[i].info->vardecl->name)
         {
           auto loc = fx.locals[i].info->vardecl->loc();
           auto name = fx.locals[i].info->vardecl->name->sv();
@@ -5228,7 +5237,7 @@ namespace
     llvm::sys::fs::current_path(ctx.current_directory);
 
     ctx.difile = ctx.di.createFile(target, ctx.current_directory);
-    ctx.diunit = ctx.di.createCompileUnit(llvm::dwarf::DW_LANG_C_plus_plus, ctx.difile, "zacc 0.0", 0, "", 0);
+    ctx.diunit = ctx.di.createCompileUnit(llvm::dwarf::DW_LANG_C11, ctx.difile, "zacc 0.0", 0, "", 0);
 
     if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
     {
@@ -5415,7 +5424,7 @@ namespace
 
     auto relocmodel = std::optional<llvm::Reloc::Model>();
     auto codemodel = std::optional<llvm::CodeModel::Model>();
-    auto optlevel = llvm::CodeGenOpt::None;
+    auto optlevel = llvm::CodeGenOpt::Level::None;
 
     switch (ctx.genopts.reloc)
     {
@@ -5456,19 +5465,19 @@ namespace
     switch (ctx.genopts.optlevel)
     {
       case GenOpts::OptLevel::None:
-        optlevel = llvm::CodeGenOpt::None;
+        optlevel = llvm::CodeGenOpt::Level::None;
         break;
 
       case GenOpts::OptLevel::Less:
-        optlevel = llvm::CodeGenOpt::Less;
+        optlevel = llvm::CodeGenOpt::Level::Less;
         break;
 
       case GenOpts::OptLevel::Default:
-        optlevel = llvm::CodeGenOpt::Default;
+        optlevel = llvm::CodeGenOpt::Level::Default;
         break;
 
       case GenOpts::OptLevel::Aggressive:
-        optlevel = llvm::CodeGenOpt::Aggressive;
+        optlevel = llvm::CodeGenOpt::Level::Aggressive;
         break;
     }
 

@@ -1,7 +1,7 @@
 //
 // parser.cpp
 //
-// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -369,9 +369,9 @@ namespace
   //|///////////////////// consume_substitution /////////////////////////////
   void consume_substitution(ParseContext &ctx, Sema &sema)
   {
-    if (!ctx.try_consume_token(Token::l_paren))
+    if (!ctx.try_consume_token(Token::l_brace))
     {
-      ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+      ctx.diag.error("expected brace", ctx.text, ctx.tok.loc);
     }
 
     auto expr = parse_expression(ctx, sema);
@@ -381,9 +381,9 @@ namespace
       ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
     }
 
-    if (!ctx.try_consume_token(Token::r_paren))
+    if (!ctx.try_consume_token(Token::r_brace))
     {
-      ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+      ctx.diag.error("expected brace", ctx.text, ctx.tok.loc);
     }
 
     ctx.substitutions.push_back(expr);
@@ -2520,7 +2520,7 @@ namespace
         return parse_extern(ctx, sema);
 
       case Token::dollar:
-        if (ctx.token(1) != Token::l_paren)
+        if (ctx.token(1) != Token::l_brace)
           return parse_typeid(ctx, sema);
         [[fallthrough]];
 
@@ -2764,11 +2764,7 @@ namespace
     {
       name = string_view(name.data(), name.length() + ctx.tok.text.length() + 1);
 
-      if (!ctx.try_consume_token(Token::identifier))
-      {
-        ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
-        goto resume;
-      }
+      ctx.consume_token();
     }
 
     if (auto j = name.find('.'); j != name.npos)
@@ -3359,15 +3355,11 @@ namespace
     if (ctx.try_consume_token(Token::kw_const))
       fn->flags |= FunctionDecl::Const;
 
-    if (ctx.try_consume_token(Token::kw_static))
-      fn->flags |= FunctionDecl::Static;
+    fn->flags |= FunctionDecl::Static;
 
     fn->attributes = std::move(ctx.attributes);
 
     ctx.consume_token(Token::identifier);
-
-    if (ctx.tok == Token::coloncolon && ctx.token(1) != Token::identifier)
-      ctx.consume_token();
 
     if (ctx.try_consume_token(Token::less))
     {
@@ -3450,10 +3442,9 @@ namespace
     fn->attributes = std::move(ctx.attributes);
 
     ctx.consume_token(Token::tilde);
-    ctx.consume_token(Token::identifier);
 
-    if (ctx.tok == Token::coloncolon && ctx.token(1) != Token::identifier)
-      ctx.consume_token();
+    if (!ctx.try_consume_token(Token::identifier))
+      ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
 
     if (ctx.try_consume_token(Token::l_paren))
     {
@@ -3503,6 +3494,8 @@ namespace
 
     if (ctx.try_consume_token(Token::kw_mut))
       field->flags |= FieldVarDecl::Mutable;
+
+    field->attributes = std::move(ctx.attributes);
 
     field->type = parse_type(ctx, sema);
 
@@ -3835,6 +3828,8 @@ namespace
 
     if (ctx.try_consume_token(Token::kw_pub))
       field->flags |= Decl::Public;
+
+    field->attributes = std::move(ctx.attributes);
 
     field->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
@@ -4980,10 +4975,10 @@ namespace
             {
               for (int indent = 0; tok != Token::eof; )
               {
-                if (tok == Token::l_paren)
+                if (tok == Token::l_brace)
                   indent += 1;
 
-                if (tok == Token::r_paren)
+                if (tok == Token::r_brace)
                   if (--indent <= 0)
                     break;
 
@@ -5023,6 +5018,18 @@ namespace
 
           case Token::tilde:
             decl = parse_destructor_declaration(ctx, sema);
+            break;
+
+          case Token::hash:
+            switch (auto tok = ctx.token(nexttok); tok.type)
+            {
+              case Token::l_brace:
+                decl = parse_run_declaration(ctx, sema);
+                break;
+
+              default:
+                goto unhandled;
+            }
             break;
 
           case Token::eof:

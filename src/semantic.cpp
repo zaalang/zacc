@@ -1,7 +1,7 @@
 //
 // semantic.cpp
 //
-// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -209,6 +209,7 @@ namespace
       case Type::Function:
         semantic_type(ctx, type_cast<FunctionType>(type)->returntype, sema);
         semantic_type(ctx, type_cast<FunctionType>(type)->paramtuple, sema);
+        semantic_type(ctx, type_cast<FunctionType>(type)->throwtype, sema);
         break;
 
       case Type::Pack:
@@ -1415,6 +1416,16 @@ namespace
 
         if (eval(ctx, ctx.stack.back(), sema.make_declref_expression(id, fn->loc())) == 0)
           fn->flags |= FunctionDecl::Inhibited;
+      }
+
+      if (attribute->name == "safe")
+      {
+        fn->flags |= FunctionDecl::Safe;
+      }
+
+      if (attribute->name == "unsafe")
+      {
+        fn->flags |= FunctionDecl::Unsafe;
       }
 
       if (attribute->name == "lifetime")

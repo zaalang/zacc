@@ -1,7 +1,7 @@
 //
 // builtins.h
 //
-// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -157,6 +157,7 @@ namespace Builtin
     SliceIndex,
     SliceBegin,
     SliceEnd,
+    SliceSlice,
 
     MatchRange,
     MatchRangeEq,
@@ -251,6 +252,9 @@ namespace Builtin
     decl_flags,
     decl_parent,
     decl_children,
+    decl_site,
+    decl_attr,
+    attr_text,
     type_decl,
     type_name,
     type_children,

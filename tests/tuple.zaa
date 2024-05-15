@@ -50,7 +50,7 @@ fn test_as_tuple()
       #for (const k : std::meta::fields_of($T))
         tuple = std::meta::tuple_append(tuple, $T::#k);  // append reflection of field
 
-      -> { using type = $(tuple); }       // injection of type alias into struct scope
+      -> { using type = ${tuple}; }       // injection of type alias into struct scope
     }
   }
 
@@ -80,7 +80,7 @@ fn test_as_soa()
   {
     #{
       #for (const k : std::meta::fields_of($T))
-        -> { $($typeof(T::#k))[N] $(std::meta::name_of(k)); }
+        -> { ${$typeof(T::#k)}[N] ${std::meta::name_of(k)}; }
     }
 
     soa() = default;
@@ -116,7 +116,7 @@ fn test_soa_vector()
 
     #{
       #for (const k : std::meta::fields_of($T))
-        -> { pub std::vector<$($typeof(T::#k))> $(std::meta::name_of(k)); }
+        -> { pub std::vector<${$typeof(T::#k)}> ${std::meta::name_of(k)}; }
     }
 
     pub soa_vector() = default;

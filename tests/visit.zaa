@@ -78,7 +78,7 @@ fn visit<Visitor, Variant>(Visitor &&visitor, Variant &variant) -> void
       #for (const k = 1; k < std::meta::fields_of($Variant).len; ++k)
       {
         -> {
-          case $(cast<typeof(Variant::kind)>(k))[value]:
+          case ${cast<typeof(Variant::kind)>(k)}[value]:
             visitor(value);
         }
       }

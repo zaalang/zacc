@@ -1,7 +1,7 @@
 //
 // typer.cpp
 //
-// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -141,6 +141,9 @@ namespace
   //|///////////////////// copyier_type /////////////////////////////////////
   Type *copier_type(CopierContext &ctx, Type *type)
   {
+    if (!type)
+      return type;
+
     switch (type->klass())
     {
       case Type::Builtin:
@@ -171,12 +174,8 @@ namespace
         return new TupleType(fields);
       }
 
-      case Type::Function: {
-        auto returntype = copier_type(ctx, type_cast<FunctionType>(type)->returntype);
-        auto paramtuple = copier_type(ctx, type_cast<FunctionType>(type)->paramtuple);
-        auto throwtype = copier_type(ctx, type_cast<FunctionType>(type)->throwtype);
-        return new FunctionType(returntype, paramtuple, throwtype);
-      }
+      case Type::Function:
+        return new FunctionType(copier_type(ctx, type_cast<FunctionType>(type)->returntype), copier_type(ctx, type_cast<FunctionType>(type)->paramtuple), copier_type(ctx, type_cast<FunctionType>(type)->throwtype));
 
       case Type::TypeRef:
         return copier_type(ctx, type_cast<TypeRefType>(type));

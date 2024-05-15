@@ -1,7 +1,7 @@
 //
 // decl.h
 //
-// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -171,10 +171,12 @@ class FunctionDecl : public Decl
 
       NoReturn = 0x1000,
       Inhibited = 0x2000,
-      Lifetimed = 0x4000,
-      NoInline = 0x8000,
-      NoDiscard = 0x10000,
-      Weak = 0x20000,
+      Safe = 0x4000,
+      Unsafe = 0x8000,
+      Lifetimed = 0x10000,
+      NoInline = 0x20000,
+      NoDiscard = 0x40000,
+      Weak = 0x80000,
 
       ExternC = 0x100000,
       ExternWin64 = 0x200000,
@@ -594,6 +596,8 @@ class FieldVarDecl : public VarDecl
     FieldVarDecl(SourceLocation loc);
 
     Expr *defult = nullptr;
+
+    std::vector<Decl*> attributes;
 
     void dump(int indent) const override;
 };

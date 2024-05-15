@@ -1,7 +1,7 @@
 //
 // lower.cpp
 //
-// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -10,7 +10,6 @@
 #include "lower.h"
 #include "interp.h"
 #include "diag.h"
-#include "lifetime.h"
 #include <limits>
 #include <variant>
 #include <algorithm>
@@ -1271,8 +1270,6 @@ namespace
 
           if (!(fn->flags & (FunctionDecl::Constructor | FunctionDecl::Destructor)) && (fn->flags & FunctionDecl::DeclType) != FunctionDecl::LambdaDecl)
             queryflags &= ~QueryFlags::Fields;
-
-          queryflags &= ~QueryFlags::Variables;
         }
 
         if (is_tag_scope(*sx))
@@ -1715,8 +1712,11 @@ namespace
     if (auto j = scope.find_type(argtype->decl); j != scope.typeargs.end())
       return j->second;
 
-    if (auto argdecl = decl_cast<TypeArgDecl>(argtype->decl); argdecl->defult)
-      return resolve_type(ctx, scope, argdecl->defult);
+    if (argtype->decl->kind() == Decl::TypeArg)
+    {
+      if (auto argdecl = decl_cast<TypeArgDecl>(argtype->decl); argdecl->defult)
+        return resolve_type(ctx, scope, argdecl->defult);
+    }
 
     if (argtype->args.size() != 0)
     {
@@ -1842,7 +1842,7 @@ namespace
   {
     auto returntype = resolve_type(ctx, scope, fntype->returntype);
     auto paramtuple = resolve_type(ctx, scope, fntype->paramtuple);
-    auto throwtype = fntype->throwtype ? resolve_type(ctx, scope, fntype->throwtype) : nullptr;
+    auto throwtype = resolve_type(ctx, scope, fntype->throwtype);
 
     return ctx.typetable.find_or_create<FunctionType>(returntype, paramtuple, throwtype);
   }
@@ -1888,8 +1888,9 @@ namespace
 
     auto returntype = find_returntype(ctx, FnSig(fn, scope.typeargs)).type;
     auto paramtuple = ctx.typetable.find_or_create<TupleType>(std::move(defns), std::move(parms));
+    auto throwtype = (fn->throws) ? resolve_type(ctx, scope, fn->throws) : ctx.voidtype;
 
-    return ctx.typetable.find_or_create<FunctionType>(returntype, paramtuple, nullptr);
+    return ctx.typetable.find_or_create<FunctionType>(returntype, paramtuple, throwtype);
   }
 
   Type *resolve_type(LowerContext &ctx, Scope const &scope, TypeOfDecl *typedecl)
@@ -1916,7 +1917,7 @@ namespace
           for (auto sx = stack.rbegin(); sx != stack.rend(); ++sx)
           {
             if (auto owner = get_if<Decl*>(&sx->owner); owner && *owner && is_tag_decl(*owner))
-              return resolve_type(ctx, *sx, *owner);
+              return resolve_type(ctx, parent_scope(*sx), *owner);
           }
         }
       }
@@ -2012,34 +2013,48 @@ namespace
     return ctx.voidtype;
   }
 
-  Type *resolve_type(LowerContext &ctx, Scope const &scope, Decl *decl, size_t &k, vector<MIR::Local> const &args, map<Ident*, MIR::Local> const &namedargs)
+  Type *resolve_type(LowerContext &ctx, Scope const &scope, TypeRefType *typeref, Scope const &sx, Decl *decl, size_t &k, vector<MIR::Local> const &args, map<Ident*, MIR::Local> const &namedargs)
   {
     switch (decl->kind())
     {
       case Decl::Struct:
       case Decl::Union:
       case Decl::VTable:
-      case Decl::Concept:
       case Decl::Enum:
-        return resolve_type(ctx, child_scope(ctx, scope, decl_cast<TagDecl>(decl), k, args, namedargs), decl);
-
-      case Decl::Function:
-        return resolve_type(ctx, child_scope(ctx, scope, decl_cast<FunctionDecl>(decl), k, args, namedargs), decl);
+        return resolve_type(ctx, child_scope(ctx, sx, decl_cast<TagDecl>(decl), k, args, namedargs), decl);
 
       case Decl::TypeAlias:
-        return resolve_type(ctx, child_scope(ctx, scope, decl_cast<TypeAliasDecl>(decl), k, args, namedargs), decl);
+        return resolve_type(ctx, child_scope(ctx, sx, decl_cast<TypeAliasDecl>(decl), k, args, namedargs), decl);
 
       case Decl::EnumConstant:
         return resolve_type(ctx, scope, decl);
 
-      case Decl::TypeArg:
-        return resolve_type(ctx, scope, decl);
+      case Decl::Function:
+        return resolve_type(ctx, child_scope(ctx, sx, decl_cast<FunctionDecl>(decl), k, args, namedargs), decl);
+
+      case Decl::TypeArg: {
+        auto type = ctx.typetable.find_or_create<TypeArgType>(decl, nullptr, {});
+
+        if (auto j = scope.find_type(decl); j != scope.typeargs.end())
+          return j->second;
+
+        return type;
+      }
+
+      case Decl::Concept: {
+        auto type = ctx.typetable.find_or_create<TypeArgType>(typeref->decl, decl, child_scope(ctx, sx, decl_cast<TagDecl>(decl), k, args, namedargs).typeargs);
+
+        if (auto j = scope.find_type(typeref->decl); j != scope.typeargs.end())
+          return j->second;
+
+        return type;
+      }
 
       default:
         assert(ctx.diag.has_errored());
     }
 
-    return resolve_type(ctx, scope, decl);
+    return resolve_type(ctx, sx, decl);
   }
 
   Type *resolve_type(LowerContext &ctx, Scope const &scope, TypeRefType *typeref, DeclRefDecl *declref)
@@ -2061,7 +2076,7 @@ namespace
         if (decl->kind() == Decl::TypeAlias && (decl->flags & TypeAliasDecl::Implicit) && !declref->argless)
           decl = get<Decl*>(decl->owner);
 
-        auto type = resolve_type(ctx, outer_scope(sx, decl), decl, k, args, namedargs);
+        auto type = resolve_type(ctx, scope, typeref, outer_scope(sx, decl), decl, k, args, namedargs);
 
         if (k != args.size() + namedargs.size())
           continue;
@@ -2106,7 +2121,7 @@ namespace
         {
           size_t k = 0;
 
-          auto type = resolve_type(ctx, outer_scope(sx, decl), decl, k, args, namedargs);
+          auto type = resolve_type(ctx, scope, typeref, outer_scope(sx, decl), decl, k, args, namedargs);
 
           if (k != args.size() + namedargs.size())
             continue;
@@ -2242,8 +2257,8 @@ namespace
       case Decl::Concept:
       case Decl::VTable:
       case Decl::Lambda:
-      case Decl::Enum:
       case Decl::Union:
+      case Decl::Enum:
         return resolve_type(ctx, scope, decl_cast<TagDecl>(decl));
 
       case Decl::TypeAlias:
@@ -2841,6 +2856,9 @@ namespace
           if (!deduce_type(ctx, ttx, scope, fx, type_cast<FunctionType>(lhs)->paramtuple, type_cast<FunctionType>(rhs)->paramtuple))
             return false;
 
+          if (!deduce_type(ctx, ttx, scope, fx, type_cast<FunctionType>(lhs)->throwtype, type_cast<FunctionType>(rhs)->throwtype))
+            return false;
+
           return true;
         }
 
@@ -3109,14 +3127,20 @@ namespace
 
     fx = FnSig(fn, std::move(sig.typeargs));
 
-    if (is_throws(ctx, fx) && !(throwtype != ctx.voidtype))
+    if (is_throws(ctx, fx, &fx.throwtype) && !(throwtype != ctx.voidtype))
       return false;
 
     if (find_returntype(ctx, fx).type != returntype)
       return false;
 
     if (throwtype != ctx.voidtype)
-      fx.throwtype = throwtype;
+    {
+      if (!fx.throwtype)
+        fx.throwtype = throwtype;
+
+      if (fx.throwtype != throwtype)
+        return false;
+    }
 
     return true;
   }
@@ -3807,7 +3831,7 @@ namespace
 
           vector<FnSig> ctors;
 
-          FindContext ttx(ctx, field, tx.queryflags);
+          FindContext ttx(ctx, field, QueryFlags::Types | QueryFlags::Functions);
 
           find_overloads(ctx, ttx, scopeof_type(ctx, field), parms, namedparms, candidates, ctors);
 
@@ -4149,11 +4173,8 @@ namespace
 
     if (is_tag_type(rhs.type))
     {
-      auto type = type_cast<TagType>(rhs.type);
-      auto typescope = Scope(type->decl, type->args);
-
-      find_overloads(ctx, tx, typescope, parms, namedparms, candidates, overloads);
-      find_overloads(ctx, tx, scopeof_type(ctx, type), parms, namedparms, candidates, overloads);
+      find_overloads(ctx, tx, type_scope(ctx, rhs.type), parms, namedparms, candidates, overloads);
+      find_overloads(ctx, tx, scopeof_type(ctx, rhs.type), parms, namedparms, candidates, overloads);
     }
 
     auto declscope = Scope(typearg->koncept, outer_scope(scope, typearg->koncept).typeargs);
@@ -5368,7 +5389,7 @@ namespace
   }
 
   //|///////////////////// lower_vtor ///////////////////////////////////////
-  bool lower_vtor(LowerContext &ctx, MIR::Fragment &result, vector<Scope> const &stack, TagType *thistype, SourceLocation loc)
+  bool lower_vtor(LowerContext &ctx, MIR::Fragment &result, TagType *thistype, Type *selftype, SourceLocation loc)
   {
     size_t index = 0;
     vector<Expr*> elements;
@@ -5383,7 +5404,7 @@ namespace
         return false;
       }
 
-      if (!lower_vtor(ctx, result, stack, type_cast<TagType>(type), loc))
+      if (!lower_vtor(ctx, result, type_cast<TagType>(type), selftype, loc))
         return false;
 
       elements.push_back(std::visit([&](auto &v) -> Expr * { return v; }, result.value.get<MIR::RValue::Constant>()));
@@ -5413,35 +5434,34 @@ namespace
 
       if (var->flags & VarDecl::SelfImplicit)
       {
-        for (auto sx = stack.rbegin(); sx != stack.rend(); ++sx)
+        parms[0].type.type = selftype;
+
+        if (is_pointer_type(type_cast<TupleType>(fntype->paramtuple)->fields[0]))
         {
-          if (!is_tag_scope(*sx))
-            continue;
+          if (is_const_pointer(type_cast<TupleType>(fntype->paramtuple)->fields[0]))
+            parms[0].type = ctx.typetable.find_or_create<ConstType>(parms[0].type.type);
 
-          parms[0].type.type = resolve_type(ctx, *sx, get<Decl*>(sx->owner));
-
-          if (is_pointer_type(type_cast<TupleType>(fntype->paramtuple)->fields[0]))
-          {
-            if (is_const_pointer(type_cast<TupleType>(fntype->paramtuple)->fields[0]))
-              parms[0].type = ctx.typetable.find_or_create<ConstType>(parms[0].type.type);
-
-            parms[0].type = ctx.typetable.find_or_create<PointerType>(parms[0].type.type);
-          }
-
-          break;
+          parms[0].type = ctx.typetable.find_or_create<PointerType>(parms[0].type.type);
         }
       }
 
       FindContext tx(ctx, var->name);
 
-      find_overloads(ctx, tx, stack, parms, namedparms, callee.candidates, callee.overloads);
+      for (auto scope = type_scope(ctx, remove_qualifiers_type(selftype)); scope; scope = base_scope(ctx, scope, QueryFlags::Public))
+      {
+        find_overloads(ctx, tx, scope, parms, namedparms, callee.candidates, callee.overloads);
+      }
+
+      find_overloads(ctx, tx, scopeof_type(ctx, remove_qualifiers_type(selftype)), parms, namedparms, callee.candidates, callee.overloads);
+      find_overloads(ctx, tx, scopeof_type(ctx, thistype), parms, namedparms, callee.candidates, callee.overloads);
+      find_overloads(ctx, tx, ctx.stack, parms, namedparms, callee.candidates, callee.overloads);
 
       callee.overloads.erase(remove_if(callee.overloads.begin(), callee.overloads.end(), [&](auto &fx){
 
         if (fx.fn->parms.size() != parms.size())
           return true;
 
-        if (is_throws(ctx, fx) != (fntype->throwtype != ctx.voidtype))
+        if (is_throws(ctx, fx) && !(fntype->throwtype != ctx.voidtype))
           return true;
 
         if (find_returntype(ctx, fx).type != fntype->returntype)
@@ -5472,11 +5492,41 @@ namespace
       if (fntype->throwtype != ctx.voidtype)
         callee.fx.throwtype = fntype->throwtype;
 
+      if (is_throws(ctx, callee.fx, &callee.fx.throwtype))
+      {
+        if (callee.fx.throwtype != fntype->throwtype)
+        {
+          ctx.diag.error("unable to resolve throw type", ctx.stack.back(), loc);
+          return false;
+        }
+      }
+
       elements.push_back(ctx.mir.make_expr<FunctionPointerExpr>(callee.fx, var->loc()));
     }
 
     result.type = MIR::Local(thistype, MIR::Local::Const | MIR::Local::Literal);
     result.value = ctx.mir.make_expr<CompoundLiteralExpr>(elements, loc);
+
+    return true;
+  }
+
+  bool lower_vtor(LowerContext &ctx, MIR::Fragment &result, FnSig &callee, SourceLocation loc)
+  {
+    auto thistype = find_returntype(ctx, callee).type;
+
+    auto selftype = thistype;
+    for (auto sx = ctx.stack.rbegin(); sx != ctx.stack.rend(); ++sx)
+    {
+      if (!is_tag_scope(*sx))
+        continue;
+
+      selftype = resolve_type(ctx, *sx, get<Decl*>(sx->owner));
+
+      break;
+    }
+
+    if (!lower_vtor(ctx, result, type_cast<TagType>(thistype), selftype, loc))
+      return false;
 
     return true;
   }
@@ -6047,7 +6097,7 @@ namespace
       if (fx.fn->parms.size() != parms.size())
         return true;
 
-      if (is_throws(ctx, fx) != (fntype->throwtype != ctx.voidtype))
+      if (is_throws(ctx, fx) && !(fntype->throwtype != ctx.voidtype))
         return true;
 
       if (find_returntype(ctx, fx).type != fntype->returntype)
@@ -6068,6 +6118,15 @@ namespace
 
     if (fntype->throwtype != ctx.voidtype)
       callee.fx.throwtype = fntype->throwtype;
+
+    if (is_throws(ctx, callee.fx, &callee.fx.throwtype))
+    {
+      if (callee.fx.throwtype != fntype->throwtype)
+      {
+        ctx.diag.error("unable to resolve throw type", ctx.stack.back(), loc);
+        return false;
+      }
+    }
 
     result.type = MIR::Local(fntype, MIR::Local::Const | MIR::Local::Reference);
     result.value = MIR::RValue::literal(ctx.mir.make_expr<FunctionPointerExpr>(callee.fx, loc));
@@ -6633,10 +6692,7 @@ namespace
           return false;
         }
 
-        vector<Scope> stack;
-        seed_stack(stack, type_scope(ctx, parms[k].type.type));
-
-        lower_vtor(ctx, parms[k], stack, type_cast<TagType>(parmtype), parms[k].value.loc());
+        lower_vtor(ctx, parms[k], type_cast<TagType>(parmtype), parms[k].type.type, parms[k].value.loc());
       }
 
       if (is_refn_type(ctx, parm))
@@ -6714,7 +6770,7 @@ namespace
           return true;
 
         case Builtin::VTable_Constructor:
-          lower_vtor(ctx, result, ctx.stack, type_cast<TagType>(find_returntype(ctx, callee).type), loc);
+          lower_vtor(ctx, result, callee, loc);
           return true;
 
         case Builtin::Builtin_Destructor:
@@ -7099,7 +7155,7 @@ namespace
       for (auto &element : arrayliteral->elements)
       {
         if ((is_bool_type(elemtype) && element->kind() != Expr::BoolLiteral) ||
-            (is_char_type(elemtype) && element->kind() != Expr::CharLiteral) ||
+            (is_char_type(elemtype) && (element->kind() != Expr::IntLiteral && element->kind() != Expr::CharLiteral)) ||
             (is_int_type(elemtype) && element->kind() != Expr::IntLiteral) ||
             (is_float_type(elemtype) && element->kind() != Expr::FloatLiteral) ||
             (is_string_type(elemtype) && element->kind() != Expr::StringLiteral) ||
@@ -7338,25 +7394,28 @@ namespace
 
       if (vardecl->kind() == Decl::FieldVar)
       {
-        MIR::Fragment base;
-
-        if (ctx.mir.fx.fn->flags & FunctionDecl::Constructor)
+        if (ctx.mir.fx.fn)
         {
-          base.type = ctx.mir.locals[0];
-          base.value = MIR::RValue::local(MIR::RValue::Ref, 0, loc);
+          MIR::Fragment base;
+
+          if (ctx.mir.fx.fn->flags & FunctionDecl::Constructor)
+          {
+            base.type = ctx.mir.locals[0];
+            base.value = MIR::RValue::local(MIR::RValue::Ref, 0, loc);
+          }
+          else
+          {
+            auto arg = ctx.mir.fx.throwtype ? 2 : 1;
+            base.type = resolve_as_reference(ctx, ctx.mir.locals[arg]);
+            base.value = MIR::RValue::local(MIR::RValue::Val, arg, loc);
+          }
+
+          auto field = find_field(ctx, type_cast<TagType>(base.type.type), decl_cast<FieldVarDecl>(vardecl)->name);
+
+          lower_field(ctx, result, base, field, loc);
+
+          return true;
         }
-        else
-        {
-          auto arg = ctx.mir.fx.throwtype ? 2 : 1;
-          base.type = resolve_as_reference(ctx, ctx.mir.locals[arg]);
-          base.value = MIR::RValue::local(MIR::RValue::Val, arg, loc);
-        }
-
-        auto field = find_field(ctx, type_cast<TagType>(base.type.type), decl_cast<FieldVarDecl>(vardecl)->name);
-
-        lower_field(ctx, result, base, field, loc);
-
-        return true;
       }
 
       ctx.diag.error("variable not defined in this context", ctx.stack.back(), loc);
@@ -8029,7 +8088,7 @@ namespace
         auto lhs = base_type(parms[0].type.type);
         auto rhs = base_type(parms[1].type.type);
 
-        if ((is_builtin_type(lhs) || is_array_type(lhs) || is_tuple_type(lhs) || is_enum_type(lhs) || is_pointer_type(lhs)) && (is_builtin_type(rhs) || is_array_type(rhs) || is_tuple_type(rhs) || is_enum_type(rhs) || is_pointer_type(rhs)))
+        if (lhs != parms[0].type.type || rhs != parms[1].type.type)
         {
           lower_base_cast(ctx, parms[0], parms[0], lhs, loc);
           lower_base_cast(ctx, parms[1], parms[1], rhs, loc);
@@ -9189,7 +9248,10 @@ namespace
     if (vardecl->flags & VarDecl::Literal)
     {
       if (!(value.type.flags & MIR::Local::Literal))
+      {
         ctx.diag.error("non literal value", ctx.stack.back(), vardecl->loc());
+        return;
+      }
 
       if (vardecl->pattern)
       {
@@ -9451,8 +9513,6 @@ namespace
   void lower_decl(LowerContext &ctx, ThisVarDecl *thisvar)
   {
     assert(ctx.mir.fx.fn->flags & FunctionDecl::Constructor);
-
-    ctx.add_statement(MIR::Statement::storagelive(0));
 
     ctx.mir.add_varinfo(0, thisvar);
 
@@ -12676,10 +12736,6 @@ MIR const &lower(FnSig const &fx, TypeTable &typetable, Diag &diag)
 #endif
 
   backfill(ctx, ctx.mir);
-
-#if 1
-  lifetime(ctx.mir, typetable, ctx.diag);
-#endif
 
   return Cache::commit(fx, std::move(ctx.mir), ctx.diag);
 }

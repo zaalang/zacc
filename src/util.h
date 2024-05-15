@@ -1,7 +1,7 @@
 //
 // util.h
 //
-// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -280,6 +280,50 @@ inline std::string unescape(std::string_view str)
           int cc;
           ch = std::from_chars(ch+1, std::min(ch+3, end), cc, 16).ptr - 1;
           result += char(cc);
+          continue;
+        }
+
+        case 'u':
+        case 'U': {
+          unsigned int cc;
+
+          switch (*ch)
+          {
+            case 'u':
+              ch = std::from_chars(ch+1, std::min(ch+5, end), cc, 16).ptr - 1;
+              break;
+
+            case 'U':
+              ch = std::from_chars(ch+1, std::min(ch+9, end), cc, 16).ptr - 1;
+              break;
+          }
+
+          if (cc <= 0x7f)
+          {
+            result += cc;
+          }
+
+          else if (cc <= 0x7ff)
+          {
+            result += 0b11000000 | (cc >> 6);
+            result += 0b10000000 | (cc & 0b00111111);
+          }
+
+          else if (cc<= 0xffff)
+          {
+            result += 0b11100000 | (cc >> 12);
+            result += 0b10000000 | ((cc >> 6) & 0b00111111);
+            result += 0b10000000 | (cc & 0b00111111);
+          }
+
+          else if (cc <= 0x10ffff)
+          {
+            result += 0b11110000 | (cc >> 18);
+            result += 0b10000000 | ((cc >> 12) & 0b00111111);
+            result += 0b10000000 | ((cc >> 6) & 0b00111111);
+            result += 0b10000000 | (cc & 0b00111111);
+          }
+
           continue;
         }
 

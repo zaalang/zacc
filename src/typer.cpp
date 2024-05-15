@@ -1,7 +1,7 @@
 //
 // typer.cpp
 //
-// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -884,9 +884,9 @@ namespace
         case Decl::TypeArg:
         case Decl::TypeAlias:
         case Decl::Struct:
-        case Decl::Union:
-        case Decl::VTable:
         case Decl::Concept:
+        case Decl::VTable:
+        case Decl::Union:
         case Decl::Enum:
           usein->decl = decl;
           break;
@@ -978,22 +978,17 @@ namespace
 
     switch (decl->kind())
     {
-      case Decl::TypeArg:
+      case Decl::Struct:
+      case Decl::Union:
+      case Decl::VTable:
+      case Decl::Enum:
         typeref->decl = decl;
+        typeref->args = child_scope(ctx, scope, decl_cast<TagDecl>(decl), k, declref->args, declref->namedargs, sema).typeargs;
         break;
 
       case Decl::TypeAlias:
         typeref->decl = decl;
         typeref->args = child_scope(ctx, scope, decl_cast<TypeAliasDecl>(decl), k, declref->args, declref->namedargs, sema).typeargs;
-        break;
-
-      case Decl::Struct:
-      case Decl::Union:
-      case Decl::VTable:
-      case Decl::Concept:
-      case Decl::Enum:
-        typeref->decl = decl;
-        typeref->args = child_scope(ctx, scope, decl_cast<TagDecl>(decl), k, declref->args, declref->namedargs, sema).typeargs;
         break;
 
       case Decl::EnumConstant:
@@ -1008,6 +1003,14 @@ namespace
       case Decl::DeclRef:
         dst = sema.make_typelit(sema.make_declref_expression(typeref->decl, declref->loc()));
         return;
+
+      case Decl::TypeArg:
+        typeref->decl = decl;
+        break;
+
+      case Decl::Concept:
+        dst = sema.make_typearg(typeref->decl, decl, child_scope(ctx, scope, decl_cast<TagDecl>(decl), k, declref->args, declref->namedargs, sema).typeargs);
+        break;
 
       default:
         ctx.diag.error("invalid type", scope, declref->loc());
@@ -1133,14 +1136,6 @@ namespace
       default:
         break;
     }
-  }
-
-  //|///////////////////// resolve_concept //////////////////////////////////
-  void resolve_type(TyperContext &ctx, Scope const &scope, ConceptDecl *koncept, TypeRefType *typeref, Type *&dst, Sema &sema)
-  {
-    auto arg = make_typearg(ctx, Ident::kw_var, koncept->loc(), sema);
-
-    dst = sema.make_typearg(arg, koncept, std::move(typeref->args));
   }
 
   //|///////////////////// resolve_typename /////////////////////////////////
@@ -1391,9 +1386,10 @@ namespace
         break;
 
       case Decl::Struct:
-      case Decl::Union:
+      case Decl::Concept:
       case Decl::VTable:
       case Decl::Lambda:
+      case Decl::Union:
       case Decl::Enum:
         resolve_type(ctx, scope, decl_cast<TagDecl>(typeref->decl), typeref, dst, sema);
         break;
@@ -1402,9 +1398,9 @@ namespace
         resolve_type(ctx, scope, decl_cast<EnumConstantDecl>(typeref->decl), typeref, dst, sema);
         break;
 
-      case Decl::Concept:
-        resolve_type(ctx, scope, decl_cast<ConceptDecl>(typeref->decl), typeref, dst, sema);
-        break;
+//      case Decl::Concept:
+//        resolve_type(ctx, scope, decl_cast<ConceptDecl>(typeref->decl), typeref, dst, sema);
+//        break;
 
       case Decl::TypeName:
         resolve_type(ctx, scope, decl_cast<TypeNameDecl>(typeref->decl), typeref, dst, sema);
@@ -1453,6 +1449,7 @@ namespace
       case Type::Function:
         resolve_type(ctx, scope, type_cast<FunctionType>(type)->returntype, sema);
         resolve_type(ctx, scope, type_cast<FunctionType>(type)->paramtuple, sema);
+        resolve_type(ctx, scope, type_cast<FunctionType>(type)->throwtype, sema);
         break;
 
       case Type::Pack:

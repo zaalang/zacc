@@ -1,7 +1,7 @@
 //
 // mir.cpp
 //
-// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -153,12 +153,12 @@ std::ostream &operator <<(std::ostream &os, MIR::RValue::VariableData const &var
 
   switch (op)
   {
-    case MIR::RValue::Val:
-      os << '_' << arg;
-      break;
-
     case MIR::RValue::Ref:
       os << '&' << '_' << arg;
+      break;
+
+    case MIR::RValue::Val:
+      os << '_' << arg;
       break;
 
     case MIR::RValue::Fer:
@@ -174,12 +174,12 @@ std::ostream &operator <<(std::ostream &os, MIR::RValue::VariableData const &var
   {
     switch (field.op)
     {
-      case MIR::RValue::Val:
-        os << "->" << field.index;
-        break;
-
       case MIR::RValue::Ref:
         os << '.' << field.index;
+        break;
+
+      case MIR::RValue::Val:
+        os << "->" << field.index;
         break;
 
       case MIR::RValue::Fer:
@@ -658,39 +658,6 @@ MIR::Block &insert_blocks(MIR &mir, MIR::block_t position, size_t count)
   }
 
   return *j;
-}
-
-//|///////////////////// find_assignment //////////////////////////////////
-bool find_assignment(MIR &mir, MIR::local_t dst, MIR::Block *&block, MIR::Statement *&statement)
-{
-  while (true)
-  {
-    if (statement->kind == MIR::Statement::Assign && statement->dst == dst)
-      return true;
-
-    if (statement == &block->statements[0])
-    {
-      if (block == &mir.blocks[0])
-        return false;
-
-      block = &mir.blocks[block - &mir.blocks[0] - 1];
-      statement = &block->statements.back() + 1;
-    }
-
-    statement = &block->statements[statement - &block->statements[0] - 1];
-  }
-}
-
-//|///////////////////// find_assignment ////////////////////////////////////
-MIR::Statement *find_assignment(MIR &mir, MIR::local_t dst, MIR::Block &block, MIR::Statement &statement)
-{
-  auto *inblock = &block;
-  auto *instatement = &statement;
-
-  if (find_assignment(mir, dst, inblock, instatement))
-    return instatement;
-
-  return nullptr;
 }
 
 //|///////////////////// dump_mir ///////////////////////////////////////////

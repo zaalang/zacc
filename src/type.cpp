@@ -1,7 +1,7 @@
 //
 // type.cpp
 //
-// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -543,7 +543,12 @@ std::ostream &operator <<(std::ostream &os, Type const &type)
     case Type::Function:
       if (auto &fn = static_cast<FunctionType const &>(type); true)
       {
-        os << "fn " << *fn.paramtuple << " -> " << *fn.returntype;
+        os << "fn " << *fn.paramtuple;
+
+        if (fn.throwtype != Builtin::type(Builtin::Type_Void))
+          os << " throws(" << *fn.throwtype << ")";
+
+        os << " -> " << *fn.returntype;
       }
       break;
 
@@ -1593,8 +1598,11 @@ size_t offsetof_field(CompoundType const *type, size_t index)
 
        offset = (sizeof_field(type, 0) + alignment - 1) & -alignment;
      }
+
+     return offset;
   }
-  else
+
+  if (is_compound_type(type))
   {
     for (auto &field : type->fields)
     {
@@ -1612,7 +1620,9 @@ size_t offsetof_field(CompoundType const *type, size_t index)
 
       index -= 1;
     }
+
+    return offset;
   }
 
-  return offset;
+  return 0;
 }

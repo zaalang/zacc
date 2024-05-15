@@ -1,7 +1,7 @@
 //
 // type.h
 //
-// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -369,7 +369,7 @@ class TagType : public CompoundType
 class FunctionType : public Type
 {
   public:
-    FunctionType(Type *returntype, Type *paramtuple, Type *throwtype = nullptr);
+    FunctionType(Type *returntype, Type *paramtuple, Type *throwtype);
 
     Type *returntype;
     Type *paramtuple;

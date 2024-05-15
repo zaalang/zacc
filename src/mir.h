@@ -1,7 +1,7 @@
 //
 // mir.h
 //
-// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -190,8 +190,8 @@ class MIR
 
       enum Op
       {
-        Val,
         Ref,
+        Val,
         Fer,
         Idx,
       };
@@ -200,6 +200,11 @@ class MIR
       {
         Op op;
         field_t index;
+
+        friend bool operator ==(Field const &lhs, Field const &rhs)
+        {
+          return lhs.op == rhs.op && lhs.index == rhs.index;
+        }
       };
 
       using ConstantData = std::variant<VoidLiteralExpr*, BoolLiteralExpr*, CharLiteralExpr*, IntLiteralExpr*, FloatLiteralExpr*, PointerLiteralExpr*, FunctionPointerExpr*, StringLiteralExpr*, ArrayLiteralExpr*, CompoundLiteralExpr*>;
@@ -416,8 +421,6 @@ T *MIR::make_expr(Args&&... args)
 //|///////////////////// functions //////////////////////////////////////////
 
 MIR::Block &insert_blocks(MIR &mir, MIR::block_t position, size_t count = 1);
-
-MIR::Statement *find_assignment(MIR &mir, MIR::local_t dst, MIR::Block &block, MIR::Statement &statement);
 
 // misc
 

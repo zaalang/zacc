@@ -1,0 +1,110 @@
+import std.stdio;
+import std.algorithm;
+import std.vector;
+
+fn rotate()
+{
+  var c = std::vector<std::string>::from(["1", "2", "3", "4", "5"]);
+
+  std::rotate_left(c.begin, c.end);
+  std::rotate_left(&mut c, c.begin, c.end);
+  std::rotate_left!(&mut c);
+
+  std::rotate_right(c.begin, c.end);
+  std::rotate_right(&mut c, c.begin, c.end);
+  std::rotate_right!(&mut c);
+
+  std::rotate(&mut c, c.begin, c.begin + 1, c.end);
+  std::rotate!(&mut c, c.begin + 2);
+}
+
+fn reverse()
+{
+  var c = std::vector<std::string>::from(["1", "2", "3", "4", "5"]);
+
+  std::reverse(c.begin, c.end);
+  std::reverse(&mut c, c.begin, c.end);
+  std::reverse!(&mut c);
+}
+
+fn partition()
+{
+  var c = std::vector<std::string>::from(["111", "2", "33", "4", "55"]);
+
+  std::partition(&mut c, c.begin, c.end, |k| k.len < 2);
+  std::partition(&mut c, |k| k.len < 2);
+
+  std::is_partitioned(c, c.begin, c.end, |k| k.len < 2);
+  std::partition_point(c, c.begin, c.end, |k| k.len < 3);
+
+  std::stable_partition(&mut c, c.begin, c.end, |k| k.len < 3);
+  std::stable_partition(&mut c, |k| k.len < 3);
+
+  std::is_partitioned(c, |k| k.len < 3);
+  std::partition_point(c, |k| k.len < 3);
+}
+
+fn sort()
+{
+  var c = std::vector<std::string>::from(["1", "2", "3", "4", "5"]);
+
+  std::partial_sort!(&mut c, c.begin + 2, std::greater);
+  std::stable_sort!(&mut c, std::less);
+  std::sort!(&mut c, std::greater);
+}
+
+fn permutation()
+{
+  var c = std::vector<std::string>::from(["1", "2", "3", "4", "5"]);
+
+  std::next_permutation(&mut c, c.begin, c.end);
+  std::next_permutation(&mut c);
+
+  std::next_partial_permutation(&mut c, c.begin, c.begin + 2, c.end);
+  std::next_partial_permutation(&mut c, c.begin + 2);
+
+  std::next_combination(&mut c, c.begin, c.begin + 2, c.end);
+  std::next_combination(&mut c, c.begin + 2);
+}
+
+fn iteration()
+{
+  var c = std::vector<std::string>::from(["1", "2", "3", "4", "5"]);
+
+  std::each(&mut c, |k| k += ".0");
+
+  std::fold_left(c, std::string(""), |s, i| &&s + i);
+  std::fold_right(c, std::string(""), |s, i| &&s + i);
+
+  std::reduce_left(c, |s, i| &&s + i);
+  std::reduce_right(c, |s, i| &&s + i);
+}
+
+fn transform()
+{
+  var c = std::vector<std::string>::from(["1", "2", "3", "4", "5"]);
+
+  std::transform(c.begin, c.end, c.begin, c.end, |k| k + ".");
+  std::transform_backward(c.begin, c.end, c.begin, c.end, |k| k + ".");
+  std::transform_n(c.begin, c.end, c.begin, 3, |k| k + "!");
+
+  std::transform(&mut c, c.begin, c.end, |k| k + ".");
+  std::transform!(&mut c, |k| k + ".");
+
+  std::adjacent_transform<3>(&mut c, c.begin, c.end, |k| k.0 + k.1 + k.2);
+  std::adjacent_transform!<3>(&mut c, |k| k.0.substr(0, 1));
+
+  std::inclusive_scan(&mut c, c.begin, c.end, |s, k| &&s + k);
+  std::exclusive_scan(&mut c, c.begin, c.end, std::string("_"), |s, k| &&s + k);
+}
+
+fn main()
+{
+  rotate();
+  reverse();
+  partition();
+  sort();
+  permutation();
+  iteration();
+  transform();
+}

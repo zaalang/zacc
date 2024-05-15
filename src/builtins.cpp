@@ -1,7 +1,7 @@
 //
 // builtins.cpp
 //
-// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -176,7 +176,7 @@ namespace Builtin
 
           consume(cursor);
 
-          type = new FunctionType(type, new TupleType(fields));
+          type = new FunctionType(type, new TupleType(fields), new TypeArgType(new TypeArgDecl(Ident::kw_var, {})));
         }
 
         if (try_consume(cursor, "["))
@@ -439,8 +439,8 @@ namespace Builtin
     make_function(Not, "pub const fn ~<T>(T) -> T", __LINE__);
     make_function(PreInc, "pub fn ++<T>(T mut &) -> T mut &", __LINE__);
     make_function(PreDec, "pub fn --<T>(T mut &) -> T mut &", __LINE__);
-    make_function(DeRef, "pub fn *<T>(T*) -> T&", __LINE__);
-    make_function(DeRef, "pub fn *<T>(T mut *) -> T mut &", __LINE__);
+    make_function(DeRef, "pub fn *<T>(T*) -> T&", FunctionDecl::Builtin | FunctionDecl::Unsafe, __LINE__);
+    make_function(DeRef, "pub fn *<T>(T mut *) -> T mut &", FunctionDecl::Builtin | FunctionDecl::Unsafe, __LINE__);
     make_function(Range, "pub const fn ..<T, U>(T, U) -> (T, U)", __LINE__);
     make_function(Range, "pub const fn ..=<T, U>(T, U) -> (T, U, void)", __LINE__);
 
@@ -514,9 +514,11 @@ namespace Builtin
     make_function(StringLen, "pub const fn len(#string) -> usize", __LINE__);
     make_function(StringData, "pub fn data(#string) -> u8*", __LINE__);
     make_function(StringIndex, "pub fn [](#string, u8*) -> u8&", __LINE__);
+    make_function(StringIndex, "pub fn [](#string, usize) -> u8&", __LINE__);
     make_function(StringBegin, "pub fn begin(#string) -> u8*", __LINE__);
     make_function(StringEnd, "pub fn end(#string) -> u8*", __LINE__);
     make_function(StringSlice, "pub const fn [](#string, (usize, usize)) -> #string", __LINE__);
+    make_function(StringSlice, "pub const fn [](#string, (usize, usize, void)) -> #string", __LINE__);
     make_function(StringAppend, "pub const fn +(#string, #string) -> #string", __LINE__);
     make_function(StringCreate, "pub const fn #string(u8*, usize) -> #string", __LINE__);
     make_function(StringCreate, "pub const fn __string_literal(u8*, usize) -> #string", __LINE__);
@@ -524,8 +526,11 @@ namespace Builtin
     make_function(SliceLen, "pub const fn len<T>(T) -> usize", __LINE__);
     make_function(SliceData, "pub fn data<T>(T[]) -> T*", __LINE__);
     make_function(SliceIndex, "pub fn []<T>(T[], T*) -> T&", __LINE__);
+    make_function(SliceIndex, "pub fn []<T>(T[], usize) -> T&", __LINE__);
     make_function(SliceBegin, "pub fn begin<T>(T[]) -> T*", __LINE__);
     make_function(SliceEnd, "pub fn end<T>(T[]) -> T*", __LINE__);
+    make_function(SliceSlice, "pub const fn []<T>(T[], (usize, usize)) -> T[]", __LINE__);
+    make_function(SliceSlice, "pub const fn []<T>(T[], (usize, usize, void)) -> T[]", __LINE__);
 
     make_function(MatchRange, "pub const fn ~=<T>((T, T), T) -> bool", __LINE__);
     make_function(MatchRangeEq, "pub const fn ~=<T>((T, T, void), T) -> bool", __LINE__);
@@ -620,6 +625,9 @@ namespace Builtin
     make_function(decl_flags, "pub const fn __decl_flags(#declid) -> #int", __LINE__);
     make_function(decl_parent, "pub const fn __decl_parent(#declid) -> #declid", __LINE__);
     make_function(decl_children, "pub const fn __decl_children(#declid, #int = 0) -> #declid[]", __LINE__);
+    make_function(decl_site, "pub const fn __decl_site(#declid) -> (#string, int, int, #string)", __LINE__);
+    make_function(decl_attr, "pub const fn __decl_attr(#declid, #string) -> #declid", __LINE__);
+    make_function(attr_text, "pub const fn __attr_text(#declid) -> #string", __LINE__);
     make_function(type_decl, "pub const fn #declid(#typeid) -> #declid", __LINE__);
     make_function(type_name, "pub const fn __type_name(#typeid) -> #string", __LINE__);
     make_function(type_children, "pub const fn __type_children(#typeid, #int = 0) -> #declid[]", __LINE__);

@@ -1,7 +1,7 @@
 //
 // lower.h
 //
-// Copyright (c) 2020-2023 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -33,6 +33,8 @@ struct TypeTable
   std::vector<TypeLitType*> string_literal_types;
   std::vector<TypeLitType*> other_literal_types;
 
+  std::unordered_map<Decl*, TypeArgType*> arg_types;
+
   Type *var_defn = make_type<TypeArgType>(new TypeArgDecl({}));
   TupleType *empty_tuple = make_type<TupleType>(std::vector<Type*>{}, std::vector<Type*>{});
 
@@ -60,6 +62,9 @@ struct TypeTable
 
   template<typename T>
   T *find_or_create(Type *returntype, Type *paramtuple, Type *throwtype);
+
+  template<typename T>
+  T *find_or_create(Decl *decl, Decl *koncept, std::vector<std::pair<Decl*, Type*>> const &args);
 
   template<typename T>
   T *find_or_create(Expr *expr);
@@ -332,6 +337,21 @@ template<>
 inline ConstantType *TypeTable::create<ConstantType>(Decl *decl, Type *type)
 {
   return constant_types.emplace(decl, make_type<ConstantType>(decl, type))->second;
+}
+
+template<>
+inline TypeArgType *TypeTable::find_or_create<TypeArgType>(Decl *decl, Decl *koncept, std::vector<std::pair<Decl*, Type*>> const &args)
+{
+  auto range = arg_types.equal_range(decl);
+
+  auto j = find_if(range.first, range.second, [&](auto &k) { return k.second->koncept == koncept && k.second->args == args; });
+
+  if (j == arg_types.end())
+  {
+    j = arg_types.emplace(decl, make_type<TypeArgType>(decl, koncept, args)).first;
+  }
+
+  return j->second;
 }
 
 template<typename T, typename ...Args>

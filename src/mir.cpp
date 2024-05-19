@@ -166,7 +166,7 @@ std::ostream &operator <<(std::ostream &os, MIR::RValue::VariableData const &var
       break;
 
     case MIR::RValue::Idx:
-      assert(false);
+      os << '+' << '_' << arg;
       break;
   }
 

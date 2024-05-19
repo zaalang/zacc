@@ -888,7 +888,7 @@ void apply(Context &ctx, MIR const &mir, Lifetime const &annotation, MIR::local_
           {
             for (auto src : ctx.threads[0].locals[args[arg]].depends_upon)
               for (auto dep : ctx.threads[0].locals[get<1>(*src)].depends_upon)
-                depends(ctx, mir, dst, ctx.make_field(dep, get<2>(*src).begin(), get<2>(*src).begin()));
+                depends(ctx, mir, dst, ctx.make_field(dep, get<2>(*src).begin(), get<2>(*src).end()));
           }
           else
           {

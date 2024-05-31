@@ -11703,15 +11703,19 @@ namespace
       if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
         realise_destructor(ctx, arg, swtch->cond->loc());
 
-      base.type = ctx.mir.locals[arg];
-      base.value = MIR::RValue::local(MIR::RValue::Val, arg, swtch->cond->loc());
+      condition.type = ctx.mir.locals[arg];
+      condition.value = MIR::RValue::local(MIR::RValue::Val, arg, swtch->cond->loc());
 
-      condition = base;
-
-      auto field = find_field(ctx, type_cast<CompoundType>(base.type.type), 0);
+      auto field = find_field(ctx, type_cast<CompoundType>(condition.type.type), 0);
 
       if (!lower_field(ctx, condition, condition, field, swtch->cond->loc()))
         return;
+
+      base.type = ctx.mir.locals[arg];
+      base.value = MIR::RValue::local(MIR::RValue::Val, arg, swtch->cond->loc());
+
+      if ((base.type.flags & MIR::Local::XValue) && !(base.type.flags & MIR::Local::Const))
+        base.type.flags = (base.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
     }
 
     auto is_native = is_int_type(condition.type.type) || is_char_type(condition.type.type) || is_enum_type(condition.type.type);

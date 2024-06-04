@@ -3810,7 +3810,7 @@ namespace
 
         auto aliastype = resolve_type(ctx, aliasscope, alias->type);
 
-        FindContext ttx(ctx, aliastype, tx.queryflags);
+        FindContext ttx(ctx, aliastype, tx.queryflags & ~QueryFlags::Public);
 
         find_overloads(ctx, ttx, scopeof_type(ctx, aliastype), parms, namedparms, candidates, results);
       }
@@ -10943,6 +10943,7 @@ namespace
           realise(ctx, arg, range);
 
           range.type.flags &= ~MIR::Local::MutRef;
+
           commit_type(ctx, arg, range.type.type, range.type.flags);
 
           if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
@@ -10959,6 +10960,7 @@ namespace
             map<Ident*, MIR::Fragment> namedparms;
 
             parms[0].type = ctx.mir.locals[arg];
+            parms[0].type.flags &= ~MIR::Local::MoveRef;
             parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, var->loc());
 
             if (!lower_expr(ctx, iterator, UnaryOpExpr::Begin, parms, namedparms, var->loc()))
@@ -10981,6 +10983,7 @@ namespace
             map<Ident*, MIR::Fragment> namedparms;
 
             parms[0].type = ctx.mir.locals[arg];
+            parms[0].type.flags &= ~MIR::Local::MoveRef;
             parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, var->loc());
 
             if (!lower_expr(ctx, iterator, UnaryOpExpr::End, parms, namedparms, var->loc()))
@@ -11049,6 +11052,7 @@ namespace
       map<Ident*, MIR::Fragment> namedparms;
 
       parms[0].type = ctx.mir.locals[arg];
+      parms[0].type.flags &= ~MIR::Local::MoveRef;
       parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, rangevar->loc());
 
       parms[1].type = ctx.mir.locals[beg];
@@ -11186,6 +11190,7 @@ namespace
           realise(ctx, arg, range);
 
           range.type.flags &= ~MIR::Local::MutRef;
+
           commit_type(ctx, arg, range.type.type, range.type.flags);
 
           if (!(ctx.mir.locals[arg].flags & MIR::Local::Reference))
@@ -11202,6 +11207,7 @@ namespace
             map<Ident*, MIR::Fragment> namedparms;
 
             parms[0].type = ctx.mir.locals[arg];
+            parms[0].type.flags &= ~MIR::Local::MoveRef;
             parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, var->loc());
 
             if (!lower_expr(ctx, iterator, UnaryOpExpr::Begin, parms, namedparms, var->loc()))
@@ -11224,6 +11230,7 @@ namespace
             map<Ident*, MIR::Fragment> namedparms;
 
             parms[0].type = ctx.mir.locals[arg];
+            parms[0].type.flags &= ~MIR::Local::MoveRef;
             parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, var->loc());
 
             if (!lower_expr(ctx, iterator, UnaryOpExpr::End, parms, namedparms, var->loc()))
@@ -11317,6 +11324,7 @@ namespace
       map<Ident*, MIR::Fragment> namedparms;
 
       parms[0].type = ctx.mir.locals[arg];
+      parms[0].type.flags &= ~MIR::Local::MoveRef;
       parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, rangevar->loc());
 
       parms[1].type = ctx.mir.locals[end];

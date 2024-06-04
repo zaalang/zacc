@@ -116,6 +116,9 @@ std::ostream &operator <<(std::ostream &os, MIR::Local const &local)
     if (local.flags & MIR::Local::XValue)
       os << " xvalue";
 
+    if (local.flags & MIR::Local::MoveRef)
+      os << " moveref";
+
     if (local.flags & MIR::Local::Unaligned)
       os << " unaligned";
 

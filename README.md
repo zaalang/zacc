@@ -126,7 +126,7 @@ $ zacc/bin/zacc -I ./std -L ./zrt/lib test.zaa -lzrt
       #for(const k : std::meta::fields_of($T))
         tuple = std::meta::tuple_append(tuple, $T::#k);  // append reflection of field
   
-      -> { using type = $(tuple); }       // injection of type alias into struct scope
+      -> { using type = ${tuple}; }       // injection of type alias into struct scope
     }
   }
   

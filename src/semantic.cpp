@@ -699,6 +699,17 @@ namespace
 
       if (attribute->name == "packed")
         tagdecl->flags |= Type::Packed;
+
+      if (attribute->name == "align")
+      {
+        size_t align = 0;
+        std::from_chars(attribute->options.data()+1, attribute->options.data() + attribute->options.size() - 1, align, 10);
+
+        if ((align & (align - 1)) != 0)
+          ctx.diag.error("non power-of-two struct alignment", ctx.file, tagdecl->loc());
+
+        tagdecl->alignment = align;
+      }
     }
   }
 

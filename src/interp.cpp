@@ -13,7 +13,6 @@
 #include "copier.h"
 #include "numeric.h"
 #include "semantic.h"
-#include "typer.h"
 #include <iostream>
 #include <algorithm>
 #include <cstring>
@@ -1250,7 +1249,20 @@ namespace
           rhs = remove_pointference_type(rhs);
       }
 
-      switch (rhs = remove_const_type(rhs); rhs->klass())
+      rhs = remove_const_type(rhs);
+
+      if (is_union_type(rhs) && field.index != 0)
+      {
+        auto active = load_int(ctx, src, type(Builtin::Type_ISize));
+
+        if (active.value != field.index)
+        {
+          ctx.diag.error("inactive field dereference", fx.scope, loc);
+          return false;
+        }
+      }
+
+      switch (rhs->klass())
       {
         case Type::Tag:
         case Type::Tuple:

@@ -327,6 +327,12 @@ inline std::string unescape(std::string_view str)
           continue;
         }
 
+        case '\r':
+        case '\n':
+          while (ch + 1 != end && std::isspace(*(ch + 1)))
+            ++ch;
+          continue;
+
         default:
           break;
       }

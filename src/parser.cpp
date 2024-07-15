@@ -565,7 +565,7 @@ namespace
   {
     vector<Decl*> bindings;
 
-    while (ctx.tok != Token::r_paren && ctx.tok != Token::semi && ctx.tok != Token::eof)
+    while (ctx.tok != Token::r_square && ctx.tok != Token::semi && ctx.tok != Token::eof)
     {
       auto var = sema.var_declaration(ctx.tok.loc);
 
@@ -593,13 +593,13 @@ namespace
           break;
       }
 
-      if (ctx.try_consume_token(Token::l_paren))
+      if (ctx.try_consume_token(Token::l_square))
       {
         var->pattern = sema.tuple_pattern(parse_var_bindings_list(ctx, flags, sema), loc);
 
-        if (!ctx.try_consume_token(Token::r_paren))
+        if (!ctx.try_consume_token(Token::r_square))
         {
-          ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+          ctx.diag.error("expected bracket", ctx.text, ctx.tok.loc);
           break;
         }
       }
@@ -898,18 +898,18 @@ namespace
 
         auto loc = ctx.tok.loc;
 
-        if (ctx.tok != Token::l_paren)
+        if (ctx.tok != Token::l_square)
         {
           var->name = parse_ident(ctx, IdentUsage::VarName, sema);
         }
 
-        if (ctx.try_consume_token(Token::l_paren))
+        if (ctx.try_consume_token(Token::l_square))
         {
           var->pattern = sema.tuple_pattern(parse_var_bindings_list(ctx, var->flags, sema), loc);
 
-          if (!ctx.try_consume_token(Token::r_paren))
+          if (!ctx.try_consume_token(Token::r_square))
           {
-            ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+            ctx.diag.error("expected bracket", ctx.text, ctx.tok.loc);
             break;
           }
         }
@@ -2909,18 +2909,18 @@ namespace
 
     auto loc = ctx.tok.loc;
 
-    if (ctx.tok != Token::l_paren)
+    if (ctx.tok != Token::l_square)
     {
       var->name = parse_ident(ctx, IdentUsage::VarName, sema);
     }
 
-    if (ctx.try_consume_token(Token::l_paren))
+    if (ctx.try_consume_token(Token::l_square))
     {
       var->pattern = sema.tuple_pattern(parse_var_bindings_list(ctx, var->flags, sema), loc);
 
-      if (!ctx.try_consume_token(Token::r_paren))
+      if (!ctx.try_consume_token(Token::r_square))
       {
-        ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+        ctx.diag.error("expected bracket", ctx.text, ctx.tok.loc);
         goto resume;
       }
     }
@@ -4735,18 +4735,18 @@ namespace
 
           auto loc = ctx.tok.loc;
 
-          if (ctx.tok != Token::l_paren)
+          if (ctx.tok != Token::l_square)
           {
             var->name = parse_ident(ctx, IdentUsage::VarName, sema);
           }
 
-          if (ctx.try_consume_token(Token::l_paren))
+          if (ctx.try_consume_token(Token::l_square))
           {
             var->pattern = sema.tuple_pattern(parse_var_bindings_list(ctx, var->flags, sema), loc);
 
-            if (!ctx.try_consume_token(Token::r_paren))
+            if (!ctx.try_consume_token(Token::r_square))
             {
-              ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+              ctx.diag.error("expected bracket", ctx.text, ctx.tok.loc);
               goto resume;
             }
           }

@@ -1338,6 +1338,11 @@ size_t sizeof_type(TagType const *type)
     }
   }
 
+  if (auto alignment = decl_cast<TagDecl>(type->decl)->alignment; alignment != 0)
+  {
+    align = max(align, alignment);
+  }
+
   return (size + align - 1) & -align;
 }
 
@@ -1462,6 +1467,11 @@ size_t alignof_type(TagType const *type)
     {
       align = max(align, alignof_type(field));
     }
+  }
+
+  if (auto alignment = decl_cast<TagDecl>(type->decl)->alignment; alignment != 0)
+  {
+    align = max(align, alignment);
   }
 
   return align;

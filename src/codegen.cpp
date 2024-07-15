@@ -1175,6 +1175,24 @@ namespace
     throw logic_error("invalid literal expression");
   }
 
+  //|///////////////////// assert ///////////////////////////////////////////
+  void codegen_assert_div0(GenContext &ctx, FunctionContext &fx, llvm::Value *value)
+  {
+    ctx.builder.CreateCall(ctx.assert_div0, { value } );
+  }
+
+  //|///////////////////// assert ///////////////////////////////////////////
+  void codegen_assert_carry(GenContext &ctx, FunctionContext &fx, llvm::Value *value)
+  {
+    ctx.builder.CreateCall(ctx.assert_carry, { value } );
+  }
+
+  //|///////////////////// assert ///////////////////////////////////////////
+  void codegen_assert_deref(GenContext &ctx, FunctionContext &fx, llvm::Value *value)
+  {
+    ctx.builder.CreateCall(ctx.assert_deref, { value } );
+  }
+
   //|///////////////////// codegen_global ///////////////////////////////////
   void codegen_global(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, llvm::Constant *value, llvm::GlobalValue::LinkageTypes linkage)
   {
@@ -1429,8 +1447,20 @@ namespace
 
       rhs.type = remove_const_type(rhs.type);
 
+      if (rhs.type->flags & Type::Packed)
+        rhs.flags |= MIR::Local::Unaligned;
+
       if (is_union_type(rhs.type) && field.index != 0)
       {
+        if (ctx.genopts.checkmode == GenOpts::CheckedMode::Checked)
+        {
+          index.push_back(ctx.builder.getInt32(0));
+          auto active = ctx.builder.CreateAlignedLoad(ctx.builder.getInt64Ty(), ctx.builder.CreateInBoundsGEP(basetype, base, index), llvm_align(ctx, type_cast<CompoundType>(rhs.type)->fields[0], rhs.flags));
+          index.pop_back();
+
+          codegen_assert_deref(ctx, fx, ctx.builder.CreateICmpNE(active, ctx.builder.getInt64(field.index)));
+        }
+
         index.push_back(ctx.builder.getInt32(1));
 
         rhs = type_cast<CompoundType>(rhs.type)->fields[field.index];
@@ -1438,11 +1468,9 @@ namespace
 
         index.resize(1);
         basetype = llvm_type(ctx, rhs.type, rhs.flags, true);
+
         continue;
       }
-
-      if (rhs.type->flags & Type::Packed)
-        rhs.flags |= MIR::Local::Unaligned;
 
       switch (rhs.type->klass())
       {
@@ -1547,24 +1575,6 @@ namespace
         assert(false);
         break;
     }
-  }
-
-  //|///////////////////// assert ///////////////////////////////////////////
-  void codegen_assert_div0(GenContext &ctx, FunctionContext &fx, llvm::Value *value)
-  {
-    ctx.builder.CreateCall(ctx.assert_div0, { value } );
-  }
-
-  //|///////////////////// assert ///////////////////////////////////////////
-  void codegen_assert_carry(GenContext &ctx, FunctionContext &fx, llvm::Value *value)
-  {
-    ctx.builder.CreateCall(ctx.assert_carry, { value } );
-  }
-
-  //|///////////////////// assert ///////////////////////////////////////////
-  void codegen_assert_deref(GenContext &ctx, FunctionContext &fx, llvm::Value *value)
-  {
-    ctx.builder.CreateCall(ctx.assert_deref, { value } );
   }
 
   //|///////////////////// checked //////////////////////////////////////////

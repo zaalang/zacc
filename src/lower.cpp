@@ -74,6 +74,8 @@ namespace
     unordered_map<Decl*, MIR::local_t> locals;
     unordered_map<Decl*, MIR::Fragment> symbols;
 
+    unordered_map<Decl*, bool> suppressed;
+
     MIR::local_t add_local()
     {
       return mir.add_local(MIR::Local());
@@ -248,7 +250,7 @@ namespace
 
     vector<Scope> stack;
 
-    Scope inducedscope;
+    Scope labelscope;
 
     VarDecl *nrvo = nullptr;
     bool is_expression = false;
@@ -585,6 +587,9 @@ namespace
   //|///////////////////// eval /////////////////////////////////////////////
   int eval(LowerContext &ctx, Scope const &scope, unordered_map<Decl*, MIR::Fragment> const &symbols, Expr *expr)
   {
+    if (ctx.suppressed.size() != 0)
+      return -1;
+
     auto result = evaluate(scope, expr, symbols, ctx.typetable, ctx.diag, expr->loc());
 
     if (result.type != ctx.booltype)
@@ -3550,7 +3555,13 @@ namespace
                 seed_stack(stack, fx);
 
                 if (auto type = find_type(ctx, stack, parm->defult))
-                  deduce_type(ctx, fnscope, fx, parm, type);
+                {
+                  type.flags |= MIR::Local::RValue;
+                  type.flags |= MIR::Local::Literal;
+
+                  if (!deduce_type(ctx, fnscope, fx, parm, type))
+                    viable = false;
+                }
               }
             }
           }
@@ -4420,9 +4431,9 @@ namespace
       find_overloads(ctx, tx, stack, parms, namedparms, callee.candidates, callee.overloads);
     }
 
-    if (callee.overloads.empty() && ctx.inducedscope)
+    if (callee.overloads.empty() && ctx.labelscope)
     {
-      find_overloads(ctx, tx, ctx.inducedscope, parms, namedparms, callee.candidates, callee.overloads);
+      find_overloads(ctx, tx, ctx.labelscope, parms, namedparms, callee.candidates, callee.overloads);
     }
 
     resolve_overloads(ctx, callee.fx, callee.overloads, parms, namedparms);
@@ -5364,6 +5375,24 @@ namespace
     result.type.flags = MIR::Local::Const | MIR::Local::Literal;
     result.value = MIR::RValue::literal(type_cast<TypeLitType>(V)->value);
 
+    switch (auto expr = type_cast<TypeLitType>(V)->value; expr->kind())
+    {
+      case Expr::CharLiteral:
+        result.value = ctx.mir.make_expr<CharLiteralExpr>(expr_cast<CharLiteralExpr>(expr)->value(), loc);
+        break;
+
+      case Expr::IntLiteral:
+        result.value = ctx.mir.make_expr<IntLiteralExpr>(expr_cast<IntLiteralExpr>(expr)->value(), loc);
+        break;
+
+      case Expr::FloatLiteral:
+        result.value = ctx.mir.make_expr<FloatLiteralExpr>(expr_cast<FloatLiteralExpr>(expr)->value(), loc);
+        break;
+
+      default:
+        break;
+    }
+
     return true;
   }
 
@@ -6139,47 +6168,44 @@ namespace
   {
     MIR::Fragment value;
 
-    if (is_enum_type(type))
+    switch (label->kind())
     {
-      auto tagtype = type_cast<TagType>(type);
+      case Expr::DeclRef: {
+        vector<MIR::Fragment> parms;
+        map<Ident*, MIR::Fragment> namedparms;
 
-      if ((tagtype->decl->flags & Decl::Public) || get_module(tagtype->decl) == ctx.module)
-      {
-        if (auto declref = is_declrefdecl_expr(label))
+        if (auto callee = find_callee(ctx, ctx.stack, type_scope(ctx, type), expr_cast<DeclRefExpr>(label)->decl, parms, namedparms); callee)
         {
-          vector<Decl*> decls;
+          if (!lower_call(ctx, value, callee.fx, parms, namedparms, label->loc()))
+            return false;
 
-          auto typescope = type_scope(ctx, type);
-
-          find_decls(ctx, typescope, declref->name, QueryFlags::Enums, decls);
-
-          if (decls.size() == 1)
-          {
-            auto constant = resolve_type(ctx, typescope, type, decl_cast<EnumConstantDecl>(decls[0]));
-
-            value.type = type;
-            value.value = MIR::RValue::literal(type_cast<TypeLitType>(type_cast<ConstantType>(constant)->expr)->value);
-          }
+          break;
         }
       }
-    }
 
-    if (!value)
-    {
-      if (!lower_expr(ctx, value, label))
-        return false;
-    }
+      [[fallthrough]];
 
-    if (value.type.type != type && !is_int_type(type) && !is_char_type(type))
-    {
-      ctx.diag.error("type mismatch on case label", ctx.stack.back(), label->loc());
-      ctx.diag << "  label type: '" << *value.type.type << "' wanted: '" << *type << "'\n";
-      return false;
+      default:
+
+        if (is_tag_type(type))
+          ctx.labelscope = type_scope(ctx, type);
+
+        if (!lower_expr(ctx, value, label))
+          return false;
+
+        ctx.labelscope = {};
     }
 
     if (is_constant(ctx, value) && get_if<BoolLiteralExpr*>(&value.value.get<MIR::RValue::Constant>()))
     {
       auto literal = get<BoolLiteralExpr*>(value.value.get<MIR::RValue::Constant>());
+
+      if (!is_int_type(type) && value.type.type != type)
+      {
+        ctx.diag.error("type mismatch on case label", ctx.stack.back(), label->loc());
+        ctx.diag << "  label type: '" << *value.type.type << "' wanted: '" << *type << "'\n";
+        return false;
+      }
 
       result.push_back(literal->value());
 
@@ -6190,6 +6216,13 @@ namespace
     {
       auto literal = get<CharLiteralExpr*>(value.value.get<MIR::RValue::Constant>());
 
+      if (!is_int_type(type) && !is_char_type(type) && value.type.type != type)
+      {
+        ctx.diag.error("type mismatch on case label", ctx.stack.back(), label->loc());
+        ctx.diag << "  label type: '" << *value.type.type << "' wanted: '" << *type << "'\n";
+        return false;
+      }
+
       result.push_back(literal->value().value);
 
       return true;
@@ -6199,6 +6232,13 @@ namespace
     {
       auto literal = get<IntLiteralExpr*>(value.value.get<MIR::RValue::Constant>());
 
+      if (!is_int_type(type) && !is_char_type(type) && value.type.type != type)
+      {
+        ctx.diag.error("type mismatch on case label", ctx.stack.back(), label->loc());
+        ctx.diag << "  label type: '" << *value.type.type << "' wanted: '" << *type << "'\n";
+        return false;
+      }
+
       result.push_back(literal->value().sign * literal->value().value);
 
       return true;
@@ -6207,6 +6247,13 @@ namespace
     if (is_constant(ctx, value) && is_tuple_type(value.type.type))
     {
       auto tuple = get<CompoundLiteralExpr*>(value.value.get<MIR::RValue::Constant>());
+
+      if (!is_int_type(type) && !is_char_type(type) && !(type_cast<TupleType>(value.type.type)->fields[0] == type && type_cast<TupleType>(value.type.type)->fields[1] == type))
+      {
+        ctx.diag.error("type mismatch on case range", ctx.stack.back(), label->loc());
+        ctx.diag << "  label type: '" << *value.type.type << "' wanted: '" << *type << "'\n";
+        return false;
+      }
 
       Numeric::Int beg = {};
       Numeric::Int end = {};
@@ -6650,13 +6697,13 @@ namespace
 
         else if (parm->defult)
         {
+          MIR::Fragment expr;
+
           vector<Scope> stack;
           seed_stack(stack, scope);
 
           swap(stack, ctx.stack);
           swap(loc, ctx.site_override);
-
-          MIR::Fragment expr;
 
           if (!lower_expr(ctx, expr, parm->defult))
           {
@@ -7418,7 +7465,10 @@ namespace
         }
       }
 
-      ctx.diag.error("variable not defined in this context", ctx.stack.back(), loc);
+      if (ctx.suppressed.find(vardecl) == ctx.suppressed.end())
+        ctx.diag.error("variable not defined in this context", ctx.stack.back(), loc);
+
+      ctx.suppressed[vardecl] = true;
 
       return false;
     }
@@ -7519,7 +7569,7 @@ namespace
             }
           }
 
-          if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype || !(tagtype->decl->flags & TagDecl::PublicBase))
+          if (!decl_cast<TagDecl>(tagtype->decl)->basetype || !(tagtype->decl->flags & TagDecl::PublicBase))
             break;
 
           type = tagtype->fields[0];
@@ -8553,18 +8603,28 @@ namespace
 
     if (is_tag_type(lhs) && is_tag_type(rhs))
     {
-      if (type_cast<TagType>(lhs)->decl == type_cast<TagType>(rhs)->decl)
+      for (; is_tag_type(rhs); )
       {
-        match = true;
-
-        for (size_t i = 0; i != type_cast<TagType>(lhs)->args.size(); ++i)
+        if (type_cast<TagType>(lhs)->decl == type_cast<TagType>(rhs)->decl)
         {
-          if (is_unresolved_type(type_cast<TagType>(lhs)->args[i].second))
-            continue;
+          match = true;
 
-          if (type_cast<TagType>(lhs)->args[i].second != type_cast<TagType>(rhs)->args[i].second)
-            match = false;
+          for (size_t i = 0; i != type_cast<TagType>(lhs)->args.size(); ++i)
+          {
+            if (is_unresolved_type(type_cast<TagType>(lhs)->args[i].second))
+              continue;
+
+            if (type_cast<TagType>(lhs)->args[i].second != type_cast<TagType>(rhs)->args[i].second)
+              match = false;
+          }
+
+          break;
         }
+
+        if (!decl_cast<TagDecl>(type_cast<TagType>(rhs)->decl)->basetype || !(type_cast<TagType>(rhs)->decl->flags & TagDecl::PublicBase))
+          break;
+
+        rhs = type_cast<TagType>(rhs)->fields[0];
       }
     }
 
@@ -8931,7 +8991,7 @@ namespace
                 }
               }
 
-              if (!is_tag_type(type) || !decl_cast<TagDecl>(tagtype->decl)->basetype || !(tagtype->decl->flags & TagDecl::PublicBase))
+              if (!decl_cast<TagDecl>(tagtype->decl)->basetype || !(tagtype->decl->flags & TagDecl::PublicBase))
                 break;
 
               type = tagtype->fields[0];
@@ -9417,7 +9477,11 @@ namespace
     MIR::Fragment value;
 
     if (!lower_expr(ctx, value, stmtvar->value))
+    {
+      ctx.suppressed[stmtvar] = true;
+
       return;
+    }
 
     if (stmtvar->flags & VarDecl::Literal)
     {
@@ -12052,12 +12116,12 @@ namespace
       MIR::Fragment result;
 
       if (ctx.mir.locals[0] && is_tag_type(ctx.mir.locals[0].type))
-        ctx.inducedscope = type_scope(ctx, ctx.mir.locals[0].type);
+        ctx.labelscope = type_scope(ctx, ctx.mir.locals[0].type);
 
       if (!lower_expr(ctx, result, retrn->expr))
         return;
 
-      ctx.inducedscope = {};
+      ctx.labelscope = {};
 
       if (is_return_reference(ctx, retrn->expr))
       {

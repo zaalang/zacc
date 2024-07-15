@@ -155,15 +155,18 @@ namespace
 
     deque<MIR::RValue::VariableData> field_allocator;
 
-    MIR::RValue::VariableData *make_field(MIR::local_t local)
+    MIR::RValue::VariableData const *make_field(MIR::local_t local)
     {
       field_allocator.emplace_back(MIR::RValue::local(MIR::RValue::Ref, local, SourceLocation{}));
 
       return &field_allocator.back();
     }
 
-    MIR::RValue::VariableData *make_field(MIR::RValue::VariableData const *base, vector<MIR::RValue::Field>::const_iterator first, vector<MIR::RValue::Field>::const_iterator last)
+    MIR::RValue::VariableData const *make_field(MIR::RValue::VariableData const *base, vector<MIR::RValue::Field>::const_iterator first, vector<MIR::RValue::Field>::const_iterator last)
     {
+      if (first == last)
+        return base;
+
       auto &[op, arg, fields, loc] = field_allocator.emplace_back(*base);
 
       fields.insert(fields.end(), first, last);
@@ -370,7 +373,7 @@ namespace
           return true;
       }
 
-  #if 1
+#if 1
       if (annotation.type == Lifetime::swap)
       {
         auto lhs = trim(annotation.text.substr(0, annotation.text.find(',')));
@@ -379,7 +382,7 @@ namespace
         if (decl_cast<ParmVarDecl>(parm)->name == lhs || decl_cast<ParmVarDecl>(parm)->name == rhs)
           return true;
       }
-  #endif
+#endif
     }
 
     return false;
@@ -404,7 +407,7 @@ namespace
         if (decl_cast<ParmVarDecl>(parm1)->name == lhs && decl_cast<ParmVarDecl>(parm2)->name == rhs)
           return true;
       }
-  #if 1
+#if 1
       if (annotation.type == Lifetime::swap)
       {
         auto lhs = trim(annotation.text.substr(0, annotation.text.find(',')));
@@ -416,7 +419,7 @@ namespace
         if (decl_cast<ParmVarDecl>(parm1)->name == rhs && decl_cast<ParmVarDecl>(parm2)->name == lhs)
           return true;
       }
-  #endif
+#endif
     }
 
     return false;
@@ -583,27 +586,21 @@ namespace
       }
     }
 
-  #if 0
-      cout << "consume: " << *dep << endl;
-      for (auto fld : ctx.threads[0].locals[get<1>(*dep)].consumed_fields)
-        cout << "       : " << *fld << endl;
-  #endif
+#if 0
+    cout << "consume: " << *dep << endl;
+    for (auto fld : ctx.threads[0].locals[get<1>(*dep)].consumed_fields)
+      cout << "       : " << *fld << endl;
+#endif
   }
 
   //|///////////////////// poison ///////////////////////////////////////////
   void poison(Context &ctx, MIR const &mir, MIR::local_t arg, MIR::RValue::VariableData const *dep)
   {
-  #if 0
-      cout << "poison: " << *dep << endl;
-  #endif
+#if 0
+    cout << "poison: " << *dep << endl;
+#endif
 
-    if (get<1>(*dep) < mir.locals.size() && mir.locals[get<1>(*dep)].type != mir.locals[arg].type)
-      return;
-
-    if (mir.locals.size() <= get<1>(*dep) && get<1>(*dep) < mir.locals.size() + mir.args_end && remove_reference_type(mir.locals[get<1>(*dep) - mir.locals.size()].type) != mir.locals[arg].type)
-      return;
-
-    if (mir.locals.size() + mir.args_end <= get<1>(*dep))
+    if (get<1>(*ctx.threads[0].locals[arg].depends_upon.back()) >= mir.locals.size() && dep != ctx.threads[0].locals[arg].depends_upon.back())
       return;
 
     ctx.threads[0].locals[get<1>(*dep)].toxic = true;
@@ -616,6 +613,9 @@ namespace
       if (local.immune)
         continue;
 
+      if (local.depends_upon.empty() || (get<1>(*local.depends_upon.back()) >= mir.locals.size() + 3*mir.args_end && local.depends_upon.back() == dep))
+        continue;
+
       for (auto fld : local.depends_upon)
       {
         if (get<1>(*fld) != get<1>(*dep))
@@ -624,9 +624,9 @@ namespace
         if (!ctx.is_super_field(get<2>(*dep), get<2>(*fld)))
           continue;
 
-  #if 0
-          cout << "      : " << &local - &ctx.threads[0].locals.front() << " has " << *fld << endl;
-  #endif
+#if 0
+        cout << "      : " << &local - &ctx.threads[0].locals.front() << " has " << *fld << endl;
+#endif
 
         local.poisoned = true;
       }
@@ -636,9 +636,9 @@ namespace
   //|///////////////////// launder //////////////////////////////////////////
   void launder(Context &ctx, MIR const &mir, MIR::local_t arg, MIR::RValue::VariableData const *dep)
   {
-  #if 0
-      cout << "launder: " << *dep << endl;
-  #endif
+#if 0
+    cout << "launder: " << *dep << endl;
+#endif
 
     auto &consumed_fields = ctx.threads[0].locals[get<1>(*dep)].consumed_fields;
 
@@ -666,7 +666,6 @@ namespace
 
     if (get<2>(*dep).empty())
     {
-      ctx.threads[0].locals[get<1>(*dep)].immune = false;
       ctx.threads[0].locals[get<1>(*dep)].consumed = false;
       ctx.threads[0].locals[get<1>(*dep)].poisoned = false;
       ctx.threads[0].locals[get<1>(*dep)].toxic = false;
@@ -1030,7 +1029,6 @@ namespace
 
           for (auto dst : ctx.threads[0].locals[args[arg]].depends_upon)
           {
-            ctx.threads[0].locals[get<1>(*dst)].immune = false;
             ctx.threads[0].locals[get<1>(*dst)].consumed = false;
             ctx.threads[0].locals[get<1>(*dst)].poisoned = false;
             ctx.threads[0].locals[get<1>(*dst)].toxic = false;
@@ -1374,30 +1372,30 @@ namespace
       }
     }
 
-  #if 0
-      for (auto i = entry.depends.size(); i > 1; --i)
-      {
-        auto lhs = entry.depends.begin() + (i - 1);
+#if 0
+    for (auto i = entry.depends.size(); i > 1; --i)
+    {
+      auto lhs = entry.depends.begin() + (i - 1);
 
-        auto j = std::any_of(entry.depends.begin(), lhs, [&](auto &rhs) {
-          return get<0>(*lhs) == get<0>(rhs) && get<0>(get<1>(*lhs)) == get<0>(get<1>(rhs)) && get<1>(get<1>(*lhs)) == get<1>(get<1>(rhs)) && ctx.is_super_field(get<2>(get<1>(*lhs)), get<2>(get<1>(rhs)));
-        });
+      auto j = std::any_of(entry.depends.begin(), lhs, [&](auto &rhs) {
+        return get<0>(*lhs) == get<0>(rhs) && get<0>(get<1>(*lhs)) == get<0>(get<1>(rhs)) && get<1>(get<1>(*lhs)) == get<1>(get<1>(rhs)) && ctx.is_super_field(get<2>(get<1>(*lhs)), get<2>(get<1>(rhs)));
+      });
 
-        if (j)
-          entry.depends.erase(lhs);
-      }
-  #endif
+      if (j)
+        entry.depends.erase(lhs);
+    }
+#endif
 
-  #if 0
-      cout << "report " << mir.fx.fn->name->str() << " (" << get_module(mir.fx.fn)->file() << ":" << mir.fx.fn->loc() << ")" << endl;
+#if 0
+    cout << "report " << mir.fx.fn->name->str() << " (" << get_module(mir.fx.fn)->file() << ":" << mir.fx.fn->loc() << ")" << endl;
 
-      for (auto &dep : entry.depends)
-      {
-        auto &[op, arg, fields, loc] = get<1>(dep);
+    for (auto &dep : entry.depends)
+    {
+      auto &[op, arg, fields, loc] = get<1>(dep);
 
-        cout << "  " << get<0>(dep) << ": " << varname(mir, arg) << " " << get<1>(dep) << endl;
-      }
-  #endif
+      cout << "  " << get<0>(dep) << ": " << varname(mir, arg) << " " << get<1>(dep) << endl;
+    }
+#endif
 
     Cache::commit(mir.fx, std::move(entry));
   }
@@ -1406,6 +1404,28 @@ namespace
   void analyse_assign_variable(Context &ctx, MIR const &mir, MIR::local_t dst, MIR::RValue::VariableData const &variable)
   {
     auto &[op, arg, fields, loc] = variable;
+
+    if (op == MIR::RValue::Fer)
+    {
+      switch (ctx.state(arg))
+      {
+        case State::ok:
+          break;
+
+        case State::dangling:
+          ctx.diag.error("potentially dangling dereference", mir.fx.fn, loc);
+          break;
+
+        case State::consumed:
+          if ((mir.fx.fn->flags & (FunctionDecl::Safe | FunctionDecl::Unsafe)) == 0)
+            ctx.diag.error("potentially consumed dereference", mir.fx.fn, loc);
+          break;
+
+        case State::poisoned:
+          ctx.diag.error("potentially poisoned dereference", mir.fx.fn, loc);
+          break;
+      }
+    }
 
     if ((mir.locals[dst].flags & MIR::Local::Reference) || is_pointference_type(mir.locals[dst].type))
     {
@@ -1423,30 +1443,9 @@ namespace
           break;
 
         case MIR::RValue::Fer:
-
-          switch (ctx.state(arg))
-          {
-            case State::ok:
-              break;
-
-            case State::dangling:
-              ctx.diag.error("potentially dangling dereference", mir.fx.fn, loc);
-              break;
-
-            case State::consumed:
-              if ((mir.fx.fn->flags & (FunctionDecl::Safe | FunctionDecl::Unsafe)) == 0)
-                ctx.diag.error("potentially consumed dereference", mir.fx.fn, loc);
-              break;
-
-            case State::poisoned:
-              ctx.diag.error("potentially poisoned dereference", mir.fx.fn, loc);
-              break;
-          }
-
           for (auto src : ctx.threads[0].locals[arg].depends_upon)
             for (auto dep : ctx.threads[0].locals[get<1>(*src)].depends_upon)
               ctx.threads[0].locals[dst].depends_upon.push_back(dep);
-
           break;
 
         case MIR::RValue::Idx:
@@ -1466,12 +1465,14 @@ namespace
           case MIR::RValue::Ref:
             for (auto dep : ctx.threads[0].locals[arg].depends_upon)
               ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(dep, fields.begin(), fields.end()));
+            ctx.threads[0].locals[dst].immune = ctx.threads[0].locals[arg].immune;
             break;
 
           case MIR::RValue::Val:
             for (auto src : ctx.threads[0].locals[arg].depends_upon)
               for (auto dep : ctx.threads[0].locals[get<1>(*src)].depends_upon)
                 ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(ctx.make_field(dep, get<2>(*src).begin(), get<2>(*src).end()), fields.begin(), fields.end()));
+            ctx.threads[0].locals[dst].immune = false;
             break;
 
           case MIR::RValue::Fer:
@@ -1517,6 +1518,19 @@ namespace
 
       ctx.threads[0].locals[arg].consumed = true;
       ctx.threads[0].locals[dst].consumed = false;
+    }
+
+    if (is_reference_type(mir.locals[dst].type))
+    {
+      auto arg = ctx.threads[0].locals.size();
+
+      for (auto &thread : ctx.threads)
+        thread.locals.push_back(Context::Storage());
+
+      for (auto &thread : ctx.threads)
+        thread.locals[arg].live = true;
+
+      ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(arg));
     }
   }
 
@@ -1789,10 +1803,10 @@ namespace
       return mir.fx.fn->loc();
     };
 
-  #if 0
-      for (auto dep : ctx.threads[0].locals[arg].depends_upon)
-        cout << "loop: " << *dep << endl;
-  #endif
+#if 0
+    for (auto dep : ctx.threads[0].locals[arg].depends_upon)
+      cout << "loop: " << *dep << endl;
+#endif
 
     switch (ctx.state(arg))
     {

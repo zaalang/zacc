@@ -500,6 +500,8 @@ class TagDecl : public Decl
     Type *basetype = nullptr;
 
     std::vector<Decl*> attributes;
+
+    size_t alignment = 0;
 };
 
 

@@ -636,9 +636,7 @@ class InitialiserDecl : public Decl
     InitialiserDecl(SourceLocation loc);
 
     Ident *name = nullptr;
-
     std::vector<Expr*> parms;
-    std::map<Ident*, Expr*> namedparms;
 
     void dump(int indent) const override;
 };

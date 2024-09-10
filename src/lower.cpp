@@ -236,6 +236,33 @@ namespace
       }
     }
 
+    struct Guard
+    {
+      size_t level;
+      size_t marker;
+      LowerContext *ctx;
+
+      Guard(LowerContext *ctx)
+        : ctx(ctx)
+      {
+        level = ctx->stack.size();
+        marker = ctx->barriers.size();
+      }
+
+      ~Guard()
+      {
+        ctx->barriers.resize(marker - 1);
+        ctx->stack.resize(level - 1);
+      }
+    };
+
+    Guard push_scope(Stmt *owner, std::vector<std::pair<Decl*, Type*>> typeargs)
+    {
+      stack.emplace_back(owner, std::move(typeargs));
+
+      return Guard(this);
+    }
+
     Type *voidtype;
     Type *booltype;
     Type *chartype;
@@ -5901,7 +5928,7 @@ namespace
 
     auto callee = find_callee(ctx, parms[0].type.type, Ident::op_deref, parms, namedparms);
 
-    if (!callee)
+    if (!callee || (callee.fx.fn->flags & FunctionDecl::Static))
       return false;
 
     if (!lower_call(ctx, result, callee.fx, parms, namedparms, loc))
@@ -6465,6 +6492,10 @@ namespace
           stack.push_back(expr_cast<ParenExpr>(expr)->subexpr);
           break;
 
+        case Expr::Named:
+          stack.push_back(expr_cast<NamedExpr>(expr)->subexpr);
+          break;
+
         case Expr::UnaryOp:
           stack.push_back(expr_cast<UnaryOpExpr>(expr)->subexpr);
           break;
@@ -6476,8 +6507,6 @@ namespace
 
         case Expr::Call:
           for (auto &parm : expr_cast<CallExpr>(expr)->parms)
-            stack.push_back(parm);
-          for (auto &[name, parm] : expr_cast<CallExpr>(expr)->namedparms)
             stack.push_back(parm);
           if (expr_cast<CallExpr>(expr)->base)
             stack.push_back(expr_cast<CallExpr>(expr)->base);
@@ -6554,10 +6583,12 @@ namespace
   }
 
   //|///////////////////// lower_parms //////////////////////////////////////
-  bool lower_parms(LowerContext &ctx, vector<MIR::Fragment> &parms, map<Ident*, MIR::Fragment> &namedparms, vector<Expr*> const &exprs, map<Ident*, Expr*> const &namedexprs, SourceLocation loc)
+  bool lower_parms(LowerContext &ctx, vector<MIR::Fragment> &parms, map<Ident*, MIR::Fragment> &namedparms, vector<Expr*> const &exprs, SourceLocation loc)
   {
     for (auto expr : exprs)
     {
+      Ident *name = nullptr;
+
       if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Unpack)
       {
         expr = expr_cast<UnaryOpExpr>(expr)->subexpr;
@@ -6578,18 +6609,11 @@ namespace
 
       MIR::Fragment parm;
 
-      if (!lower_expr(ctx, parm, expr))
-        return false;
-
-      if (!(parm.type.flags & MIR::Local::MutRef) && !(expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd))
-        parm.type.flags |= MIR::Local::ConstRef;
-
-      parms.push_back(std::move(parm));
-    }
-
-    for (auto [name, expr] : namedexprs)
-    {
-      MIR::Fragment parm;
+      if (expr->kind() == Expr::Named)
+      {
+        name = expr_cast<NamedExpr>(expr)->name;
+        expr = expr_cast<NamedExpr>(expr)->subexpr;
+      }
 
       if (!lower_expr(ctx, parm, expr))
         return false;
@@ -6597,7 +6621,10 @@ namespace
       if (!(parm.type.flags & MIR::Local::MutRef) && !(expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd))
         parm.type.flags |= MIR::Local::ConstRef;
 
-      namedparms.emplace(name, std::move(parm));
+      if (name)
+        namedparms.emplace(name, std::move(parm));
+      else
+        parms.push_back(std::move(parm));
     }
 
     return true;
@@ -7223,7 +7250,7 @@ namespace
     vector<MIR::Fragment> values;
     map<Ident*, MIR::Fragment> namedvalues;
 
-    if (!lower_parms(ctx, values, namedvalues, arrayliteral->elements, {}, arrayliteral->loc()))
+    if (!lower_parms(ctx, values, namedvalues, arrayliteral->elements, arrayliteral->loc()))
       return;
 
     for (auto &value : values)
@@ -7340,7 +7367,7 @@ namespace
     vector<MIR::Fragment> values;
     map<Ident*, MIR::Fragment> namedvalues;
 
-    if (!lower_parms(ctx, values, namedvalues, compoundliteral->fields, {}, compoundliteral->loc()))
+    if (!lower_parms(ctx, values, namedvalues, compoundliteral->fields, compoundliteral->loc()))
       return;
 
     for (size_t index = 0; index < values.size(); ++index)
@@ -8923,7 +8950,7 @@ namespace
       return;
     }
 
-    if (!lower_parms(ctx, parms, namedparms, call->parms, call->namedparms, call->loc()))
+    if (!lower_parms(ctx, parms, namedparms, call->parms, call->loc()))
       return;
 
     lower_new(ctx, result, address, type, parms, namedparms, call->loc());
@@ -8944,7 +8971,7 @@ namespace
         return;
     }
 
-    if (!lower_parms(ctx, parms, namedparms, call->parms, call->namedparms, call->loc()))
+    if (!lower_parms(ctx, parms, namedparms, call->parms, call->loc()))
       return;
 
     for (;;)
@@ -9606,7 +9633,7 @@ namespace
 
         ctx.mir.add_lineinfo(ctx.currentblockid, ctx.currentblock.statements.size(), init->loc().lineno);
 
-        if (!lower_parms(ctx, parms, namedparms, init->parms, init->namedparms, init->loc()))
+        if (!lower_parms(ctx, parms, namedparms, init->parms, init->loc()))
           return;
 
         lower_new(ctx, result, address, thistype, parms, namedparms, init->loc());
@@ -9645,7 +9672,7 @@ namespace
             ctx.add_statement(MIR::Statement::construct(kindres, MIR::RValue::literal(ctx.mir.make_expr<IntLiteralExpr>(Numeric::int_literal(index), fn->loc()))));
           }
 
-          if (!lower_parms(ctx, parms, namedparms, init->parms, init->namedparms, init->loc()))
+          if (!lower_parms(ctx, parms, namedparms, init->parms, init->loc()))
             return;
 
           lower_new(ctx, result, address, type, parms, namedparms, init->loc());
@@ -10882,7 +10909,7 @@ namespace
   void lower_if_statement(LowerContext &ctx, IfStmt *ifs)
   {
     auto sm = ctx.push_barrier();
-    ctx.stack.emplace_back(ifs, ctx.stack.back().typeargs);
+    auto sp = ctx.push_scope(ifs, ctx.stack.back().typeargs);
 
     for (auto &init : ifs->inits)
     {
@@ -10946,7 +10973,6 @@ namespace
       ctx.unreachable = std::min(unreachable[0], unreachable[1]);
     }
 
-    ctx.stack.pop_back();
     ctx.retire_barrier(sm);
   }
 
@@ -10954,7 +10980,7 @@ namespace
   void lower_static_if_statement(LowerContext &ctx, IfStmt *ifs)
   {
     auto sm = ctx.push_barrier();
-    ctx.stack.emplace_back(ifs, ctx.stack.back().typeargs);
+    auto sp = ctx.push_scope(ifs, ctx.stack.back().typeargs);
 
     for (auto &init : ifs->inits)
     {
@@ -10975,7 +11001,6 @@ namespace
         lower_statement(ctx, ifs->stmts[1]);
     }
 
-    ctx.stack.pop_back();
     ctx.retire_barrier(sm);
   }
 
@@ -10983,7 +11008,7 @@ namespace
   void lower_for_statement(LowerContext &ctx, ForStmt *fors)
   {
     auto sm = ctx.push_barrier();
-    ctx.stack.emplace_back(fors, ctx.stack.back().typeargs);
+    auto sp = ctx.push_scope(fors, ctx.stack.back().typeargs);
 
     vector<tuple<StmtVarDecl*, MIR::local_t, MIR::local_t, MIR::local_t>> ranges;
 
@@ -11222,7 +11247,6 @@ namespace
 
     ctx.breaks.resize(ctx.barriers.back().firstbreak);
 
-    ctx.stack.pop_back();
     ctx.retire_barrier(sm);
   }
 
@@ -11230,7 +11254,7 @@ namespace
   void lower_rof_statement(LowerContext &ctx, RofStmt *rofs)
   {
     auto sm = ctx.push_barrier();
-    ctx.stack.emplace_back(rofs, ctx.stack.back().typeargs);
+    auto sp = ctx.push_scope(rofs, ctx.stack.back().typeargs);
 
     vector<tuple<StmtVarDecl*, MIR::local_t, MIR::local_t, MIR::local_t>> ranges;
 
@@ -11469,7 +11493,6 @@ namespace
 
     ctx.breaks.resize(ctx.barriers.back().firstbreak);
 
-    ctx.stack.pop_back();
     ctx.retire_barrier(sm);
   }
 
@@ -11477,7 +11500,7 @@ namespace
   void lower_static_for_statement(LowerContext &ctx, ForStmt *fors)
   {
     auto sm = ctx.push_barrier();
-    ctx.stack.emplace_back(fors, ctx.stack.back().typeargs);
+    auto sp = ctx.push_scope(fors, ctx.stack.back().typeargs);
 
     size_t iterations = size_t(-1);
     map<Ident*, StmtVarDecl*> vars;
@@ -11555,6 +11578,12 @@ namespace
 
           if (!lower_field(ctx, value, value, field, get<0>(range)->loc()))
             return;
+
+          if (get<0>(range)->value->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(get<0>(range)->value)->op() == UnaryOpExpr::Fwd)
+          {
+            if ((value.type.flags & MIR::Local::XValue) && !(value.type.flags & MIR::Local::Const))
+              value.type.flags = (value.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
+          }
 
           lower_decl(ctx, get<0>(range), value);
 
@@ -11648,7 +11677,6 @@ namespace
 
     ctx.breaks.resize(ctx.barriers.back().firstbreak);
 
-    ctx.stack.pop_back();
     ctx.retire_barrier(sm);
   }
 
@@ -11656,7 +11684,7 @@ namespace
   void lower_while_statement(LowerContext &ctx, WhileStmt *wile)
   {
     auto sm = ctx.push_barrier();
-    ctx.stack.emplace_back(wile, ctx.stack.back().typeargs);
+    auto sp = ctx.push_scope(wile, ctx.stack.back().typeargs);
 
     for (auto &init : wile->inits)
     {
@@ -11732,7 +11760,6 @@ namespace
 
     ctx.breaks.resize(ctx.barriers.back().firstbreak);
 
-    ctx.stack.pop_back();
     ctx.retire_barrier(sm);
   }
 
@@ -11740,7 +11767,7 @@ namespace
   void lower_switch_statement(LowerContext &ctx, SwitchStmt *swtch)
   {
     auto sm = ctx.push_barrier();
-    ctx.stack.emplace_back(swtch, ctx.stack.back().typeargs);
+    auto sp = ctx.push_scope(swtch, ctx.stack.back().typeargs);
 
     for (auto &init : swtch->inits)
     {
@@ -11816,6 +11843,8 @@ namespace
     {
       ctx.mir.blocks[block_cond].terminator = MIR::Terminator::switcher(cond, block_cond);
     }
+
+    auto ssm = ctx.push_barrier();
 
     vector<Decl*> decls;
     find_decls(ctx, ctx.stack.back(), swtch->decls, decls);
@@ -11943,6 +11972,8 @@ namespace
 
         ctx.stack.pop_back();
 
+        ctx.retire_barrier(ssm);
+
         block_bodys.push_back(ctx.add_block(MIR::Terminator::gotoer(ctx.currentblockid + 1)));
 
         unreachable = std::min(unreachable, ctx.unreachable);
@@ -11995,7 +12026,6 @@ namespace
       ctx.unreachable = unreachable;
     }
 
-    ctx.stack.pop_back();
     ctx.retire_barrier(sm);
   }
 
@@ -12215,7 +12245,7 @@ namespace
   void lower_compound_statement(LowerContext &ctx, CompoundStmt *compound)
   {
     auto sm = ctx.push_barrier();
-    ctx.stack.emplace_back(compound, ctx.stack.back().typeargs);
+    auto sp = ctx.push_scope(compound, ctx.stack.back().typeargs);
 
     for (auto &stmt : compound->stmts)
     {
@@ -12240,7 +12270,6 @@ namespace
     if (!ctx.unreachable)
       ctx.mir.add_lineinfo(ctx.currentblockid, ctx.currentblock.statements.size(), compound->endloc.lineno);
 
-    ctx.stack.pop_back();
     ctx.retire_barrier(sm);
   }
 

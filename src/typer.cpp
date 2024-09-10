@@ -1521,6 +1521,12 @@ namespace
     resolve_expr(ctx, scope, paren->subexpr, sema);
   }
 
+  //|///////////////////// named_expression /////////////////////////////////
+  void resolve_expr(TyperContext &ctx, Scope const &scope, NamedExpr *named, Sema &sema)
+  {
+    resolve_expr(ctx, scope, named->subexpr, sema);
+  }
+
   //|///////////////////// unary_expression /////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, UnaryOpExpr *unaryop, Sema &sema)
   {
@@ -1545,19 +1551,14 @@ namespace
   //|///////////////////// call_expression //////////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, CallExpr *call, Sema &sema)
   {
-    for (auto &parm : call->parms)
-    {
-      resolve_expr(ctx, scope, parm, sema);
-    }
-
-    for (auto &[name, parm] : call->namedparms)
-    {
-      resolve_expr(ctx, scope, parm, sema);
-    }
-
     if (call->base)
     {
       resolve_expr(ctx, scope, call->base, sema);
+    }
+
+    for (auto &parm : call->parms)
+    {
+      resolve_expr(ctx, scope, parm, sema);
     }
 
     resolve_decl(ctx, scope, call->callee, sema);
@@ -1632,11 +1633,6 @@ namespace
     resolve_expr(ctx, scope, call->address, sema);
 
     for (auto &parm : call->parms)
-    {
-      resolve_expr(ctx, scope, parm, sema);
-    }
-
-    for (auto &[name, parm] : call->namedparms)
     {
       resolve_expr(ctx, scope, parm, sema);
     }
@@ -1725,6 +1721,10 @@ namespace
 
       case Expr::Paren:
         resolve_expr(ctx, scope, expr_cast<ParenExpr>(expr), sema);
+        break;
+
+      case Expr::Named:
+        resolve_expr(ctx, scope, expr_cast<NamedExpr>(expr), sema);
         break;
 
       case Expr::UnaryOp:
@@ -2002,11 +2002,6 @@ namespace
   void typer_decl(TyperContext &ctx, InitialiserDecl *init, Sema &sema)
   {
     for (auto &parm : init->parms)
-    {
-      resolve_expr(ctx, ctx.stack.back(), parm, sema);
-    }
-
-    for (auto &[name, parm] : init->namedparms)
     {
       resolve_expr(ctx, ctx.stack.back(), parm, sema);
     }

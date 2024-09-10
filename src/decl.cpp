@@ -925,11 +925,6 @@ void InitialiserDecl::dump(int indent) const
   {
     parm->dump(indent + 2);
   }
-
-  for (auto &[name, parm] : namedparms)
-  {
-    parm->dump(indent + 2);
-  }
 }
 
 

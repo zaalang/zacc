@@ -11,13 +11,13 @@ jobs:
       - name: Create Build Environment
         run: |
           sudo wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-          sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-17 main"
-          sudo apt-get install -y gcc-12 llvm-17
+          sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main"
+          sudo apt-get install -y gcc-13 llvm-18
           cmake -E make_directory ${{github.workspace}}/build
       - name: Configure
         env:
-          CC: gcc-12
-          CXX: g++-12
+          CC: gcc-13
+          CXX: g++-13
         shell: bash
         working-directory: ${{github.workspace}}/build
         run: |
@@ -35,13 +35,13 @@ jobs:
       - name: Create Build Environment
         run: |
           sudo wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-          sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-17 main"
-          sudo apt-get install -y clang-17 llvm-17
+          sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main"
+          sudo apt-get install -y clang-18 llvm-18
           cmake -E make_directory ${{github.workspace}}/build
       - name: Configure
         env:
-          CC: clang-17
-          CXX: clang++-17
+          CC: clang-18
+          CXX: clang++-18
         shell: bash
         working-directory: ${{github.workspace}}/build
         run: |
@@ -61,11 +61,11 @@ jobs:
         uses: actions/cache@v3
         with:
           path: llvm
-          key: llvm-libs-17.0.6
+          key: llvm-libs-18.1.8
       - name: Download LLVM
         if: steps.cache-llvm.outputs.cache-hit != 'true'
         run: |
-          iwr https://github.com/llvm/llvm-project/releases/download/llvmorg-17.0.6/llvm-project-17.0.6.src.tar.xz -OutFile llvm.tar.xz
+          iwr https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/llvm-project-18.1.8.src.tar.xz -OutFile llvm.tar.xz
           7z x llvm.tar.xz
           7z x llvm.tar
           mv llvm-* llvm-project

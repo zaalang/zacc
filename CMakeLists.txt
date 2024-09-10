@@ -24,7 +24,7 @@ find_package(LLVM REQUIRED CONFIG)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
-if (${LLVM_PACKAGE_VERSION} VERSION_LESS "17.0")
+if (${LLVM_PACKAGE_VERSION} VERSION_LESS "18.0")
   message(FATAL_ERROR "LLVM version too low")
 endif()
 

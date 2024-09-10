@@ -281,6 +281,12 @@ namespace
     semantic_expr(ctx, paren->subexpr, sema);
   }
 
+  //|///////////////////// named_expression /////////////////////////////////
+  void semantic_expr(SemanticContext &ctx, NamedExpr *named, Sema &sema)
+  {
+    semantic_expr(ctx, named->subexpr, sema);
+  }
+
   //|///////////////////// unary_expression /////////////////////////////////
   void semantic_expr(SemanticContext &ctx, UnaryOpExpr *unaryop, Sema &sema)
   {
@@ -305,19 +311,14 @@ namespace
   //|///////////////////// call_expression //////////////////////////////////
   void semantic_expr(SemanticContext &ctx, CallExpr *call, Sema &sema)
   {
-    for (auto &parm : call->parms)
-    {
-      semantic_expr(ctx, parm, sema);
-    }
-
-    for (auto &[name, parm] : call->namedparms)
-    {
-      semantic_expr(ctx, parm, sema);
-    }
-
     if (call->base)
     {
       semantic_expr(ctx, call->base, sema);
+    }
+
+    for (auto &parm : call->parms)
+    {
+      semantic_expr(ctx, parm, sema);
     }
 
     semantic_decl(ctx, call->callee, sema);
@@ -400,11 +401,6 @@ namespace
     {
       semantic_expr(ctx, parm, sema);
     }
-
-    for (auto &[name, parm] : call->namedparms)
-    {
-      semantic_expr(ctx, parm, sema);
-    }
   }
 
   //|///////////////////// requires_expression //////////////////////////////
@@ -479,6 +475,10 @@ namespace
 
       case Expr::Paren:
         semantic_expr(ctx, expr_cast<ParenExpr>(expr), sema);
+        break;
+
+      case Expr::Named:
+        semantic_expr(ctx, expr_cast<NamedExpr>(expr), sema);
         break;
 
       case Expr::UnaryOp:
@@ -1101,11 +1101,6 @@ namespace
 
     for (auto &parm : init->parms)
     {     
-      semantic_expr(ctx, parm, sema);
-    }
-
-    for (auto &[name, parm] : init->namedparms)
-    {
       semantic_expr(ctx, parm, sema);
     }
   }

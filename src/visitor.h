@@ -53,6 +53,10 @@ struct Visitor
         visit(expr_cast<ParenExpr>(expr)->subexpr);
         break;
 
+      case Expr::Named:
+        visit(expr_cast<NamedExpr>(expr)->subexpr);
+        break;
+
       case Expr::UnaryOp:
         visit(expr_cast<UnaryOpExpr>(expr)->subexpr);
         break;
@@ -73,8 +77,6 @@ struct Visitor
           visit(expr_cast<CallExpr>(expr)->base);
         for (auto &parm: expr_cast<CallExpr>(expr)->parms)
           visit(parm);
-        for (auto &[name, parm] : expr_cast<CallExpr>(expr)->namedparms)
-          visit(parm);
         if (auto decl = expr_cast<CallExpr>(expr)->callee; decl->kind() == Decl::DeclRef)
           if (!expr_cast<CallExpr>(expr)->base)
             visit(decl_cast<DeclRefDecl>(decl)->name);
@@ -93,8 +95,6 @@ struct Visitor
       case Expr::New:
         visit(expr_cast<NewExpr>(expr)->address);
         for (auto &parm: expr_cast<NewExpr>(expr)->parms)
-          visit(parm);
-        for (auto &[name, parm] : expr_cast<NewExpr>(expr)->namedparms)
           visit(parm);
         break;
 
@@ -287,8 +287,6 @@ struct Visitor
 
       case Decl::Initialiser:
         for (auto &decl : decl_cast<InitialiserDecl>(decl)->parms)
-          visit(decl);
-        for (auto &[name, decl] : decl_cast<InitialiserDecl>(decl)->namedparms)
           visit(decl);
         break;
 

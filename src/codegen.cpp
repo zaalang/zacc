@@ -5434,7 +5434,7 @@ namespace
 
     auto relocmodel = std::optional<llvm::Reloc::Model>();
     auto codemodel = std::optional<llvm::CodeModel::Model>();
-    auto optlevel = llvm::CodeGenOpt::Level::None;
+    auto optlevel = llvm::CodeGenOptLevel::None;
 
     switch (ctx.genopts.reloc)
     {
@@ -5475,19 +5475,19 @@ namespace
     switch (ctx.genopts.optlevel)
     {
       case GenOpts::OptLevel::None:
-        optlevel = llvm::CodeGenOpt::Level::None;
+        optlevel = llvm::CodeGenOptLevel::None;
         break;
 
       case GenOpts::OptLevel::Less:
-        optlevel = llvm::CodeGenOpt::Level::Less;
+        optlevel = llvm::CodeGenOptLevel::Less;
         break;
 
       case GenOpts::OptLevel::Default:
-        optlevel = llvm::CodeGenOpt::Level::Default;
+        optlevel = llvm::CodeGenOptLevel::Default;
         break;
 
       case GenOpts::OptLevel::Aggressive:
-        optlevel = llvm::CodeGenOpt::Level::Aggressive;
+        optlevel = llvm::CodeGenOptLevel::Aggressive;
         break;
     }
 
@@ -5559,12 +5559,12 @@ namespace
     switch (ctx.genopts.outputtype)
     {
       case GenOpts::OutputType::EmitAsm:
-        machine->addPassesToEmitFile(LMPM, outstream, nullptr, llvm::CodeGenFileType::CGFT_AssemblyFile, false);
+        machine->addPassesToEmitFile(LMPM, outstream, nullptr, llvm::CodeGenFileType::AssemblyFile, false);
         MPM.run(ctx.module, MAM);
         break;
 
       case GenOpts::OutputType::EmitObj:
-        machine->addPassesToEmitFile(LMPM, outstream, nullptr, llvm::CodeGenFileType::CGFT_ObjectFile, false);
+        machine->addPassesToEmitFile(LMPM, outstream, nullptr, llvm::CodeGenFileType::ObjectFile, false);
         MPM.run(ctx.module, MAM);
         break;
 

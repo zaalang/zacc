@@ -740,91 +740,6 @@ namespace
     return args;
   }
 
-  //|///////////////////// parse_expression_list ////////////////////////////
-  vector<Expr*> parse_expression_list(ParseContext &ctx, Sema &sema)
-  {
-    vector<Expr*> exprs;
-
-    while (ctx.tok != Token::r_paren && ctx.tok != Token::r_square && ctx.tok != Token::semi && ctx.tok != Token::eof)
-    {
-      if (ctx.tok == Token::identifier && (ctx.token(1) == Token::colon || (ctx.token(1) == Token::question && ctx.token(2) == Token::colon)))
-        break;
-
-      auto expr = parse_expression(ctx, sema);
-
-      if (!expr)
-      {
-        ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-        break;
-      }
-
-      if (expr->kind() == Expr::ExprRef)
-      {
-        auto ref = expr_cast<ExprRefExpr>(expr);
-
-        if (ref->expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(ref->expr)->op() == UnaryOpExpr::Unpack)
-        {
-          expr = ref->expr;
-          ref->expr = expr_cast<UnaryOpExpr>(ref->expr)->subexpr;
-          expr_cast<UnaryOpExpr>(expr)->subexpr = ref;
-        }
-      }
-
-      if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd)
-      {
-        auto fwd = expr_cast<UnaryOpExpr>(expr);
-
-        if (fwd->subexpr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(fwd->subexpr)->op() == UnaryOpExpr::Unpack)
-        {
-          expr = fwd->subexpr;
-          fwd->subexpr = expr_cast<UnaryOpExpr>(fwd->subexpr)->subexpr;
-          expr_cast<UnaryOpExpr>(expr)->subexpr = fwd;
-        }
-      }
-
-      exprs.push_back(expr);
-
-      if (!ctx.try_consume_token(Token::comma))
-        break;
-    }
-
-    return exprs;
-  }
-
-  //|///////////////////// parse_named_expression_list //////////////////////
-  map<Ident*, Expr*> parse_named_expression_list(ParseContext &ctx, Sema &sema)
-  {
-    map<Ident*, Expr*> exprs;
-
-    while (ctx.tok != Token::r_paren && ctx.tok != Token::eof)
-    {
-      if (ctx.tok != Token::identifier || !(ctx.token(1) == Token::colon || (ctx.token(1) == Token::question && ctx.token(2) == Token::colon)))
-        break;
-
-      auto name = parse_ident(ctx, IdentUsage::VarName, sema);
-
-      if (ctx.try_consume_token(Token::question))
-        name = Ident::from(name->str() + "?");
-
-      ctx.consume_token(Token::colon);
-
-      auto expr = parse_expression(ctx, sema);
-
-      if (!expr)
-      {
-        ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
-        break;
-      }
-
-      exprs.emplace(name, expr);
-
-      if (!ctx.try_consume_token(Token::comma))
-        break;
-    }
-
-    return exprs;
-  }
-
   //|///////////////////// parse_parms_list /////////////////////////////////
   vector<Decl*> parse_parms_list(ParseContext &ctx, Sema &sema)
   {
@@ -879,6 +794,84 @@ namespace
     }
 
     return parms;
+  }
+
+  //|///////////////////// parse_expression_list ////////////////////////////
+  vector<Expr*> parse_expression_list(ParseContext &ctx, Sema &sema)
+  {
+    vector<Expr*> exprs;
+
+    while (ctx.tok != Token::r_paren && ctx.tok != Token::r_square && ctx.tok != Token::semi && ctx.tok != Token::eof)
+    {
+      if (ctx.tok == Token::identifier && (ctx.token(1) == Token::colon || (ctx.token(1) == Token::question && ctx.token(2) == Token::colon)))
+        break;
+
+      auto expr = parse_expression(ctx, sema);
+
+      if (!expr)
+      {
+        ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+        break;
+      }
+
+      if (expr->kind() == Expr::ExprRef)
+      {
+        auto ref = expr_cast<ExprRefExpr>(expr);
+
+        if (ref->expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(ref->expr)->op() == UnaryOpExpr::Unpack)
+        {
+          expr = ref->expr;
+          ref->expr = expr_cast<UnaryOpExpr>(ref->expr)->subexpr;
+          expr_cast<UnaryOpExpr>(expr)->subexpr = ref;
+        }
+      }
+
+      if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd)
+      {
+        auto fwd = expr_cast<UnaryOpExpr>(expr);
+
+        if (fwd->subexpr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(fwd->subexpr)->op() == UnaryOpExpr::Unpack)
+        {
+          expr = fwd->subexpr;
+          fwd->subexpr = expr_cast<UnaryOpExpr>(fwd->subexpr)->subexpr;
+          expr_cast<UnaryOpExpr>(expr)->subexpr = fwd;
+        }
+      }
+
+      exprs.push_back(expr);
+
+      if (!ctx.try_consume_token(Token::comma))
+        break;
+    }
+
+    while (ctx.tok != Token::r_paren && ctx.tok != Token::eof)
+    {
+      if (ctx.tok != Token::identifier || !(ctx.token(1) == Token::colon || (ctx.token(1) == Token::question && ctx.token(2) == Token::colon)))
+        break;
+
+      auto loc = ctx.tok.loc;
+      auto name = parse_ident(ctx, IdentUsage::VarName, sema);
+
+      if (ctx.try_consume_token(Token::question))
+        name = Ident::from(name->str() + "?");
+
+      ctx.consume_token(Token::colon);
+
+      auto expr = parse_expression(ctx, sema);
+
+      if (!expr)
+      {
+        ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+        break;
+      }
+
+      exprs.push_back(sema.make_named_expression(name, expr, loc));
+
+      if (!ctx.try_consume_token(Token::comma))
+        break;
+    }
+
+    return exprs;
   }
 
   //|///////////////////// parse_statement_list /////////////////////////////
@@ -1645,7 +1638,6 @@ namespace
     if (ctx.try_consume_token(Token::l_paren))
     {
       auto parms = parse_expression_list(ctx, sema);
-      auto namedparms = parse_named_expression_list(ctx, sema);
 
       if (!ctx.try_consume_token(Token::r_paren))
       {
@@ -1653,7 +1645,7 @@ namespace
         return nullptr;
       }
 
-      return sema.make_call_expression(name, parms, namedparms, loc);
+      return sema.make_call_expression(name, parms, loc);
     }
 
     return sema.make_declref_expression(name, loc);
@@ -1991,7 +1983,6 @@ namespace
     if (ctx.try_consume_token(Token::l_paren))
     {
       auto parms = parse_expression_list(ctx, sema);
-      auto namedparms = parse_named_expression_list(ctx, sema);
 
       if (!ctx.try_consume_token(Token::r_paren))
       {
@@ -1999,7 +1990,7 @@ namespace
         return nullptr;
       }
 
-      return sema.make_new_expression(type, address, parms, namedparms, loc);
+      return sema.make_new_expression(type, address, parms, loc);
     }
 
     return sema.make_new_expression(type, address, loc);
@@ -2019,7 +2010,6 @@ namespace
     if (ctx.try_consume_token(Token::l_paren))
     {
       auto parms = parse_expression_list(ctx, sema);
-      auto namedparms = parse_named_expression_list(ctx, sema);
 
       if (!ctx.try_consume_token(Token::r_paren))
       {
@@ -2027,7 +2017,7 @@ namespace
         return nullptr;
       }
 
-      return sema.make_call_expression(base, name, parms, namedparms, loc);
+      return sema.make_call_expression(base, name, parms, loc);
     }
 
     return sema.make_declref_expression(base, name, loc);
@@ -2042,7 +2032,6 @@ namespace
 
     auto name = sema.make_declref(Ident::op_index, loc);
     auto parms = parse_expression_list(ctx, sema);
-    auto namedparms = parse_named_expression_list(ctx, sema);
 
     if (!ctx.try_consume_token(Token::r_square))
     {
@@ -2050,7 +2039,7 @@ namespace
       return nullptr;
     }
 
-    return sema.make_call_expression(base, name, parms, namedparms, loc);
+    return sema.make_call_expression(base, name, parms, loc);
   }
 
   //|///////////////////// parse_call ///////////////////////////////////////
@@ -2061,7 +2050,6 @@ namespace
     auto loc = ctx.tok.loc;
     auto name = sema.make_declref(Ident::op_call, loc);
     auto parms = parse_expression_list(ctx, sema);
-    auto namedparms = parse_named_expression_list(ctx, sema);
 
     if (!ctx.try_consume_token(Token::r_paren))
     {
@@ -2069,7 +2057,7 @@ namespace
       return nullptr;
     }
 
-    return sema.make_call_expression(base, name, parms, namedparms, loc);
+    return sema.make_call_expression(base, name, parms, loc);
   }
 
   //|///////////////////// parse_requires ///////////////////////////////////
@@ -3322,7 +3310,6 @@ namespace
       }
 
       init->parms = parse_expression_list(ctx, sema);
-      init->namedparms = parse_named_expression_list(ctx, sema);
 
       if (!ctx.try_consume_token(Token::r_paren))
       {

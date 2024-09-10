@@ -236,6 +236,12 @@ namespace
     return new ParenExpr(copier_expr(ctx, paren->subexpr), paren->loc());
   }
 
+  //|///////////////////// named_expression /////////////////////////////////
+  Expr *copier_expr(CopierContext &ctx, NamedExpr *named)
+  {
+    return new NamedExpr(copier_name(ctx, named->name), copier_expr(ctx, named->subexpr), named->loc());
+  }
+
   //|///////////////////// unary_expression /////////////////////////////////
   Expr *copier_expr(CopierContext &ctx, UnaryOpExpr *unaryop)
   {
@@ -261,9 +267,6 @@ namespace
 
     for (auto &parm : call->parms)
       result->parms.push_back(copier_expr(ctx, parm));
-
-    for (auto &[name, parm] : call->namedparms)
-      result->namedparms.emplace(name, copier_expr(ctx, parm));
 
     if (call->base)
       result->base = copier_expr(ctx, call->base);
@@ -340,9 +343,6 @@ namespace
 
     for (auto &parm : call->parms)
       result->parms.push_back(copier_expr(ctx, parm));
-
-    for (auto &[name, parm] : call->namedparms)
-      result->namedparms.emplace(name, copier_expr(ctx, parm));
 
     return result;
   }
@@ -431,6 +431,9 @@ namespace
 
       case Expr::Paren:
         return copier_expr(ctx, expr_cast<ParenExpr>(expr));
+
+      case Expr::Named:
+        return copier_expr(ctx, expr_cast<NamedExpr>(expr));
 
       case Expr::UnaryOp:
         return copier_expr(ctx, expr_cast<UnaryOpExpr>(expr));
@@ -859,9 +862,6 @@ namespace
 
     for (auto &parm : init->parms)
       result->parms.push_back(copier_expr(ctx, parm));
-
-    for (auto &[name, parm] : init->namedparms)
-      result->namedparms.emplace(name, copier_expr(ctx, parm));
 
     return result;
   }

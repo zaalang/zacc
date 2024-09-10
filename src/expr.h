@@ -30,7 +30,6 @@ class Expr
 
     enum Kind
     {
-      Paren,
       VoidLiteral,
       BoolLiteral,
       CharLiteral,
@@ -42,6 +41,8 @@ class Expr
       ArrayLiteral,
       CompoundLiteral,
       ExprRef,
+      Paren,
+      Named,
       UnaryOp,
       BinaryOp,
       TernaryOp,
@@ -287,6 +288,21 @@ class ParenExpr : public Expr
 };
 
 
+//---------------------- NamedExpr ------------------------------------------
+//---------------------------------------------------------------------------
+
+class NamedExpr : public Expr
+{
+  public:
+  NamedExpr(Ident *name, Expr *subexpr, SourceLocation loc);
+
+  Ident *name;
+  Expr *subexpr;
+
+  void dump(int indent) const override;
+};
+
+
 //---------------------- UnaryOpExpr ----------------------------------------
 //---------------------------------------------------------------------------
 
@@ -439,12 +455,11 @@ class CallExpr : public Expr
 {
   public:
     CallExpr(Decl *callee, SourceLocation loc);
-    CallExpr(Decl *callee, std::vector<Expr*> const &parms, std::map<Ident*, Expr*> const &namedparms, SourceLocation loc);
-    CallExpr(Expr *base, Decl *callee, std::vector<Expr*> const &parms, std::map<Ident*, Expr*> const &namedparms, SourceLocation loc);
+    CallExpr(Decl *callee, std::vector<Expr*> const &parms, SourceLocation loc);
+    CallExpr(Expr *base, Decl *callee, std::vector<Expr*> const &parms, SourceLocation loc);
 
     Decl *callee;
     std::vector<Expr*> parms;
-    std::map<Ident*, Expr*> namedparms;
 
     Expr *base = nullptr;
 
@@ -562,12 +577,11 @@ class NewExpr : public Expr
 {
   public:
     NewExpr(Type *type, Expr *address, SourceLocation loc);
-    NewExpr(Type *type, Expr *address, std::vector<Expr*> const &parms, std::map<Ident*, Expr*> const &namedparms, SourceLocation loc);
+    NewExpr(Type *type, Expr *address, std::vector<Expr*> const &parms, SourceLocation loc);
 
     Type *type;
     Expr *address;
     std::vector<Expr*> parms;
-    std::map<Ident*, Expr*> namedparms;
 
     void dump(int indent) const override;
 };
@@ -676,6 +690,7 @@ template<> inline auto expr_cast<UnaryOpExpr>(Expr *expr) { assert(expr && expr-
 template<> inline auto expr_cast<BinaryOpExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::BinaryOp); return static_cast<BinaryOpExpr*>(expr); };
 template<> inline auto expr_cast<TernaryOpExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::TernaryOp); return static_cast<TernaryOpExpr*>(expr); };
 template<> inline auto expr_cast<DeclRefExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::DeclRef); return static_cast<DeclRefExpr*>(expr); };
+template<> inline auto expr_cast<NamedExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Named); return static_cast<NamedExpr*>(expr); };
 template<> inline auto expr_cast<CallExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Call); return static_cast<CallExpr*>(expr); };
 template<> inline auto expr_cast<SizeofExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Sizeof); return static_cast<SizeofExpr*>(expr); };
 template<> inline auto expr_cast<AlignofExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Alignof); return static_cast<AlignofExpr*>(expr); };

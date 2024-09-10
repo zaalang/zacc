@@ -93,14 +93,15 @@ class Sema
     Expr *make_pointer_literal(SourceLocation loc);
     Expr *make_ref_expression(Expr *expr, long qualifiers, SourceLocation loc);
     Expr *make_paren_expression(Expr *subexpr, SourceLocation loc);
+    Expr *make_named_expression(Ident *name, Expr *expr, SourceLocation loc);
     Expr *make_unary_expression(UnaryOpExpr::OpCode op, Expr *subexpr, SourceLocation loc);
     Expr *make_binary_expression(BinaryOpExpr::OpCode op, Expr *lhs, Expr *rhs, SourceLocation loc);
     Expr *make_ternary_expression(Expr *cond, Expr *lhs, Expr *rhs, SourceLocation loc);
     Expr *make_declref_expression(Decl *decl, SourceLocation loc);
     Expr *make_declref_expression(Expr *base, Decl *decl, SourceLocation loc);
     Expr *make_call_expression(Decl *decl, SourceLocation loc);
-    Expr *make_call_expression(Decl *decl, std::vector<Expr*> const &parms, std::map<Ident*, Expr*> const &namedparms, SourceLocation loc);
-    Expr *make_call_expression(Expr *base, Decl *decl, std::vector<Expr*> const &parms, std::map<Ident*, Expr*> const &namedparms, SourceLocation loc);
+    Expr *make_call_expression(Decl *decl, std::vector<Expr*> const &parms, SourceLocation loc);
+    Expr *make_call_expression(Expr *base, Decl *decl, std::vector<Expr*> const &parms, SourceLocation loc);
     Expr *make_sizeof_expression(Type *type, SourceLocation loc);
     Expr *make_sizeof_expression(Expr *expr, SourceLocation loc);
     Expr *make_alignof_expression(Type *type, SourceLocation loc);
@@ -111,7 +112,7 @@ class Sema
     Expr *make_typeid_expression(Decl *decl, SourceLocation loc);
     Expr *make_cast_expression(Type *type, Expr *expr, SourceLocation loc);
     Expr *make_new_expression(Type *type, Expr *address, SourceLocation loc);
-    Expr *make_new_expression(Type *type, Expr *address, std::vector<Expr*> const &parms, std::map<Ident*, Expr*> const &namedparms, SourceLocation loc);
+    Expr *make_new_expression(Type *type, Expr *address, std::vector<Expr*> const &parms, SourceLocation loc);
     Expr *make_requires_expression(Decl *decl, SourceLocation loc);
     Expr *make_where_expression(Expr *expr, SourceLocation loc);
     Expr *make_match_expression(Decl *decl, SourceLocation loc);

@@ -204,7 +204,11 @@ std::ostream &operator <<(std::ostream &os, Expr const &expr)
       break;
 
     case Expr::Paren:
-      os << "()";
+      os << '(' << *static_cast<NamedExpr const &>(expr).subexpr << ')';
+      break;
+
+    case Expr::Named:
+      os << *static_cast<NamedExpr const &>(expr).name << ": " << *static_cast<NamedExpr const &>(expr).subexpr;
       break;
 
     case Expr::UnaryOp:
@@ -555,6 +559,29 @@ void ParenExpr::dump(int indent) const
 }
 
 
+//|--------------------- NamedExpr ------------------------------------------
+//|--------------------------------------------------------------------------
+
+//|///////////////////// NamedExpr::Constructor /////////////////////////////
+NamedExpr::NamedExpr(Ident *name, Expr *subexpr, SourceLocation loc)
+  : Expr(Named, loc),
+    name(name),
+    subexpr(subexpr)
+{
+}
+
+//|///////////////////// NamedExpr::dump ////////////////////////////////////
+void NamedExpr::dump(int indent) const
+{
+  cout << spaces(indent) << "NamedExpr " << this << " " << *this << '\n';
+
+  if (subexpr)
+  {
+    subexpr->dump(indent + 2);
+  }
+}
+
+
 //|--------------------- UnaryOpExpr ----------------------------------------
 //|--------------------------------------------------------------------------
 
@@ -723,20 +750,18 @@ CallExpr::CallExpr(Decl *callee, SourceLocation loc)
 }
 
 //|///////////////////// CallExpr::Constructor //////////////////////////////
-CallExpr::CallExpr(Decl *callee, vector<Expr*> const &parms, map<Ident*, Expr*> const &namedparms, SourceLocation loc)
+CallExpr::CallExpr(Decl *callee, vector<Expr*> const &parms, SourceLocation loc)
   : Expr(Call, loc),
     callee(callee),
-    parms(parms),
-    namedparms(namedparms)
+    parms(parms)
 {
 }
 
 //|///////////////////// CallExpr::Constructor //////////////////////////////
-CallExpr::CallExpr(Expr *base, Decl *callee, vector<Expr*> const &parms, map<Ident*, Expr*> const &namedparms, SourceLocation loc)
+CallExpr::CallExpr(Expr *base, Decl *callee, vector<Expr*> const &parms, SourceLocation loc)
   : Expr(Call, loc),
     callee(callee),
     parms(parms),
-    namedparms(namedparms),
     base(base)
 {
 }
@@ -746,19 +771,14 @@ void CallExpr::dump(int indent) const
 {
   cout << spaces(indent) << "CallExpr " << this << " <" << m_loc << "> " << *this << "\n";
 
-  for (auto &parm : parms)
-  {
-    parm->dump(indent + 2);
-  }
-
-  for (auto &[name, parm] : namedparms)
-  {
-    parm->dump(indent + 2);
-  }
-
   if (base)
   {
     base->dump(indent + 2);
+  }
+
+  for (auto &parm : parms)
+  {
+    parm->dump(indent + 2);
   }
 }
 
@@ -960,12 +980,11 @@ NewExpr::NewExpr(Type *type, Expr *address, SourceLocation loc)
 }
 
 //|///////////////////// NewExpr::Constructor ///////////////////////////////
-NewExpr::NewExpr(Type *type, Expr *address, vector<Expr*> const &parms, map<Ident*, Expr*> const &namedparms, SourceLocation loc)
+NewExpr::NewExpr(Type *type, Expr *address, vector<Expr*> const &parms, SourceLocation loc)
   : Expr(New, loc),
     type(type),
     address(address),
-    parms(parms),
-    namedparms(namedparms)
+    parms(parms)
 {
 }
 
@@ -979,11 +998,6 @@ void NewExpr::dump(int indent) const
   address->dump(indent + 2);
 
   for (auto &parm : parms)
-  {
-    parm->dump(indent + 2);
-  }
-
-  for (auto &[name, parm] : namedparms)
   {
     parm->dump(indent + 2);
   }

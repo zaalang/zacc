@@ -457,7 +457,7 @@ namespace
       return true;
     }
 
-    if (is_pointference_type(local.type))
+    if (is_reference_type(local.type))
     {
       return true;
     }
@@ -473,9 +473,9 @@ namespace
       return (local.flags & MIR::Local::Const);
     }
 
-    if (is_pointference_type(local.type))
+    if (is_reference_type(local.type))
     {
-      switch (auto type = remove_pointference_type(local.type); type->klass())
+      switch (auto type = remove_reference_type(local.type); type->klass())
       {
         case Type::Const:
           return true;
@@ -499,9 +499,9 @@ namespace
       return !(local.flags & MIR::Local::Const);
     }
 
-    if (is_pointference_type(local.type))
+    if (is_reference_type(local.type))
     {
-      switch (auto type = remove_pointference_type(local.type); type->klass())
+      switch (auto type = remove_reference_type(local.type); type->klass())
       {
         case Type::Const:
           return false;
@@ -1693,7 +1693,8 @@ namespace
         consume(ctx, mir, dst, dep);
     }
 
-    if (is_reference_type(mir.locals[dst].type))
+    //if (callee.fn->name == Ident::op_index || callee.fn->name == Ident::op_deref || is_reference_type(mir.locals[dst].type))
+    if (is_reference(ctx, mir.locals[dst]))
     {
       auto arg = ctx.threads[0].locals.size();
 

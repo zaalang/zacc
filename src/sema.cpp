@@ -470,6 +470,12 @@ Expr *Sema::make_paren_expression(Expr *subexpr, SourceLocation loc)
   return ast->make_expr<ParenExpr>(subexpr, loc);
 }
 
+//|///////////////////// make_named_expression //////////////////////////////
+Expr *Sema::make_named_expression(Ident *name, Expr *expr, SourceLocation loc)
+{
+  return ast->make_expr<NamedExpr>(name, expr, loc);
+}
+
 //|///////////////////// make_unary_expression //////////////////////////////
 Expr *Sema::make_unary_expression(UnaryOpExpr::OpCode op, Expr *subexpr, SourceLocation loc)
 {
@@ -507,15 +513,15 @@ Expr *Sema::make_call_expression(Decl *decl, SourceLocation loc)
 }
 
 //|///////////////////// make_call_expression ///////////////////////////////
-Expr *Sema::make_call_expression(Decl *decl, vector<Expr*> const &parms, map<Ident*, Expr*> const &namedparms, SourceLocation loc)
+Expr *Sema::make_call_expression(Decl *decl, vector<Expr*> const &parms, SourceLocation loc)
 {
-  return ast->make_expr<CallExpr>(decl, parms, namedparms, loc);
+  return ast->make_expr<CallExpr>(decl, parms, loc);
 }
 
 //|///////////////////// make_call_expression ///////////////////////////////
-Expr *Sema::make_call_expression(Expr *base, Decl *decl, vector<Expr*> const &parms, map<Ident*, Expr*> const &namedparms, SourceLocation loc)
+Expr *Sema::make_call_expression(Expr *base, Decl *decl, vector<Expr*> const &parms, SourceLocation loc)
 {
-  return ast->make_expr<CallExpr>(base, decl, parms, namedparms, loc);
+  return ast->make_expr<CallExpr>(base, decl, parms, loc);
 }
 
 //|///////////////////// make_sizeof_expression /////////////////////////////
@@ -579,9 +585,9 @@ Expr *Sema::make_new_expression(Type *type, Expr *address, SourceLocation loc)
 }
 
 //|///////////////////// make_new_expression ////////////////////////////////
-Expr *Sema::make_new_expression(Type *type, Expr *address, vector<Expr*> const &parms, map<Ident*, Expr*> const &namedparms, SourceLocation loc)
+Expr *Sema::make_new_expression(Type *type, Expr *address, vector<Expr*> const &parms, SourceLocation loc)
 {
-  return ast->make_expr<NewExpr>(type, address, parms, namedparms, loc);
+  return ast->make_expr<NewExpr>(type, address, parms, loc);
 }
 
 //|///////////////////// make_requires_expression ///////////////////////////

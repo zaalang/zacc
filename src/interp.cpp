@@ -606,7 +606,7 @@ namespace
       store(ctx, (void*)((size_t)address + offsetof_field(dsttype, active)), remove_const_type(dsttype->fields[active]), value->fields[1]);
     }
 
-    if (is_compound_type(type))
+    if (is_struct_type(type) || is_tuple_type(type) || is_vtable_type(type) || is_lambda_type(type))
     {
       assert(dsttype->fields.size() == value->fields.size());
 

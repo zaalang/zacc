@@ -788,6 +788,13 @@ namespace Builtin
         auto lhsfield = remove_const_type(lhs->fields[index]);
         auto rhsfield = remove_const_type(rhs->fields[index]);
 
+        if (is_struct_type(lhsfield) || is_struct_type(rhsfield))
+          continue;
+
+        if (is_tuple_type(lhsfield) && is_tuple_type(rhsfield))
+          if (self(self, type_cast<TupleType>(lhsfield), type_cast<TupleType>(rhsfield)))
+            continue;
+
         if (is_reference_type(lhs->defns[index]))
           lhsfield = remove_const_type(remove_reference_type(lhsfield));
 
@@ -808,10 +815,6 @@ namespace Builtin
 
         if (rhsfield == type(Builtin::Type_PtrLiteral) && is_pointer_type(lhsfield))
           continue;
-
-        if (is_tuple_type(lhs->fields[index]) && is_tuple_type(rhs->fields[index]))
-          if (self(self, type_cast<TupleType>(lhs->fields[index]), type_cast<TupleType>(rhs->fields[index])))
-            continue;
 
         if (lhsfield != rhsfield)
           return false;

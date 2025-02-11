@@ -1325,7 +1325,8 @@ namespace
 
         if ((*owner)->kind() == Decl::Struct || (*owner)->kind() == Decl::Union)
         {
-          fn->name = Ident::from("~" + decl_cast<TagDecl>(*owner)->name->str());
+          if (decl_cast<TagDecl>(*owner)->name)
+            fn->name = Ident::from("~" + decl_cast<TagDecl>(*owner)->name->str());
 
           if (fn->flags & FunctionDecl::Defaulted)
           {

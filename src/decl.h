@@ -70,8 +70,6 @@ class Decl
       If,
     };
 
-    using Owner = std::variant<Decl*, Stmt*>;
-
   public:
 
     enum Flags

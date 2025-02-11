@@ -1,5 +1,5 @@
 //
-// typer.cpp
+// copier.cpp
 //
 // Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
 //
@@ -172,6 +172,13 @@ namespace
         for (auto &field : fields)
           field = copier_type(ctx, field);
         return new TupleType(fields);
+      }
+
+      case Type::Tag: {
+        auto args = type_cast<TagType>(type)->args;
+        for (auto &[decl, type] : args)
+          type = copier_type(ctx, type);
+        return new TagType(type_cast<TagType>(type)->decl, args);
       }
 
       case Type::Function:
@@ -949,12 +956,7 @@ namespace
   //|///////////////////// run //////////////////////////////////////////////
   Decl *copier_decl(CopierContext &ctx, RunDecl *run)
   {
-    auto result = new RunDecl(run->loc());
-
-    result->flags = run->flags;
-    result->fn = copier_decl(ctx, run->fn);
-
-    return result;
+    return run;
   }
 
   //|///////////////////// if ///////////////////////////////////////////////

@@ -4693,6 +4693,7 @@ namespace
           case Token::hash:
           case Token::dotdot:
           case Token::dotdotequal:
+          case Token::l_paren:
           case Token::colon:
           case Token::eof:
             if (casse->label = parse_expression(ctx, sema); !casse->label)

@@ -120,6 +120,9 @@ int main(int argc, char *argv[])
       if (strcmp(argv[i], "-mcmodel=large") == 0)
         opts.model = GenOpts::CodeModel::Large;
 
+      if (strcmp(argv[i], "-mprobe-stack") == 0)
+        opts.probestack = GenOpts::ProbeStack::Yes;
+
       if (strcmp(argv[i], "-c") == 0)
         opts.linker = false;
 

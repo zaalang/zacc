@@ -86,6 +86,25 @@ fn visit<Visitor, Variant>(Visitor &&visitor, Variant &variant) -> void
   }
 }
 
+fn visit<Visitor, Variant>(Visitor &&visitor, Variant &a, Variant &b) -> void
+{
+  switch (cast<isize>(a.kind) << 10 + cast<isize>(b.kind))
+  {
+    #{
+      #for (const i = 1; i < std::meta::fields_of($Variant).len; ++i)
+      {
+        #for (const j = 1; j < std::meta::fields_of($Variant).len; ++j)
+        {
+          -> {
+            case ${i << 10 + j}:
+              visitor(a.${i}, b.${j});
+          }
+        }
+      }
+    }
+  }
+}
+
 fn main
 {
   var shapes = std::vector<shape>();
@@ -97,4 +116,9 @@ fn main
   {
     visit(draw(), shape);
   }
+
+  visit(|x, y| {
+    std::print(x, " :: ", y);
+  }, shapes[0], shapes[1]);
+
 }

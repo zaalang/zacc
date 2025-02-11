@@ -91,6 +91,15 @@ bool is_stmt_scope(Scope const &scope)
   return false;
 }
 
+//|///////////////////// is_type_scope ////////////////////////////////////
+bool is_type_scope(Scope const &scope)
+{
+  if (auto owner = get_if<Decl*>(&scope.owner); owner && *owner)
+    return is_tag_decl(*owner) || (*owner)->kind() == Decl::TypeArg || (*owner)->kind() == Decl::TypeAlias || (*owner)->kind() == Decl::TypeOf || (*owner)->kind() == Decl::TypeName;
+
+  return false;
+}
+
 //|///////////////////// is_module_scope ////////////////////////////////////
 bool is_module_scope(Scope const &scope)
 {
@@ -182,7 +191,6 @@ Decl *parent_decl(Decl *decl)
   }
 
   return nullptr;
-
 }
 
 //|///////////////////// get_unit ///////////////////////////////////////////
@@ -401,6 +409,8 @@ void find_decls(Scope const &scope, Ident *name, long flags, vector<Decl*> &resu
       case Decl::TypeArg:
       case Decl::DeclRef:
       case Decl::DeclScoped:
+      case Decl::TypeName:
+      case Decl::TypeOf:
       case Decl::Run:
         break;
 

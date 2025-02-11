@@ -32,6 +32,7 @@ struct GenOpts
   enum class RedZone { None, Yes } redzone = RedZone::Yes;
   enum class CodeModel { None, Tiny, Small, Kernel, Medium, Large } model = CodeModel::None;
   enum class StackProtect { None, Yes } stackprotect = StackProtect::Yes;
+  enum class ProbeStack { Auto, Yes } probestack = ProbeStack::Auto;
 
   enum class DebugInfo { None, Dwarf, CodeView } debuginfo = DebugInfo::None;
   enum class CheckedMode { Checked, Unchecked } checkmode = CheckedMode::Checked;

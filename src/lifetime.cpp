@@ -1387,7 +1387,7 @@ namespace
 #endif
 
 #if 0
-    cout << "report " << mir.fx.fn->name->str() << " (" << get_module(mir.fx.fn)->file() << ":" << mir.fx.fn->loc() << ")" << endl;
+    cout << "record " << mir.fx.fn->name->str() << " (" << get_module(mir.fx.fn)->file() << ":" << mir.fx.fn->loc() << ")" << endl;
 
     for (auto &dep : entry.depends)
     {

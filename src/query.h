@@ -79,6 +79,7 @@ bool is_fn_scope(Scope const &scope);
 bool is_tag_scope(Scope const &scope);
 bool is_decl_scope(Scope const &scope);
 bool is_stmt_scope(Scope const &scope);
+bool is_type_scope(Scope const &scope);
 bool is_module_scope(Scope const &scope);
 
 void seed_stack(std::vector<Scope> &stack, Scope scope);

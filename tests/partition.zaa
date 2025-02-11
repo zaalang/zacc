@@ -19,8 +19,8 @@ fn quicksort(var mut &range) -> void
     return !(pivot < em);
   });
 
-  quicksort(&mut std::subrange(range, range.begin, middle1));
-  quicksort(&mut std::subrange(range, middle2, range.end));
+  quicksort(std::subrange(&mut range, range.begin, middle1));
+  quicksort(std::subrange(&mut range, middle2, range.end));
 }
 
 fn main -> int

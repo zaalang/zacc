@@ -15,7 +15,7 @@ fn test_tie()
   var b = 'x';
   var c = std::tuple(a, b);
 
-  std::tie(a, b) = (99, 'y');
+  std::tie(&mut a, &mut b) = (99, 'y');
 
   assert(a == 99 && b == 'y');
   assert(c.0 == 11 && c.1 == 'x');

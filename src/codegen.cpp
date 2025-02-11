@@ -4844,6 +4844,12 @@ namespace
     if (fx.fn->flags & FunctionDecl::NoReturn)
       attrbuilder.addAttribute(llvm::Attribute::NoReturn);
 
+    if (ctx.genopts.probestack == GenOpts::ProbeStack::Yes)
+      attrbuilder.addAttribute("probe-stack", "__chkstk");
+
+    if (ctx.genopts.probestack == GenOpts::ProbeStack::Yes)
+      attrbuilder.addAttribute("stack-probe-size", "1");
+
     attributes = attributes.addFnAttributes(ctx.context, attrbuilder);
 
     fnprot->setAttributes(attributes);

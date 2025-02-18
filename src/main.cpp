@@ -15,6 +15,7 @@
 #include "lower.h"
 #include "codegen.h"
 #include "toolchain.h"
+#include "depgen.h"
 #include <iostream>
 #include <string>
 #include <cstring>
@@ -66,6 +67,7 @@ int main(int argc, char *argv[])
   {
     Sema sema;
     GenOpts opts;
+    bool gendeps = false;
 
     for (int i = 0; i < argc; ++i)
     {
@@ -137,6 +139,9 @@ int main(int argc, char *argv[])
 
       if (strcmp(argv[i], "-mllvm") == 0)
         opts.llvmargs.push_back(argv[++i]);
+
+      if (strcmp(argv[i], "--deps") == 0)
+        gendeps = true;
     }
 
     if (opts.checkmode == GenOpts::CheckedMode::Checked)
@@ -209,8 +214,6 @@ int main(int argc, char *argv[])
 
     if (opts.linker)
     {
-      string exefile = filename(toolchain, outfile, ToolChain::Executable);
-
       vector<string> libraries;
 
       for (int i = 0; i < argc; ++i)
@@ -222,7 +225,20 @@ int main(int argc, char *argv[])
           libraries.push_back(argv[i][2] != 0 ? argv[i] + 2 : argv[++i]);
       }
 
+      string exefile = filename(toolchain, outfile, ToolChain::Executable);
+
       toolchain.ld(outfile, exefile, libraries);
+    }
+
+    if (gendeps)
+    {
+      string dstfile = outfile;
+      string depfile = filename(toolchain, outfile, ToolChain::DepFile);
+
+      if (opts.linker)
+        dstfile = filename(toolchain, outfile, ToolChain::Executable);
+
+      depgen(sema.ast, dstfile, depfile);
     }
   }
   catch(exception &e)

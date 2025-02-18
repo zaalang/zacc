@@ -2412,12 +2412,17 @@ namespace
   {
     auto op = ctx.tok;
 
-    if (auto nexttok = ctx.token(1); nexttok == Token::coloncolon)
+    if (ctx.token(1) == Token::coloncolon)
     {
       return parse_expression_post(ctx, parse_callee(ctx, sema), sema);
     }
 
-    if (op.type == Token::amp)
+    if (ctx.tok == Token::l_square && ctx.token(1) == Token::r_square && ctx.token(2) == Token::coloncolon)
+    {
+      return parse_expression_post(ctx, parse_callee(ctx, sema), sema);
+    }
+
+    if (ctx.tok == Token::amp)
     {
       switch (auto nexttok = ctx.token(1); nexttok.type)
       {

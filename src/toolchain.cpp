@@ -248,6 +248,10 @@ string filename(ToolChain const &tc, string_view path, ToolChain::FileType type)
     case ToolChain::Executable:
       suffix = (tc.os() == "windows") ? ".exe" : "";
       break;
+
+    case ToolChain::DepFile:
+      suffix = ".d";
+      break;
   }
 
   return dirname(path) + basename(path) + string(suffix);

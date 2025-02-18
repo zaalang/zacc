@@ -37,7 +37,8 @@ class ToolChain
       Object,
       Assembly,
       Intermediate,
-      Executable
+      Executable,
+      DepFile,
     };
 
   public:

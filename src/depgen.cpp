@@ -19,17 +19,6 @@ using namespace std;
 //|///////////////////// depgen /////////////////////////////////////////////
 void depgen(AST *ast, string const &outfile, string const &target)
 {
-  auto root = decl_cast<TranslationUnitDecl>(ast->root);
-  auto modules = std::vector<ModuleDecl*>();
-
-  for (auto &decl : root->decls)
-  {
-    if (decl->kind() == Decl::Module)
-    {
-      modules.push_back(decl_cast<ModuleDecl>(decl));
-    }
-  }
-
   auto fout = std::ofstream(target);
 
   if (!fout)
@@ -39,17 +28,17 @@ void depgen(AST *ast, string const &outfile, string const &target)
     return;
   }
 
-  fout << outfile << ":";
+  fout << outfile << ": \\\n";
 
-  for (auto &module : modules)
+  for (auto &decl : decl_cast<TranslationUnitDecl>(ast->root)->decls)
   {
-    fout << " " << module->file();
-
-    if (&module != &modules.back())
-      fout << " \\";
-
-    fout << '\n';
+    if (decl->kind() == Decl::Module)
+    {
+      fout << " " << decl_cast<ModuleDecl>(decl)->file() << " \\\n";
+    }
   }
+
+  fout << '\n';
 
   fout.close();
 }

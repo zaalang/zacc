@@ -4691,31 +4691,46 @@ namespace
       auto tok = ctx.tok;
       auto lexcursor = ctx.lexcursor;
 
-      while (!casse->label)
+      switch (tok.type)
       {
-        switch (tok.type)
-        {
-          case Token::hash:
-          case Token::dotdot:
-          case Token::dotdotequal:
-          case Token::l_paren:
-          case Token::colon:
-          case Token::eof:
-            if (casse->label = parse_expression(ctx, sema); !casse->label)
-              return nullptr;
-            break;
+        case Token::hash:
+        case Token::l_paren:
+        case Token::l_square:
+        case Token::char_constant:
+        case Token::string_literal:
+        case Token::numeric_constant:
+          if (casse->label = parse_expression(ctx, sema); !casse->label)
+            return nullptr;
+          break;
 
-          case Token::l_square:
-          case Token::dollar:
-            if (casse->label = sema.make_declref_expression(parse_qualified_name(ctx, sema), ctx.tok.loc); !casse->label)
-              return nullptr;
-            break;
+        default:
 
-          default:
-            break;
-        }
+          while (!casse->label)
+          {
+            switch (tok.type)
+            {
+              case Token::dotdot:
+              case Token::dotdotequal:
+              case Token::colon:
+              case Token::eof:
+                if (casse->label = parse_expression(ctx, sema); !casse->label)
+                  return nullptr;
+                break;
 
-        lexcursor = lex(ctx.text, lexcursor, tok);
+              case Token::l_square:
+              case Token::dollar:
+                if (casse->label = sema.make_declref_expression(parse_qualified_name(ctx, sema), ctx.tok.loc); !casse->label)
+                  return nullptr;
+                break;
+
+              default:
+                break;
+            }
+
+            lexcursor = lex(ctx.text, lexcursor, tok);
+          }
+
+          break;
       }
 
       if (ctx.try_consume_token(Token::l_square))

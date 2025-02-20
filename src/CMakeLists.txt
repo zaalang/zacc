@@ -53,9 +53,7 @@ set(SRCS ${SRCS} lifetime.h lifetime.cpp)
 set(SRCS ${SRCS} toolchain.h toolchain.cpp)
 set(SRCS ${SRCS} depgen.h depgen.cpp)
 
-add_executable(zacc ${SRCS}
-  depgen.h
-  depgen.cpp)
+add_executable(zacc ${SRCS})
 
 if(LLVM_LINK_LLVM_DYLIB)
   llvm_config(zacc USE_SHARED support core analysis target mc ipo native vectorize passes)

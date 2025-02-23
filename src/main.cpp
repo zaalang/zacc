@@ -98,20 +98,14 @@ int main(int argc, char *argv[])
       if (strcmp(argv[i], "-O3") == 0)
         opts.optlevel = GenOpts::OptLevel::Aggressive;
 
-      if (strcmp(argv[i], "-fpic") == 0)
-        opts.reloc = GenOpts::Reloc::PIC;
+      if (strcmp(argv[i], "-fno-pic") == 0)
+        opts.reloc = GenOpts::Reloc::None;
 
       if (strcmp(argv[i], "-funchecked") == 0)
         opts.checkmode = GenOpts::CheckedMode::Unchecked;
 
-      if (strcmp(argv[i], "-fstack-protect") == 0)
-        opts.stackprotect = GenOpts::StackProtect::Yes;
-
       if (strcmp(argv[i], "-fno-stack-protect") == 0)
         opts.stackprotect = GenOpts::StackProtect::None;
-
-      if (strcmp(argv[i], "-mred-zone") == 0)
-        opts.redzone = GenOpts::RedZone::Yes;
 
       if (strcmp(argv[i], "-mno-red-zone") == 0)
         opts.redzone = GenOpts::RedZone::None;
@@ -143,9 +137,6 @@ int main(int argc, char *argv[])
       if (strcmp(argv[i], "--deps") == 0)
         gendeps = true;
     }
-
-    if (opts.linker)
-      opts.reloc = GenOpts::Reloc::PIC;
 
     if (opts.checkmode == GenOpts::CheckedMode::Checked)
       sema.add_cfg("zaa.build.checked");

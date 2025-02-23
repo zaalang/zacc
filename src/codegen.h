@@ -28,7 +28,7 @@ struct GenOpts
   enum class OutputType { EmitLL, EmitAsm, EmitObj } outputtype = OutputType::EmitObj;
   enum class OptLevel { None, Less, Default, Aggressive } optlevel = OptLevel::None;
 
-  enum class Reloc { None, PIC } reloc = Reloc::None;
+  enum class Reloc { None, PIC } reloc = Reloc::PIC;
   enum class RedZone { None, Yes } redzone = RedZone::Yes;
   enum class CodeModel { None, Tiny, Small, Kernel, Medium, Large } model = CodeModel::None;
   enum class StackProtect { None, Yes } stackprotect = StackProtect::Yes;

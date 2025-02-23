@@ -67,7 +67,7 @@ int main(int argc, char *argv[])
   {
     Sema sema;
     GenOpts opts;
-    bool gendeps = false;
+    bool gendeps = true;
 
     for (int i = 0; i < argc; ++i)
     {
@@ -133,9 +133,6 @@ int main(int argc, char *argv[])
 
       if (strcmp(argv[i], "-mllvm") == 0)
         opts.llvmargs.push_back(argv[++i]);
-
-      if (strcmp(argv[i], "--deps") == 0)
-        gendeps = true;
     }
 
     if (opts.checkmode == GenOpts::CheckedMode::Checked)

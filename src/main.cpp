@@ -144,6 +144,9 @@ int main(int argc, char *argv[])
         gendeps = true;
     }
 
+    if (opts.linker)
+      opts.reloc = GenOpts::Reloc::PIC;
+
     if (opts.checkmode == GenOpts::CheckedMode::Checked)
       sema.add_cfg("zaa.build.checked");
 

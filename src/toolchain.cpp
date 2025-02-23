@@ -176,7 +176,7 @@ int ToolChain::ld(string_view input, string_view output, vector<string> librarie
     cmd = m_base + "/bin/ld";
 
     cmd += " -nostdlib";
-    //cmd += " -pie --dynamic-linker=/lib64/ld-linux-x86-64.so.2";
+    cmd += " -pie --dynamic-linker=/lib64/ld-linux-x86-64.so.2 -z relro";
 
     cmd += " " + string(input);
     cmd += " -o " + string(output);
@@ -211,7 +211,8 @@ int ToolChain::ld(string_view input, string_view output, vector<string> librarie
   {
     cmd = m_base + "/bin/ld";
 
-    cmd += " -pie --dynamic-linker=/zaos/lib/loader -nostdlib";
+    cmd += " -nostdlib";
+    cmd += " -pie --dynamic-linker=/zaos/lib/loader -z relro";
 
     cmd += " " + string(input);
     cmd += " -o " + string(output);

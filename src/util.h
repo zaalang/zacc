@@ -363,6 +363,25 @@ inline std::string dirname(std::string_view path)
   return std::string(path.substr(0, j));
 }
 
+//-------------------------- filename ---------------------------------------
+//---------------------------------------------------------------------------
+
+inline std::string filename(std::string_view path)
+{
+#if defined _WIN32
+  auto j = path.find_last_of(":\\/");
+#else
+  auto j = path.find_last_of('/');
+#endif
+
+  if (j != std::string_view::npos)
+    j += 1;
+  else
+    j = 0;
+
+  return std::string(path.substr(j));
+}
+
 //-------------------------- basename ---------------------------------------
 //---------------------------------------------------------------------------
 

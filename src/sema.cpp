@@ -62,7 +62,7 @@ ModuleDecl *Sema::module_declaration(Ident *name, string_view file)
   {
     string base = basename(file);
 
-    if (auto test = dirname(path) + base + '/' + string(file); access(test.c_str(), F_OK) == 0)
+    if (auto test = dirname(path) + base + '/' + filename(file); access(test.c_str(), F_OK) == 0)
       path = test;
   }
 
@@ -78,7 +78,7 @@ ModuleDecl *Sema::module_declaration(Ident *name, string_view file)
         break;
       }
 
-      if (auto test = includepath + '/' + base + '/' + string(file); access(test.c_str(), F_OK) == 0)
+      if (auto test = includepath + '/' + base + '/' + filename(file); access(test.c_str(), F_OK) == 0)
       {
         path = test;
         break;

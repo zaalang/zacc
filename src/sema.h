@@ -28,7 +28,7 @@ class Sema
 
     TranslationUnitDecl *translation_unit(std::string_view file);
 
-    ModuleDecl *module_declaration(Ident *name, std::string_view file);
+    ModuleDecl *module_declaration(Ident *name, std::string_view imprt);
 
     IdentPatternDecl *ident_pattern(Ident *name, SourceLocation loc);
     TuplePatternDecl *tuple_pattern(std::vector<Decl*> const &decls, SourceLocation loc);

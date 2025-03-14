@@ -52,33 +52,33 @@ TranslationUnitDecl *Sema::translation_unit(string_view file)
 }
 
 //|///////////////////// module_declaration /////////////////////////////////
-ModuleDecl *Sema::module_declaration(Ident *name, string_view file)
+ModuleDecl *Sema::module_declaration(Ident *name, string_view imprt)
 {
   auto unit = decl_cast<TranslationUnitDecl>(ast->root);
 
-  string path = dirname(decl_cast<ModuleDecl>(unit->mainmodule)->file()) + string(file);
+  string base = dirname(imprt);
+  string file = basename(imprt) + ".zaa";
+  string dirfile = basename(imprt) + '/' + file;
+
+  string path = dirname(decl_cast<ModuleDecl>(unit->mainmodule)->file()) + base + file;
 
   if (access(path.c_str(), F_OK) != 0)
   {
-    string base = basename(file);
-
-    if (auto test = dirname(path) + base + '/' + filename(file); access(test.c_str(), F_OK) == 0)
+    if (auto test = dirname(path) + dirfile; access(test.c_str(), F_OK) == 0)
       path = test;
   }
 
   if (access(path.c_str(), F_OK) != 0)
   {
-    string base = basename(file);
-
     for (auto &includepath : m_include_paths)
     {
-      if (auto test = includepath + '/' + string(file); access(test.c_str(), F_OK) == 0)
+      if (auto test = includepath + '/' + base + file; access(test.c_str(), F_OK) == 0)
       {
         path = test;
         break;
       }
 
-      if (auto test = includepath + '/' + base + '/' + filename(file); access(test.c_str(), F_OK) == 0)
+      if (auto test = includepath + '/' + base + dirfile; access(test.c_str(), F_OK) == 0)
       {
         path = test;
         break;

@@ -1159,8 +1159,6 @@ namespace
         submodule = true;
     }
 
-    path += ".zaa";
-
     auto module = sema.lookup_module(name);
 
     if (!module)

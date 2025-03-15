@@ -582,7 +582,7 @@ namespace
 
             if (j == typeargs.end() || j->first != arg)
             {
-              typeargs.emplace(j, arg, resolve_type(ctx, Scope(decl, typeargs), decl_cast<TypeArgDecl>(arg)->defult));
+              typeargs.emplace(j, arg, remove_const_type(resolve_type(ctx, Scope(decl, typeargs), decl_cast<TypeArgDecl>(arg)->defult)));
             }
           }
         }
@@ -1439,13 +1439,6 @@ namespace
       switch (type->klass())
       {
         case Type::Tuple:
-
-          if (is_const_type(field.type))
-          {
-            field.type = remove_const_type(field.type);
-            field.flags |= VarDecl::Const;
-          }
-
           field.defn = type_cast<TupleType>(type)->defns[index];
           break;
 
@@ -1475,7 +1468,6 @@ namespace
         field.type = tagtype->fields[field.index];
         field.defn = decl_cast<FieldVarDecl>(decl)->type;
         field.flags = decl_cast<FieldVarDecl>(decl)->flags;
-
         break;
       }
 
@@ -1705,7 +1697,7 @@ namespace
       if (decl->kind() != Decl::FieldVar)
         continue;
 
-      fields.push_back(remove_const_type(resolve_type(ctx, scope, decl_cast<FieldVarDecl>(decl)->type)));
+      fields.push_back(resolve_type(ctx, scope, decl_cast<FieldVarDecl>(decl)->type));
     }
 
     type->resolve(std::move(fields));
@@ -1748,7 +1740,7 @@ namespace
     if (argtype->decl->kind() == Decl::TypeArg)
     {
       if (auto argdecl = decl_cast<TypeArgDecl>(argtype->decl); argdecl->defult)
-        return resolve_type(ctx, scope, argdecl->defult);
+        return remove_const_type(resolve_type(ctx, scope, argdecl->defult));
     }
 
     if (argtype->args.size() != 0)
@@ -4559,10 +4551,10 @@ namespace
         return find_callee(ctx, stack, basescope, decl_cast<DeclScopedDecl>(callee), parms, namedparms, is_callop);
 
       case Decl::TypeName:
-        return find_callee(ctx, resolve_type(ctx, stack.back(), decl_cast<TypeNameDecl>(callee)->type), parms, namedparms);
+        return find_callee(ctx, remove_const_type(resolve_type(ctx, stack.back(), decl_cast<TypeNameDecl>(callee)->type)), parms, namedparms);
 
       case Decl::TypeOf:
-        return find_callee(ctx, resolve_type(ctx, stack.back(), decl_cast<TypeOfDecl>(callee)), parms, namedparms);
+        return find_callee(ctx, remove_const_type(resolve_type(ctx, stack.back(), decl_cast<TypeOfDecl>(callee))), parms, namedparms);
 
       default:
         assert(false);
@@ -6008,8 +6000,8 @@ namespace
       }
     }
 
-  return true;
-}
+    return true;
+  }
 
   //|///////////////////// lower_field //////////////////////////////////////
   bool lower_field(LowerContext &ctx, MIR::Fragment &result, MIR::Fragment &base, Field &field, SourceLocation loc)
@@ -6057,6 +6049,17 @@ namespace
 
     result.type = MIR::Local(field.type, field.defn, base.type.flags);
 
+    if (is_const_type(result.type.type) || is_qualarg_type(result.type.type))
+    {
+      if (is_const_type(result.type.type) || type_cast<QualArgType>(result.type.type)->qualifiers & QualArgType::Const)
+        result.type.flags |= MIR::Local::Const;
+
+      if (is_qualarg_type(result.type.type) && type_cast<QualArgType>(result.type.type)->qualifiers & QualArgType::RValue)
+        result.type.flags = (result.type.flags & ~MIR::Local::LValue) | MIR::Local::XValue;
+
+      result.type.type = remove_const_type(result.type.type);
+    }
+
     if (field.flags & VarDecl::Const)
       result.type.flags |= MIR::Local::Const;
 
@@ -6092,7 +6095,8 @@ namespace
       {
         field.defn = ctx.typetable.var_defn;
 
-        lower_field(ctx, expr, expr, field, loc);
+        if (!lower_field(ctx, expr, expr, field, loc))
+          return false;
 
         continue;
       }
@@ -7473,7 +7477,8 @@ namespace
             {
               if (auto field = find_field(ctx, type_cast<TupleType>(result.type.type), ctx.pack_expansion))
               {
-                lower_field(ctx, result, result, field, loc);
+                if (!lower_field(ctx, result, result, field, loc))
+                  return false;
               }
             }
 
@@ -7508,7 +7513,8 @@ namespace
 
           auto field = find_field(ctx, type_cast<TagType>(base.type.type), decl_cast<FieldVarDecl>(vardecl)->name);
 
-          lower_field(ctx, result, base, field, loc);
+          if (!lower_field(ctx, result, base, field, loc))
+            return false;
 
           return true;
         }
@@ -7539,7 +7545,8 @@ namespace
       {
         if (auto field = find_field(ctx, type_cast<TupleType>(result.type.type), ctx.pack_expansion))
         {
-          lower_field(ctx, result, result, field, loc);
+          if (!lower_field(ctx, result, result, field, loc))
+            return false;
         }
       }
     }
@@ -7579,7 +7586,8 @@ namespace
           {
             if (auto field = find_field(ctx, ctx.stack, type_cast<CompoundType>(parms[0].type.type), name))
             {
-              lower_field(ctx, result, parms[0], field, declref->loc());
+              if (!lower_field(ctx, result, parms[0], field, declref->loc()))
+                return false;
 
               return true;
             }
@@ -7589,7 +7597,8 @@ namespace
           {
             if (auto field = find_field(ctx, ctx.stack, type_cast<ArrayType>(parms[0].type.type), name))
             {
-              lower_field(ctx, result, parms[0], field, declref->loc());
+              if (!lower_field(ctx, result, parms[0], field, declref->loc()))
+                return false;
 
               return true;
             }
@@ -12420,6 +12429,11 @@ namespace
       ctx.stack.back().goalpost = parm;
 
       lower_decl(ctx, decl_cast<ParmVarDecl>(parm));
+    }
+
+    if (fn->flags & FunctionDecl::Destructor)
+    {
+      ctx.mir.locals[1].type = ctx.typetable.find_or_create<ReferenceType>(remove_const_type(remove_reference_type(ctx.mir.locals[1].type)));
     }
 
     ctx.stack.back().goalpost = nullptr;

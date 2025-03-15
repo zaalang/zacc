@@ -422,7 +422,7 @@ namespace Builtin
     make_function(Array_Constructor, "pub fn #array<T>() -> T", FunctionDecl::Defaulted | FunctionDecl::Constructor, __LINE__);
     make_function(Array_Copytructor, "pub fn #array<T>(T&&) -> T", FunctionDecl::Defaulted, __LINE__);
     make_function(Array_Assignment, "pub fn =<T>(T mut &, T&&) -> T mut &", FunctionDecl::Defaulted, __LINE__);
-    make_function(Array_Destructor, "pub fn ~#array<T>(T mut &) -> void", FunctionDecl::Defaulted | FunctionDecl::Destructor, __LINE__);
+    make_function(Array_Destructor, "pub fn ~#array<T>(T&) -> void", FunctionDecl::Defaulted | FunctionDecl::Destructor, __LINE__);
 
     make_function(Tuple_Constructor, "pub fn #tuple<T>() -> T", FunctionDecl::Defaulted | FunctionDecl::Constructor, __LINE__);
     make_function(Tuple_Inittructor, "pub fn #tuple<T>(T&&...) -> T", FunctionDecl::Defaulted, __LINE__);
@@ -430,9 +430,9 @@ namespace Builtin
     make_function(Tuple_CopytructorEx, "pub fn #tuple<T, U>(U&&) -> T", FunctionDecl::Defaulted, __LINE__);
     make_function(Tuple_Assignment, "pub fn =<T>(T mut &, T&&) -> T mut &", FunctionDecl::Defaulted, __LINE__);
     make_function(Tuple_AssignmentEx, "pub fn =<T, U>(T mut &, U&&) -> T mut &", FunctionDecl::Defaulted, __LINE__);
-    make_function(Tuple_Destructor, "pub fn ~#tuple<T>(T mut &) -> void", FunctionDecl::Defaulted | FunctionDecl::Destructor, __LINE__);
+    make_function(Tuple_Destructor, "pub fn ~#tuple<T>(T&) -> void", FunctionDecl::Defaulted | FunctionDecl::Destructor, __LINE__);
 
-    make_function(Builtin_Destructor, "pub fn ~#builtin<T>(T mut &) -> void", FunctionDecl::Builtin | FunctionDecl::Destructor, __LINE__);
+    make_function(Builtin_Destructor, "pub fn ~#builtin<T>(T&) -> void", FunctionDecl::Builtin | FunctionDecl::Destructor, __LINE__);
 
     make_function(Plus, "pub const fn +<T>(T) -> T", __LINE__);
     make_function(Minus, "pub const fn -<T>(T) -> T", __LINE__);

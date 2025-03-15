@@ -1315,7 +1315,7 @@ namespace
 
         auto thisvar = sema.parm_declaration(fn->loc());
         thisvar->name = Ident::kw_this;
-        thisvar->type = sema.make_reference(decl_type(ctx, *owner, sema));
+        thisvar->type = sema.make_reference(sema.make_const(decl_type(ctx, *owner, sema)));
 
         fn->parms.push_back(thisvar);
 

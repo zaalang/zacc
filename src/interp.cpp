@@ -3298,68 +3298,9 @@ namespace
       return false;
     }
 
-    Ident *result = nullptr;
+    auto name = decl_name(declid);
 
-    switch (declid->kind())
-    {
-      case Decl::TranslationUnit:
-        result = Ident::op_scope;
-        break;
-
-      case Decl::Module:
-        result = decl_cast<ModuleDecl>(declid)->name;
-        break;
-
-      case Decl::Function:
-        result = decl_cast<FunctionDecl>(declid)->name;
-        break;
-
-      case Decl::Struct:
-      case Decl::Union:
-      case Decl::VTable:
-      case Decl::Concept:
-      case Decl::Enum:
-        result = decl_cast<TagDecl>(declid)->name;
-        break;
-
-      case Decl::VoidVar:
-      case Decl::StmtVar:
-      case Decl::ParmVar:
-      case Decl::FieldVar:
-      case Decl::ThisVar:
-      case Decl::ErrorVar:
-        result = decl_cast<VarDecl>(declid)->name;
-        break;
-
-      case Decl::EnumConstant:
-        result = decl_cast<EnumConstantDecl>(declid)->name;
-        break;
-
-      case Decl::TypeAlias:
-        result = decl_cast<TypeAliasDecl>(declid)->name;
-        break;
-
-      case Decl::TypeArg:
-        result = decl_cast<TypeArgDecl>(declid)->name;
-        break;
-
-      case Decl::Import:
-        result = Ident::kw_import;
-        break;
-
-      case Decl::Using:
-        result = Ident::kw_using;
-        break;
-
-      case Decl::Run:
-        result = Ident::op_run;
-        break;
-
-      default:
-        break;
-    }
-
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, ctx.make_expr<StringLiteralExpr>(result ? result->str() : string(), loc));
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, ctx.make_expr<StringLiteralExpr>(name ? name->str() : string(), loc));
 
     return true;
   }
@@ -3395,18 +3336,18 @@ namespace
       return false;
     }
 
-    Decl *result = nullptr;
+    Decl *parent = nullptr;
 
     for (auto sx = parent_scope(declid); sx; sx = parent_scope(std::move(sx)))
     {
       if (is_decl_scope(sx))
       {
-        result = get<Decl*>(sx.owner);
+        parent = get<Decl*>(sx.owner);
         break;
       }
     }
 
-    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, ctx.make_expr<IntLiteralExpr>(Numeric::int_literal(+1, reinterpret_cast<uintptr_t>(result)), loc));
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, ctx.make_expr<IntLiteralExpr>(Numeric::int_literal(+1, reinterpret_cast<uintptr_t>(parent)), loc));
 
     return true;
   }
@@ -3425,16 +3366,16 @@ namespace
       return false;
     }
 
-    vector<Decl*> results;
+    vector<Decl*> children;
 
     switch (declid->kind())
     {
       case Decl::TranslationUnit:
-        results = decl_cast<TranslationUnitDecl>(declid)->decls;
+        children = decl_cast<TranslationUnitDecl>(declid)->decls;
         break;
 
       case Decl::Module:
-        results = decl_cast<ModuleDecl>(declid)->decls;
+        children = decl_cast<ModuleDecl>(declid)->decls;
         break;
 
       case Decl::Struct:
@@ -3442,7 +3383,7 @@ namespace
       case Decl::VTable:
       case Decl::Concept:
       case Decl::Enum:
-        results = decl_cast<TagDecl>(declid)->decls;
+        children = decl_cast<TagDecl>(declid)->decls;
         break;
 
       default:
@@ -3450,12 +3391,12 @@ namespace
     }
 
     size_t size = 0;
-    Numeric::Int *data = (Numeric::Int*)ctx.allocate(results.size() * sizeof(Numeric::Int), alignof(uintptr_t));
+    Numeric::Int *data = (Numeric::Int*)ctx.allocate(children.size() * sizeof(Numeric::Int), alignof(uintptr_t));
 
-    for (size_t i = 0; i < results.size(); ++i)
+    for (size_t i = 0; i < children.size(); ++i)
     {
-      if (filter == 0 || filter == results[i]->kind())
-        data[size++] = Numeric::int_literal(+1, reinterpret_cast<uintptr_t>(results[i]));
+      if (filter == 0 || filter == children[i]->kind())
+        data[size++] = Numeric::int_literal(+1, reinterpret_cast<uintptr_t>(children[i]));
     }
 
     store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, Slice<Numeric::Int>{ size, data });

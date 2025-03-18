@@ -792,6 +792,8 @@ class IfDecl : public Decl
 // misc functions
 //
 
+Ident *decl_name(Decl *decl);
+
 bool is_fn_decl(Decl const *decl);
 bool is_var_decl(Decl const *decl);
 bool is_tag_decl(Decl const *decl);

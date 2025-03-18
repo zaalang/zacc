@@ -1365,14 +1365,11 @@ namespace
 
       if (result.type && is_string_type(result.type))
       {
-        auto name = Ident::from(expr_cast<StringLiteralExpr>(result.value)->value());
-
-        vector<Decl*> results;
-        for (auto &decl : decls)
-          find_decl(decl, name, QueryFlags::All, results);
-
-        if (results.size() == 1)
-          return std::find(decls.begin(), decls.end(), results.front()) - decls.begin();
+        for (size_t index = 0; index < decls.size(); ++index)
+        {
+          if (decl_name(decls[index]) == expr_cast<StringLiteralExpr>(result.value)->value())
+            return index;
+        }
       }
 
       if (result.type && is_declid_type(result.type))
@@ -1381,6 +1378,15 @@ namespace
 
         if (auto j = std::find(decls.begin(), decls.end(), declid); j != decls.end())
           return j - decls.begin();
+      }
+    }
+
+    if (ident->kind() == Ident::String)
+    {
+      for (size_t index = 0; index < decls.size(); ++index)
+      {
+        if (decl_name(decls[index]) == ident)
+          return index;
       }
     }
 
@@ -1410,18 +1416,14 @@ namespace
       field.type = type->type;
       field.defn = type->type;
       field.flags = 0;
-    }
 
-    return field;
-  }
+      if (is_const_type(field.type) || is_qualarg_type(field.type))
+      {
+        if (is_const_type(field.type) || type_cast<QualArgType>(field.type)->qualifiers & QualArgType::Const)
+          field.flags |= MIR::Local::Const;
 
-  Field find_field(LowerContext &ctx, vector<Scope> const &stack, ArrayType *arraytype, Ident *ident)
-  {
-    Field field;
-
-    if (auto index = find_index(ctx, stack, {}, ident); index != size_t(-1))
-    {
-      field = find_field(ctx, arraytype, index);
+        field.type = remove_const_type(field.type);
+      }
     }
 
     return field;
@@ -1450,69 +1452,54 @@ namespace
         default:
           assert(false);
       }
-    }
 
-    return field;
-  }
-
-  Field find_field(LowerContext &ctx, TagType *tagtype, Ident *name)
-  {
-    Field field;
-
-    field.index = 0;
-
-    for (auto &decl : tagtype->fieldvars)
-    {
-      if (decl_cast<FieldVarDecl>(decl)->name == name)
+      if (is_const_type(field.type) || is_qualarg_type(field.type))
       {
-        field.type = tagtype->fields[field.index];
-        field.defn = decl_cast<FieldVarDecl>(decl)->type;
-        field.flags = decl_cast<FieldVarDecl>(decl)->flags;
-        break;
+        if (is_const_type(field.type) || type_cast<QualArgType>(field.type)->qualifiers & QualArgType::Const)
+          field.flags |= MIR::Local::Const;
+
+        field.type = remove_const_type(field.type);
       }
-
-      field.index += 1;
     }
 
     return field;
   }
 
-  Field find_field(LowerContext &ctx, vector<Scope> const &stack, CompoundType *compoundtype, Ident *ident)
+  Field find_field(LowerContext &ctx, vector<Scope> const &stack, Type *type, Ident *ident)
   {
     Field field;
 
-    if (ident->kind() == Ident::Index)
+    switch (type->klass())
     {
-      field = find_field(ctx, compoundtype, static_cast<IndexIdent*>(ident)->value());
-    }
+      case Type::Array:
 
-    if (compoundtype->klass() == Type::Tuple)
-    {
-      if (ident->kind() == Ident::Hash)
-      {
         if (auto index = find_index(ctx, stack, {}, ident); index != size_t(-1))
         {
-          field = find_field(ctx, compoundtype, index);
+          field = find_field(ctx, type_cast<ArrayType>(type), index);
         }
-      }
-    }
 
-    if (compoundtype->klass() == Type::Tag)
-    {
-      auto tagtype = type_cast<TagType>(compoundtype);
+        break;
 
-      if (ident->kind() == Ident::Hash)
-      {
-        if (auto index = find_index(ctx, stack, tagtype->fieldvars, ident); index != size_t(-1))
+      case Type::Tuple:
+
+        if (auto index = find_index(ctx, stack, {}, ident); index != size_t(-1))
         {
-          field = find_field(ctx, compoundtype, index);
+          field = find_field(ctx, type_cast<CompoundType>(type), index);
         }
-      }
 
-      if (ident->kind() == Ident::String)
-      {
-        field = find_field(ctx, tagtype, ident);
-      }
+        break;
+
+      case Type::Tag:
+
+        if (auto index = find_index(ctx, stack, type_cast<TagType>(type)->fieldvars, ident); index != size_t(-1))
+        {
+          field = find_field(ctx, type_cast<TagType>(type), index);
+        }
+
+        break;
+
+      default:
+        break;
     }
 
     return field;
@@ -1960,7 +1947,7 @@ namespace
 
           if (is_compound_type(type))
           {
-            if (auto field = find_field(ctx, ctx.stack, type_cast<CompoundType>(type), declref.decl->name))
+            if (auto field = find_field(ctx, ctx.stack, type, declref.decl->name))
               return resolve_deref(ctx, field.type, field.defn);
           }
 
@@ -6049,17 +6036,6 @@ namespace
 
     result.type = MIR::Local(field.type, field.defn, base.type.flags);
 
-    if (is_const_type(result.type.type) || is_qualarg_type(result.type.type))
-    {
-      if (is_const_type(result.type.type) || type_cast<QualArgType>(result.type.type)->qualifiers & QualArgType::Const)
-        result.type.flags |= MIR::Local::Const;
-
-      if (is_qualarg_type(result.type.type) && type_cast<QualArgType>(result.type.type)->qualifiers & QualArgType::RValue)
-        result.type.flags = (result.type.flags & ~MIR::Local::LValue) | MIR::Local::XValue;
-
-      result.type.type = remove_const_type(result.type.type);
-    }
-
     if (field.flags & VarDecl::Const)
       result.type.flags |= MIR::Local::Const;
 
@@ -6091,7 +6067,7 @@ namespace
       if (expr.type.type == type)
         break;
 
-      if (auto field = find_field(ctx, type_cast<TagType>(expr.type.type), Ident::kw_super))
+      if (auto field = find_field(ctx, ctx.stack, expr.type.type, Ident::kw_super))
       {
         field.defn = ctx.typetable.var_defn;
 
@@ -7489,6 +7465,7 @@ namespace
         if (auto j = ctx.symbols.find(vardecl); j != ctx.symbols.end())
         {
           result = j->second;
+
           return true;
         }
       }
@@ -7511,12 +7488,13 @@ namespace
             base.value = MIR::RValue::local(MIR::RValue::Val, arg, loc);
           }
 
-          auto field = find_field(ctx, type_cast<TagType>(base.type.type), decl_cast<FieldVarDecl>(vardecl)->name);
+          if (auto field = find_field(ctx, ctx.stack, base.type.type, decl_cast<FieldVarDecl>(vardecl)->name))
+          {
+            if (!lower_field(ctx, result, base, field, loc))
+              return false;
 
-          if (!lower_field(ctx, result, base, field, loc))
-            return false;
-
-          return true;
+            return true;
+          }
         }
       }
 
@@ -7582,26 +7560,12 @@ namespace
       {
         if (name->kind() == Ident::Index || name->kind() == Ident::Hash)
         {
-          if (is_compound_type(parms[0].type.type))
+          if (auto field = find_field(ctx, ctx.stack, parms[0].type.type, name))
           {
-            if (auto field = find_field(ctx, ctx.stack, type_cast<CompoundType>(parms[0].type.type), name))
-            {
-              if (!lower_field(ctx, result, parms[0], field, declref->loc()))
-                return false;
+            if (!lower_field(ctx, result, parms[0], field, declref->loc()))
+              return false;
 
-              return true;
-            }
-          }
-
-          if (is_array_type(parms[0].type.type))
-          {
-            if (auto field = find_field(ctx, ctx.stack, type_cast<ArrayType>(parms[0].type.type), name))
-            {
-              if (!lower_field(ctx, result, parms[0], field, declref->loc()))
-                return false;
-
-              return true;
-            }
+            return true;
           }
         }
 
@@ -7609,13 +7573,13 @@ namespace
         {
           auto tagtype = type_cast<TagType>(type);
 
-          if (auto field = find_field(ctx, tagtype, name))
+          if (auto field = find_field(ctx, ctx.stack, tagtype, name))
           {
             if ((field.flags & Decl::Public) || get_module(tagtype->decl) == ctx.module)
             {
               while (parms[0].type.type != type)
               {
-                if (auto field = find_field(ctx, type_cast<TagType>(parms[0].type.type), Ident::kw_super))
+                if (auto field = find_field(ctx, ctx.stack, parms[0].type.type, Ident::kw_super))
                 {
                   lower_field(ctx, parms[0], parms[0], field, declref->base->loc());
                 }
@@ -8598,7 +8562,7 @@ namespace
 
           if (is_compound_type(type))
           {
-            if (auto field = find_field(ctx, ctx.stack, type_cast<CompoundType>(type), declref.decl->name))
+            if (auto field = find_field(ctx, ctx.stack, type, declref.decl->name))
               align = alignof_type(field.type);
           }
         }
@@ -8632,7 +8596,7 @@ namespace
 
           if (is_compound_type(type))
           {
-            if (auto field = find_field(ctx, ctx.stack, type_cast<CompoundType>(type), declref.decl->name))
+            if (auto field = find_field(ctx, ctx.stack, type, declref.decl->name))
               offset = offsetof_field(type_cast<CompoundType>(type), field.index);
           }
         }
@@ -8810,7 +8774,7 @@ namespace
           {
             if (declref.decl->name->kind() == Ident::Index || declref.decl->name->kind() == Ident::Hash)
             {
-              if (auto field = find_field(ctx, ctx.stack, type_cast<CompoundType>(type), declref.decl->name))
+              if (auto field = find_field(ctx, ctx.stack, type, declref.decl->name))
                 typid = field.type;
             }
           }
@@ -8905,7 +8869,7 @@ namespace
       if (is_reference_type(cast->type) && source.type.type == remove_const_type(remove_reference_type(casttype)))
         break;
 
-      if (auto field = find_field(ctx, type_cast<TagType>(source.type.type), Ident::kw_super))
+      if (auto field = find_field(ctx, ctx.stack, source.type.type, Ident::kw_super))
       {
         field.defn = ctx.typetable.var_defn;
 
@@ -9019,6 +8983,12 @@ namespace
           while (is_pointference_type(parms[0].type.type))
             if (!lower_base_deref(ctx, parms[0], call->loc()))
               return;
+
+          if (call->base->kind() == Expr::Paren && expr_cast<ParenExpr>(call->base)->subexpr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr_cast<ParenExpr>(call->base)->subexpr)->op() == UnaryOpExpr::Fwd)
+          {
+            if ((parms[0].type.flags & MIR::Local::XValue) && !(parms[0].type.flags & MIR::Local::Const))
+              parms[0].type.flags = (parms[0].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
+          }
 #endif
           basescope = type_scope(ctx, parms[0].type.type);
 
@@ -9028,13 +8998,13 @@ namespace
             {
               auto tagtype = type_cast<TagType>(type);
 
-              if (auto field = find_field(ctx, tagtype, name))
+              if (auto field = find_field(ctx, ctx.stack, tagtype, name))
               {
                 if ((field.flags & Decl::Public) || get_module(tagtype->decl) == ctx.module)
                 {
                   while (parms[0].type.type != type)
                   {
-                    if (auto field = find_field(ctx, type_cast<TagType>(parms[0].type.type), Ident::kw_super))
+                    if (auto field = find_field(ctx, ctx.stack, parms[0].type.type, Ident::kw_super))
                     {
                       lower_field(ctx, parms[0], parms[0], field, call->loc());
                     }
@@ -9673,7 +9643,7 @@ namespace
 
       for (; index < thistype->fields.size(); ++index)
       {
-        auto type = thistype->fields[index];
+        auto type = remove_const_type(thistype->fields[index]);
         auto decl = decl_cast<FieldVarDecl>(thistype->fieldvars[index]);
 
         MIR::Fragment address;
@@ -9824,7 +9794,7 @@ namespace
     {
       for (size_t index = 0; index < thistype->fields.size(); ++index)
       {
-        auto type = thistype->fields[index];
+        auto type = remove_const_type(thistype->fields[index]);
 
         MIR::Fragment address;
         address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(type), MIR::Local::LValue);
@@ -9851,7 +9821,7 @@ namespace
 
       for (size_t index = 0; index < thistype->fields.size(); ++index)
       {
-        auto type = thistype->fields[index];
+        auto type = remove_const_type(thistype->fields[index]);
         auto decl = decl_cast<FieldVarDecl>(type_cast<TagType>(thistype)->fieldvars[index]);
 
         MIR::Fragment address;
@@ -9882,7 +9852,7 @@ namespace
     {
       for (size_t index = 0; index < thistype->fields.size(); ++index)
       {
-        auto type = thistype->fields[index];
+        auto type = remove_const_type(thistype->fields[index]);
 
         MIR::Fragment address;
         address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(type), MIR::Local::LValue);
@@ -9935,7 +9905,7 @@ namespace
     {
       for (size_t index = 0; index < thistype->fields.size(); ++index)
       {
-        auto type = thistype->fields[index];
+        auto type = remove_const_type(thistype->fields[index]);
 
         MIR::Fragment address;
         address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(type), MIR::Local::LValue);
@@ -9979,7 +9949,7 @@ namespace
 
       for (size_t index = 1; index < thistype->fields.size(); ++index)
       {
-        auto type = thistype->fields[index];
+        auto type = remove_const_type(thistype->fields[index]);
 
         MIR::Fragment address;
         address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(type), MIR::Local::LValue);
@@ -10638,7 +10608,7 @@ namespace
 
     for (size_t index = 0; index < thistype->fields.size(); ++index)
     {
-      auto type = thistype->fields[index];
+      auto type = remove_const_type(thistype->fields[index]);
 
       MIR::Fragment address;
       address.type = MIR::Local(ctx.typetable.find_or_create<ReferenceType>(type), MIR::Local::LValue);

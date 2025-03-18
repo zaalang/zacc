@@ -35,6 +35,60 @@ namespace
   };
 }
 
+//|///////////////////// decl_name //////////////////////////////////////////
+Ident *decl_name(Decl *decl)
+{
+  switch (decl->kind())
+  {
+    case Decl::TranslationUnit:
+      return Ident::op_scope;
+
+    case Decl::Module:
+      return decl_cast<ModuleDecl>(decl)->name;
+
+    case Decl::Function:
+      return decl_cast<FunctionDecl>(decl)->name;
+
+    case Decl::Struct:
+    case Decl::Union:
+    case Decl::VTable:
+    case Decl::Concept:
+    case Decl::Enum:
+      return decl_cast<TagDecl>(decl)->name;
+
+    case Decl::VoidVar:
+    case Decl::StmtVar:
+    case Decl::ParmVar:
+    case Decl::FieldVar:
+    case Decl::ThisVar:
+    case Decl::ErrorVar:
+      return decl_cast<VarDecl>(decl)->name;
+
+    case Decl::EnumConstant:
+      return decl_cast<EnumConstantDecl>(decl)->name;
+
+    case Decl::TypeAlias:
+      return decl_cast<TypeAliasDecl>(decl)->name;
+
+    case Decl::TypeArg:
+      return decl_cast<TypeArgDecl>(decl)->name;
+
+    case Decl::Import:
+      return Ident::kw_import;
+
+    case Decl::Using:
+      return Ident::kw_using;
+
+    case Decl::Run:
+      return Ident::op_run;
+
+    default:
+      break;
+  }
+
+  return nullptr;
+}
+
 //|///////////////////// is_fn_decl /////////////////////////////////////////
 bool is_fn_decl(Decl const *decl)
 {
@@ -1157,3 +1211,4 @@ void IfDecl::dump(int indent) const
     elseif->dump(indent + 2);
   }
 }
+

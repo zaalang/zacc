@@ -730,6 +730,9 @@ namespace
     if (lhs == ctx.ptrliteraltype)
       return false;
 
+    if (rhs == ctx.ptrliteraltype && is_pointer_type(lhs))
+      return true;
+
     if (is_pointer_type(rhs) || is_reference_type(rhs) || is_struct_type(rhs) || is_vtable_type(rhs))
     {
       if (rhs->klass() == Type::Pointer || rhs->klass() == Type::Reference)
@@ -2624,7 +2627,7 @@ namespace
         if (rhs->klass() == Type::QualArg && !(type_cast<QualArgType>(rhs)->qualifiers & QualArgType::Const))
           rhs = remove_const_type(rhs);
 
-        if (rhs->klass() == Type::Tag && ((tx.pointerdepth == 0 && tx.allow_object_downcast) || (tx.pointerdepth == 1 && tx.allow_pointer_downcast)))
+        if ((tx.pointerdepth == 0 && tx.allow_object_downcast) || (tx.pointerdepth == 1 && tx.allow_pointer_downcast))
         {
           while (is_tag_type(rhs))
           {
@@ -6080,6 +6083,12 @@ namespace
       break;
     }
 
+    if (expr.type.type == ctx.ptrliteraltype)
+    {
+      if (expr.value.kind() == MIR::RValue::Constant)
+        expr.type.type = type;
+    }
+
     if (expr.type.type != type)
     {
       auto arg = ctx.add_temporary();
@@ -6794,9 +6803,6 @@ namespace
 
       if (is_base_cast(ctx, parmtype, parms[k].type.type))
       {
-        if (parms[k].value.kind() == MIR::RValue::Constant)
-          lower_ref(ctx, parms[k], parms[k]);
-
         if (!lower_base_cast(ctx, parms[k], parms[k], parmtype, parms[k].value.loc()))
           return false;
       }
@@ -8625,7 +8631,7 @@ namespace
 
     if (is_tag_type(lhs) && is_tag_type(rhs))
     {
-      for (; is_tag_type(rhs); )
+      while (is_tag_type(rhs))
       {
         if (type_cast<TagType>(lhs)->decl == type_cast<TagType>(rhs)->decl)
         {
@@ -9053,6 +9059,30 @@ namespace
             basescope = type_scope(ctx, parms[0].type.type);
 
             break;
+          }
+
+          if (is_function_type(remove_qualifiers_type(parms[0].type.type)))
+          {
+            auto fntype = type_cast<FunctionType>(remove_qualifiers_type(parms[0].type.type));
+
+            for (size_t k = 1; k < std::min(parms.size(), type_cast<TupleType>(fntype->paramtuple)->fields.size() + 1); ++k)
+            {
+              auto lhs = parms[k].type.type;
+              auto rhs = remove_const_type(remove_reference_type(type_cast<TupleType>(fntype->paramtuple)->fields[k - 1]));
+
+              while (is_tag_type(lhs))
+              {
+                if (rhs->klass() == Type::Tag && type_cast<TagType>(rhs)->decl == type_cast<TagType>(lhs)->decl)
+                  break;
+
+                if (!decl_cast<TagDecl>(type_cast<TagType>(lhs)->decl)->basetype || !(type_cast<TagType>(lhs)->decl->flags & TagDecl::PublicBase))
+                  break;
+
+                lhs = type_cast<TagType>(lhs)->fields[0];
+              }
+
+              lower_base_cast(ctx, parms[k], parms[k], lhs, parms[k].value.loc());
+            }
           }
 
           if (is_lambda_type(parms[0].type.type) && !(type_cast<TagType>(parms[0].type.type)->decl->flags & LambdaDecl::Captures))

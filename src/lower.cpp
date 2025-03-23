@@ -6065,22 +6065,28 @@ namespace
   //|///////////////////// lower_base_cast //////////////////////////////////
   bool lower_base_cast(LowerContext &ctx, MIR::Fragment &result, MIR::Fragment &expr, Type *type, SourceLocation loc)
   {
-    while (is_tag_type(expr.type.type))
+    if (is_tag_type(expr.type.type))
     {
-      if (expr.type.type == type)
-        break;
+      if (expr.value.kind() == MIR::RValue::Constant)
+        lower_ref(ctx, expr, expr);
 
-      if (auto field = find_field(ctx, ctx.stack, expr.type.type, Ident::kw_super))
+      while (is_tag_type(expr.type.type))
       {
-        field.defn = ctx.typetable.var_defn;
+        if (expr.type.type == type)
+          break;
 
-        if (!lower_field(ctx, expr, expr, field, loc))
-          return false;
+        if (auto field = find_field(ctx, ctx.stack, expr.type.type, Ident::kw_super))
+        {
+          field.defn = ctx.typetable.var_defn;
 
-        continue;
+          if (!lower_field(ctx, expr, expr, field, loc))
+            return false;
+
+          continue;
+        }
+
+        break;
       }
-
-      break;
     }
 
     if (expr.type.type == ctx.ptrliteraltype)

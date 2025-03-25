@@ -3739,9 +3739,6 @@ namespace
 
       if (decl->kind() == Decl::Enum)
       {
-        if (1 < parms.size())
-          continue;
-
         if (0 != tx.args.size() + tx.namedargs.size())
           continue;
 

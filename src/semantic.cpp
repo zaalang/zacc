@@ -1144,10 +1144,10 @@ namespace
   {
     auto name = decl_cast<DeclRefDecl>(imprt->decl)->name;
 
+    auto path = name->str();
     auto submodule = false;
-    auto path = decl_cast<DeclRefDecl>(imprt->decl)->name->str();
 
-    if (auto j = path.find('.'); j != path.npos)
+    if (auto j = path.find('.'); j != string::npos)
     {
 #if defined _WIN32
       std::replace(path.begin(), path.end(), '.', '\\');
@@ -1155,9 +1155,13 @@ namespace
       std::replace(path.begin(), path.end(), '.', '/');
 #endif
 
-      if (path.substr(0, j) == imprt->alias->sv())
+      if (name->sv().substr(0, j) == imprt->alias->sv())
         submodule = true;
     }
+
+    if (imprt->alias->sv().find('.') != string_view::npos)
+      if (name->sv().substr(name->sv().length() - imprt->alias->sv().length()) == imprt->alias->sv())
+        submodule = true;
 
     auto module = sema.lookup_module(name);
 
@@ -1173,11 +1177,20 @@ namespace
 
     if (submodule)
     {
-      auto umbrella = sema.lookup_module(imprt->alias);
+      auto subname = imprt->alias;
+
+      if (auto j = subname->sv().find('.'); j != string_view::npos)
+      {
+        imprt->alias = Ident::from(subname->sv().substr(0, j));
+
+        subname = Ident::from(name->sv().substr(0, name->sv().size() - (subname->sv().size() - j)));
+      }
+
+      auto umbrella = sema.lookup_module(subname);
 
       if (!umbrella)
       {
-        umbrella = sema.module_declaration(imprt->alias, imprt->alias->str() + '/' + imprt->alias->str() + ".zaa");
+        umbrella = sema.module_declaration(subname, subname->str() + '/' + imprt->alias->str() + ".zaa");
 
         load(umbrella, sema, ctx.diag);
 

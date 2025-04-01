@@ -2770,7 +2770,22 @@ namespace
     {
       ctx.consume_token(Token::identifier);
 
-      imprt->alias = parse_ident(ctx, IdentUsage::TagName, sema);
+      auto alias = ctx.tok.text;
+
+      if (!ctx.try_consume_token(Token::identifier))
+      {
+        ctx.diag.error("expected identifier", ctx.text, ctx.tok.loc);
+        goto resume;
+      }
+
+      while (ctx.try_consume_token(Token::period) || ctx.try_consume_token(Token::minus))
+      {
+        alias = string_view(alias.data(), alias.length() + ctx.tok.text.length() + 1);
+
+        ctx.consume_token();
+      }
+
+      imprt->alias = Ident::from(alias);
     }
 
     if (ctx.try_consume_token(Token::colon))

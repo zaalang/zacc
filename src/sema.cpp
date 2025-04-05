@@ -52,35 +52,45 @@ TranslationUnitDecl *Sema::translation_unit(string_view file)
 }
 
 //|///////////////////// module_declaration /////////////////////////////////
-ModuleDecl *Sema::module_declaration(Ident *name, string_view imprt)
+ModuleDecl *Sema::module_declaration(Ident *name)
 {
   auto unit = decl_cast<TranslationUnitDecl>(ast->root);
 
-  string base = dirname(imprt);
-  string file = basename(imprt) + ".zaa";
-  string dirfile = basename(imprt) + '/' + file;
+  auto path = name->str();
 
-  string path = dirname(decl_cast<ModuleDecl>(unit->mainmodule)->file()) + base + file;
+#if defined _WIN32
+  std::replace(path.begin(), path.end(), '.', '\\');
+#else
+  std::replace(path.begin(), path.end(), '.', '/');
+#endif
+
+  string dirbase = dirname(path);
+  string filebase = basename(path);
+  string filename = filebase + ".zaa";
+
+  path = dirname(decl_cast<ModuleDecl>(unit->mainmodule)->file()) + dirbase + filename;
 
   if (access(path.c_str(), F_OK) != 0)
   {
-    if (auto test = dirname(path) + dirfile; access(test.c_str(), F_OK) == 0)
-      path = test;
+    if (auto test = dirname(path) + filebase; access(test.c_str(), F_OK) == 0)
+    {
+      path = test + '/' + filename;
+    }
   }
 
   if (access(path.c_str(), F_OK) != 0)
   {
     for (auto &includepath : m_include_paths)
     {
-      if (auto test = includepath + '/' + base + file; access(test.c_str(), F_OK) == 0)
+      if (auto test = includepath + '/' + dirbase + filename; access(test.c_str(), F_OK) == 0)
       {
         path = test;
         break;
       }
 
-      if (auto test = includepath + '/' + base + dirfile; access(test.c_str(), F_OK) == 0)
+      if (auto test = includepath + '/' + dirbase + filebase; access(test.c_str(), F_OK) == 0)
       {
-        path = test;
+        path = test + '/' + filename;
         break;
       }
     }
@@ -88,7 +98,7 @@ ModuleDecl *Sema::module_declaration(Ident *name, string_view imprt)
 
   auto module = ast->make_decl<ModuleDecl>(name, path);
 
-  module->owner = decl_cast<TranslationUnitDecl>(ast->root);
+  module->owner = unit;
 
   unit->decls.push_back(module);
 

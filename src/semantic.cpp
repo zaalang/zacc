@@ -1144,30 +1144,11 @@ namespace
   {
     auto name = decl_cast<DeclRefDecl>(imprt->decl)->name;
 
-    auto path = name->str();
-    auto submodule = false;
-
-    if (auto j = path.find('.'); j != string::npos)
-    {
-#if defined _WIN32
-      std::replace(path.begin(), path.end(), '.', '\\');
-#else
-      std::replace(path.begin(), path.end(), '.', '/');
-#endif
-
-      if (name->sv().substr(0, j) == imprt->alias->sv())
-        submodule = true;
-    }
-
-    if (imprt->alias->sv().find('.') != string_view::npos)
-      if (name->sv().substr(name->sv().length() - imprt->alias->sv().length()) == imprt->alias->sv())
-        submodule = true;
-
     auto module = sema.lookup_module(name);
 
     if (!module)
     {
-      module = sema.module_declaration(name, path);
+      module = sema.module_declaration(name);
 
       if (!load(module, sema, ctx.diag))
         ctx.diag.error("opening file '" + module->file() + "'", ctx.file, imprt->loc());
@@ -1175,22 +1156,15 @@ namespace
       semantic(module, sema, ctx.diag);
     }
 
-    if (submodule)
+    if (auto i = imprt->alias->sv().find('.'); i != string_view::npos)
     {
-      auto subname = imprt->alias;
-
-      if (auto j = subname->sv().find('.'); j != string_view::npos)
-      {
-        imprt->alias = Ident::from(subname->sv().substr(0, j));
-
-        subname = Ident::from(name->sv().substr(0, name->sv().size() - (subname->sv().size() - j)));
-      }
+      auto subname = Ident::from(name->sv().substr(0, name->sv().length() - (imprt->alias->sv().length() - i)));
 
       auto umbrella = sema.lookup_module(subname);
 
       if (!umbrella)
       {
-        umbrella = sema.module_declaration(subname, subname->str() + '/' + imprt->alias->str() + ".zaa");
+        umbrella = sema.module_declaration(subname);
 
         load(umbrella, sema, ctx.diag);
 
@@ -1211,6 +1185,7 @@ namespace
       }
 
       imprt->decl = umbrella;
+      imprt->alias = Ident::from(imprt->alias->sv().substr(0, i));
     }
     else
     {

@@ -219,7 +219,7 @@ class MIR
 
       RValue() = default;
 
-      template<typename T>
+      template<typename T, typename X = typename std::enable_if<!std::is_same_v<typename std::remove_reference<T>::type, RValue>>::type>
       RValue(T &&value)
         : value(std::forward<T>(value))
       {

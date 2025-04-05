@@ -2751,8 +2751,6 @@ namespace
       goto resume;
     }
 
-    imprt->alias = Ident::from(name);
-
     while (ctx.try_consume_token(Token::period) || ctx.try_consume_token(Token::minus))
     {
       name = string_view(name.data(), name.length() + ctx.tok.text.length() + 1);
@@ -2760,11 +2758,7 @@ namespace
       ctx.consume_token();
     }
 
-    if (auto j = name.find('.'); j != name.npos)
-    {
-      if (name.substr(j+1) == imprt->alias->sv())
-        name = imprt->alias->sv();
-    }
+    imprt->alias = Ident::from(name);
 
     if (ctx.tok == Token::identifier && ctx.tok.text == "as")
     {
@@ -2778,11 +2772,17 @@ namespace
         goto resume;
       }
 
-      while (ctx.try_consume_token(Token::period) || ctx.try_consume_token(Token::minus))
+      if (ctx.tok == Token::period)
       {
-        alias = string_view(alias.data(), alias.length() + ctx.tok.text.length() + 1);
+        while (ctx.try_consume_token(Token::period) || ctx.try_consume_token(Token::minus))
+        {
+          alias = string_view(alias.data(), alias.length() + ctx.tok.text.length() + 1);
 
-        ctx.consume_token();
+          ctx.consume_token();
+        }
+
+        if (alias.length() > name.length() || name.substr(name.length() - alias.length()) != alias)
+          ctx.diag.error("expected submodule name", ctx.text, ctx.tok.loc);
       }
 
       imprt->alias = Ident::from(alias);

@@ -11088,6 +11088,10 @@ namespace
 
             realise(ctx, beg, iterator);
 
+            iterator.type.flags |= MIR::Local::LValue;
+            iterator.type.flags &= ~MIR::Local::XValue;
+            iterator.type.flags &= ~MIR::Local::RValue;
+
             commit_type(ctx, beg, iterator.type.type, iterator.type.flags);
 
             if (!(ctx.mir.locals[beg].flags & MIR::Local::Reference))
@@ -11110,6 +11114,10 @@ namespace
               return;
 
             realise(ctx, end, iterator);
+
+            iterator.type.flags |= MIR::Local::LValue;
+            iterator.type.flags &= ~MIR::Local::XValue;
+            iterator.type.flags &= ~MIR::Local::RValue;
 
             commit_type(ctx, end, iterator.type.type, iterator.type.flags);
 
@@ -11332,6 +11340,10 @@ namespace
 
             realise(ctx, beg, iterator);
 
+            iterator.type.flags |= MIR::Local::LValue;
+            iterator.type.flags &= ~MIR::Local::XValue;
+            iterator.type.flags &= ~MIR::Local::RValue;
+
             commit_type(ctx, beg, iterator.type.type, iterator.type.flags);
 
             if (!(ctx.mir.locals[beg].flags & MIR::Local::Reference))
@@ -11354,6 +11366,10 @@ namespace
               return;
 
             realise(ctx, end, iterator);
+
+            iterator.type.flags |= MIR::Local::LValue;
+            iterator.type.flags &= ~MIR::Local::XValue;
+            iterator.type.flags &= ~MIR::Local::RValue;
 
             commit_type(ctx, end, iterator.type.type, iterator.type.flags);
 

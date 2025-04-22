@@ -4048,8 +4048,8 @@ namespace
 
         auto rankcast = [&](auto &self, Type const *type, MIR::Fragment const &src, int s) -> void {
 
-          auto lhs = remove_const_type(remove_reference_type(type));
-          auto rhs = src.type.type;
+          auto lhs = remove_qualifiers_type(type);
+          auto rhs = remove_qualifiers_type(src.type.type);
 
           while (is_tag_type(rhs))
           {
@@ -4067,10 +4067,7 @@ namespace
           if (lhs->klass() == Type::TypeArg)
             rank += s - 1;
 
-          if ((is_pointer_type(lhs) && !is_pointference_type(rhs)) || (is_builtin_type(lhs) && lhs != rhs))
-            rank += s - 1;
-
-          if (is_voidpointer_type(lhs) && !is_voidpointer_type(rhs))
+          if (is_builtin_type(lhs) && lhs != rhs)
             rank += s - 1;
         };
 
@@ -6470,7 +6467,7 @@ namespace
       if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd)
       {
         if ((value.type.flags & MIR::Local::XValue) && !(value.type.flags & MIR::Local::Const))
-          value.type.flags = (value.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
+          value.type.flags = (value.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue | MIR::Local::MoveRef;
       }
 
       if (!(value.type.flags & MIR::Local::MutRef) && !(expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd))
@@ -7798,7 +7795,7 @@ namespace
       result = std::move(parms[0]);
 
       if ((result.type.flags & MIR::Local::XValue) && !(result.type.flags & MIR::Local::Const))
-        result.type.flags = (result.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
+        result.type.flags = (result.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue | MIR::Local::MoveRef;
 
       return true;
     }
@@ -8996,7 +8993,7 @@ namespace
           if (call->base->kind() == Expr::Paren && expr_cast<ParenExpr>(call->base)->subexpr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr_cast<ParenExpr>(call->base)->subexpr)->op() == UnaryOpExpr::Fwd)
           {
             if ((parms[0].type.flags & MIR::Local::XValue) && !(parms[0].type.flags & MIR::Local::Const))
-              parms[0].type.flags = (parms[0].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
+              parms[0].type.flags = (parms[0].type.flags & ~MIR::Local::XValue) | MIR::Local::RValue | MIR::Local::MoveRef;
           }
 #endif
           basescope = type_scope(ctx, parms[0].type.type);
@@ -11180,7 +11177,6 @@ namespace
       map<Ident*, MIR::Fragment> namedparms;
 
       parms[0].type = ctx.mir.locals[arg];
-      parms[0].type.flags &= ~(MIR::Local::MutRef | MIR::Local::MoveRef);
       parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, rangevar->loc());
 
       parms[1].type = ctx.mir.locals[beg];
@@ -11457,7 +11453,6 @@ namespace
       map<Ident*, MIR::Fragment> namedparms;
 
       parms[0].type = ctx.mir.locals[arg];
-      parms[0].type.flags &= ~(MIR::Local::MutRef | MIR::Local::MoveRef);
       parms[0].value = MIR::RValue::local(MIR::RValue::Val, arg, rangevar->loc());
 
       parms[1].type = ctx.mir.locals[end];
@@ -11627,7 +11622,7 @@ namespace
           if (get<0>(range)->value->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(get<0>(range)->value)->op() == UnaryOpExpr::Fwd)
           {
             if ((value.type.flags & MIR::Local::XValue) && !(value.type.flags & MIR::Local::Const))
-              value.type.flags = (value.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue;
+              value.type.flags = (value.type.flags & ~MIR::Local::XValue) | MIR::Local::RValue | MIR::Local::MoveRef;
           }
 
           lower_decl(ctx, get<0>(range), value);
@@ -12269,6 +12264,8 @@ namespace
           ctx.mir.locals[0].flags &= ~(MIR::Local::LValue | MIR::Local::RValue);
 
         ctx.mir.locals[0].flags &= ~MIR::Local::XValue;
+        ctx.mir.locals[0].flags &= ~MIR::Local::MutRef;
+        ctx.mir.locals[0].flags &= ~MIR::Local::MoveRef;
       }
     }
     else

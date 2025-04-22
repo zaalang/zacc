@@ -1494,30 +1494,7 @@ namespace
 
     if (mir.locals[dst].flags & MIR::Local::MoveRef)
     {
-      switch (ctx.state(dst))
-      {
-        case State::ok:
-          break;
-
-        case State::dangling:
-          ctx.diag.error("potentially dangling variable access", mir.fx.fn, loc);
-          break;
-
-        case State::consumed:
-          if ((mir.fx.fn->flags & (FunctionDecl::Safe | FunctionDecl::Unsafe)) == 0)
-            ctx.diag.error("potentially consumed variable access", mir.fx.fn, loc);
-          break;
-
-        case State::poisoned:
-          ctx.diag.error("potentially poisoned variable access", mir.fx.fn, loc);
-          break;
-      }
-
-      for (auto dep : ctx.threads[0].locals[dst].depends_upon)
-        consume(ctx, mir, dst, dep);
-
       ctx.threads[0].locals[arg].consumed = true;
-      ctx.threads[0].locals[dst].consumed = false;
     }
 
     if (is_reference_type(mir.locals[dst].type))
@@ -1583,6 +1560,15 @@ namespace
               ctx.diag.warn("potentially shared lifetime parameter", mir.fx.fn, loc);
           }
         }
+      }
+    }
+
+    for (auto const &[parm, arg] : zip(callee.parameters(), args))
+    {
+      if (mir.locals[arg].flags & MIR::Local::MoveRef)
+      {
+        for (auto dep : ctx.threads[0].locals[arg].depends_upon)
+          consume(ctx, mir, arg, dep);
       }
     }
 
@@ -1685,12 +1671,6 @@ namespace
     if (auto entry = Cache::lookup(callee))
     {
       apply(ctx, mir, entry, dst, callee, args, loc);
-    }
-
-    if (mir.locals[dst].flags & MIR::Local::MoveRef)
-    {
-      for (auto dep : ctx.threads[0].locals[dst].depends_upon)
-        consume(ctx, mir, dst, dep);
     }
 
     //if (callee.fn->name == Ident::op_index || callee.fn->name == Ident::op_deref || is_reference_type(mir.locals[dst].type))

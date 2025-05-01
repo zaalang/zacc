@@ -3227,7 +3227,6 @@ namespace
     FindContext(LowerContext &ctx, Ident *name, long queryflags = QueryFlags::All);
 
     FindContext(FindContext const &tx, long queryflags) : name(tx.name), args(tx.args), namedargs(tx.namedargs), queryflags(queryflags) { }
-    FindContext& operator=(FindContext &&tx) { this->name = tx.name; this->args = std::move(tx.args); this->namedargs = std::move(tx.namedargs); this->queryflags = tx.queryflags; return *this; }
   };
 
   FindContext::FindContext(LowerContext &ctx, Ident *name, long queryflags)
@@ -3782,7 +3781,7 @@ namespace
         results.push_back(Builtin::fn(ctx.translationunit->builtins, Builtin::Type_Lit, enumm, type_cast<ConstantType>(value)->expr));
       }
 
-      if (decl->kind() == Decl::Struct || decl->kind() == Decl::Union || decl->kind() == Decl::Enum || decl->kind() == Decl::VTable)
+      if (decl->kind() == Decl::Struct || decl->kind() == Decl::Union || decl->kind() == Decl::Enum || decl->kind() == Decl::Lambda || decl->kind() == Decl::VTable)
       {
         size_t k = 0;
 
@@ -3940,6 +3939,9 @@ namespace
           if (auto j = sx->find_type(decl); j != sx->typeargs.end())
           {
             tx = FindContext(ctx, j->second, tx.queryflags);
+
+            if (is_lambda_type(j->second))
+              tx.decls.push_back(type_cast<TagType>(j->second)->decl);
 
             find_overloads(ctx, tx, scopeof_type(ctx, j->second), parms, namedparms, candidates, results);
           }

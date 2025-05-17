@@ -1277,7 +1277,7 @@ namespace
           case MIR::RValue::Fer:
             for (auto ref : ctx.threads[0].locals[rhs].depends_upon)
               for (auto dep : ctx.threads[0].locals[get<1>(*ref)].depends_upon)
-                depends(ctx, mir, dst, ctx.make_field(dep, firstfield, fields.end()));
+                depends(ctx, mir, dst, ctx.make_field(ctx.make_field(dep, get<2>(*ref).begin(), get<2>(*ref).end()), firstfield, fields.end()));
             break;
 
           case MIR::RValue::Idx:
@@ -1300,7 +1300,7 @@ namespace
             case MIR::RValue::Val:
               for (auto dst : ctx.threads[0].locals[args[arg]].depends_upon)
                 for (auto dep : ctx.threads[0].locals[rhs].depends_upon)
-                  ctx.threads[0].locals[get<1>(*dst)].depends_upon.push_back(dep);
+                  depends(ctx, mir, get<1>(*dst), ctx.make_field(dep, firstfield, fields.end()));
               break;
 
             case MIR::RValue::Fer:
@@ -1308,7 +1308,7 @@ namespace
                 for (auto ref : ctx.threads[0].locals[rhs].depends_upon)
                   if (get<1>(*ref) != get<1>(*dst))
                     for (auto dep : ctx.threads[0].locals[get<1>(*ref)].depends_upon)
-                      ctx.threads[0].locals[get<1>(*dst)].depends_upon.push_back(dep);
+                      depends(ctx, mir, get<1>(*dst), ctx.make_field(ctx.make_field(dep, get<2>(*ref).begin(), get<2>(*ref).end()), firstfield, fields.end()));
               break;
 
             case MIR::RValue::Idx:
@@ -1338,14 +1338,14 @@ namespace
         entry.depends.emplace_back(0, MIR::RValue::field(MIR::RValue::Val, arg - mir.locals.size(), fields, loc));
       }
 
-      if (arg >= mir.locals.size() + mir.args_end && arg < mir.locals.size() + mir.args_end + mir.args_end && arg - mir.locals.size() - mir.args_end != 0)
+      if (arg >= mir.locals.size() + 1*mir.args_end && arg < mir.locals.size() + 2*mir.args_end && arg - mir.locals.size() - 1*mir.args_end != 0)
       {
-        entry.depends.emplace_back(0, MIR::RValue::field(MIR::RValue::Fer, arg - mir.locals.size() - mir.args_end, fields, loc));
+        entry.depends.emplace_back(0, MIR::RValue::field(MIR::RValue::Fer, arg - mir.locals.size() - 1*mir.args_end, fields, loc));
       }
 
-      if (arg >= mir.locals.size() + mir.args_end + mir.args_end && arg < mir.locals.size() + mir.args_end + mir.args_end + mir.args_end && arg - mir.locals.size() - mir.args_end - mir.args_end  != 0)
+      if (arg >= mir.locals.size() + 2*mir.args_end && arg < mir.locals.size() + 3*mir.args_end && arg - mir.locals.size() - 2*mir.args_end != 0)
       {
-        entry.depends.emplace_back(0, MIR::RValue::field(MIR::RValue::Idx, arg - mir.locals.size() - mir.args_end - mir.args_end, fields, loc));
+        entry.depends.emplace_back(0, MIR::RValue::field(MIR::RValue::Idx, arg - mir.locals.size() - 2*mir.args_end, fields, loc));
       }
     }
 
@@ -1360,14 +1360,14 @@ namespace
           entry.depends.emplace_back(i, MIR::RValue::field(MIR::RValue::Val, arg - mir.locals.size(), fields, loc));
         }
 
-        if (arg >= mir.locals.size() + mir.args_end && arg < mir.locals.size() + mir.args_end + mir.args_end && arg - mir.locals.size() - mir.args_end != i)
+        if (arg >= mir.locals.size() + 1*mir.args_end && arg < mir.locals.size() + 2*mir.args_end && arg - mir.locals.size() - 1*mir.args_end != i)
         {
-          entry.depends.emplace_back(i, MIR::RValue::field(MIR::RValue::Fer, arg - mir.locals.size() - mir.args_end, fields, loc));
+          entry.depends.emplace_back(i, MIR::RValue::field(MIR::RValue::Fer, arg - mir.locals.size() - 1*mir.args_end, fields, loc));
         }
 
-        if (arg >= mir.locals.size() + mir.args_end + mir.args_end && arg < mir.locals.size() + mir.args_end + mir.args_end + mir.args_end && arg - mir.locals.size() - mir.args_end - mir.args_end  != i)
+        if (arg >= mir.locals.size() + 2*mir.args_end && arg < mir.locals.size() + 3*mir.args_end && arg - mir.locals.size() - 2*mir.args_end != i)
         {
-          entry.depends.emplace_back(i, MIR::RValue::field(MIR::RValue::Idx, arg - mir.locals.size() - mir.args_end - mir.args_end, fields, loc));
+          entry.depends.emplace_back(i, MIR::RValue::field(MIR::RValue::Idx, arg - mir.locals.size() - 2*mir.args_end, fields, loc));
         }
       }
     }

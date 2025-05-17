@@ -2310,6 +2310,24 @@ namespace
       }
     }
 
+    if (ctx.try_consume_token(Token::kw_throws))
+    {
+      if (ctx.try_consume_token(Token::l_paren))
+      {
+        fn->throws = parse_type_ex(ctx, sema);
+
+        if (!ctx.try_consume_token(Token::r_paren))
+        {
+          ctx.diag.error("expected paren", ctx.text, ctx.tok.loc);
+          return nullptr;
+        }
+      }
+      else
+      {
+        fn->throws = sema.make_typelit(sema.make_bool_literal(true, ctx.tok.loc));
+      }
+    }
+
     if (ctx.tok == Token::arrow || ctx.tok == Token::l_brace)
     {
       if (ctx.try_consume_token(Token::arrow))

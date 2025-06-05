@@ -365,12 +365,6 @@ namespace
     semantic_type(ctx, call->instance, sema);
   }
 
-  //|///////////////////// throws_expression ////////////////////////////////
-  void semantic_expr(SemanticContext &ctx, ThrowsExpr *call, Sema &sema)
-  {
-    semantic_expr(ctx, call->expr, sema);
-  }
-
   //|///////////////////// typeid_expression ////////////////////////////////
   void semantic_expr(SemanticContext &ctx, TypeidExpr *call, Sema &sema)
   {
@@ -511,10 +505,6 @@ namespace
 
       case Expr::Instanceof:
         semantic_expr(ctx, expr_cast<InstanceofExpr>(expr), sema);
-        break;
-
-      case Expr::Throws:
-        semantic_expr(ctx, expr_cast<ThrowsExpr>(expr), sema);
         break;
 
       case Expr::Typeid:

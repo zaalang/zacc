@@ -570,12 +570,6 @@ Expr *Sema::make_instanceof_expression(Type *type, Type *instance, SourceLocatio
   return ast->make_expr<InstanceofExpr>(type, instance, loc);
 }
 
-//|///////////////////// make_throws_expression /////////////////////////////
-Expr *Sema::make_throws_expression(Expr *expr, SourceLocation loc)
-{
-  return ast->make_expr<ThrowsExpr>(expr, loc);
-}
-
 //|///////////////////// make_typeid_expression /////////////////////////////
 Expr *Sema::make_typeid_expression(Decl *decl, SourceLocation loc)
 {

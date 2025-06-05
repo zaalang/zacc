@@ -34,6 +34,21 @@ namespace
     int n;
   };
 
+  string module_file(Decl *decl)
+  {
+    auto parent = decl->owner;
+
+    while (parent != std::variant<Decl*, Stmt*>())
+    {
+      if (auto decl = get_if<Decl*>(&parent); decl && *decl && (*decl)->kind() == Decl::Module)
+        return decl_cast<ModuleDecl>(*decl)->file();
+
+      parent = std::visit([](auto &v) { return v->owner; }, parent);
+    }
+
+    return "";
+  }
+
   [[maybe_unused]]
   void rebase(MIR::RValue &rvalue, MIR::local_t base, size_t offset)
   {
@@ -563,6 +578,8 @@ void MIR::dump() const
   {
     auto fn = fx.fn;
 
+    cout << "# " << module_file(fx.fn) << ":" << fx.fn->loc() << '\n';
+
     switch (fn->flags & FunctionDecl::DeclType)
     {
       case FunctionDecl::ConstDecl:
@@ -616,7 +633,7 @@ void MIR::dump() const
     cout << ')';
 
     if (throws)
-      cout << " throws";
+      cout << " throws(" << *locals[1].type << ")";
 
     cout << " -> " << *locals[0].type << " {\n";
 

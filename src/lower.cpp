@@ -649,25 +649,11 @@ namespace
   }
 
   //|///////////////////// is_throws ////////////////////////////////////////
-  bool is_throws(LowerContext &ctx, FnSig const &fx, Type **type = nullptr)
+  bool is_throws(LowerContext &ctx, FnSig const &fx, vector<MIR::Fragment> const &parms, map<Ident*, MIR::Fragment> const &namedparms, Type **type = nullptr)
   {
     if (fx.fn->throws)
     {
-      if (is_typelit_type(fx.fn->throws) && type_cast<TypeLitType>(fx.fn->throws)->value->kind() == Expr::BoolLiteral)
-        return expr_cast<BoolLiteralExpr>(type_cast<TypeLitType>(fx.fn->throws)->value)->value();
-    }
-
-    if (fx.fn->throws)
-    {
       auto throwtype = resolve_type(ctx, Scope(fx.fn, fx.typeargs), fx.fn->throws);
-
-      if (is_typelit_type(throwtype))
-      {
-        if (type_cast<TypeLitType>(throwtype)->value->kind() == Expr::BoolLiteral)
-          return expr_cast<BoolLiteralExpr>(type_cast<TypeLitType>(throwtype)->value)->value();
-
-        ctx.diag.error("non bool throws conditional", fx.fn, fx.fn->loc());
-      }
 
       if (throwtype != ctx.voidtype)
       {
@@ -676,8 +662,14 @@ namespace
 
         return true;
       }
+    }
 
-      return false;
+    if ((fx.fn->flags & FunctionDecl::Builtin) && fx.fn->builtin == Builtin::CallOp && is_function_type(parms[0].type.type) && type_cast<FunctionType>(parms[0].type.type)->throwtype != ctx.voidtype)
+    {
+      if (type)
+        *type = type_cast<FunctionType>(parms[0].type.type)->throwtype;
+
+      return true;
     }
 
     return false;
@@ -3133,7 +3125,7 @@ namespace
 
     fx = FnSig(fn, std::move(sig.typeargs));
 
-    if (is_throws(ctx, fx, &fx.throwtype) && !(throwtype != ctx.voidtype))
+    if (is_throws(ctx, fx, {}, {}, &fx.throwtype) && !(throwtype != ctx.voidtype))
       return false;
 
     if (find_returntype(ctx, fx).type != returntype)
@@ -5502,7 +5494,7 @@ namespace
         if (fx.fn->parms.size() != parms.size())
           return true;
 
-        if (is_throws(ctx, fx) && !(fntype->throwtype != ctx.voidtype))
+        if (is_throws(ctx, fx, parms, namedparms) && !(fntype->throwtype != ctx.voidtype))
           return true;
 
         if (find_returntype(ctx, fx).type != fntype->returntype)
@@ -5533,7 +5525,7 @@ namespace
       if (fntype->throwtype != ctx.voidtype)
         callee.fx.throwtype = fntype->throwtype;
 
-      if (is_throws(ctx, callee.fx, &callee.fx.throwtype))
+      if (is_throws(ctx, callee.fx, parms, namedparms, &callee.fx.throwtype))
       {
         if (callee.fx.throwtype != fntype->throwtype)
         {
@@ -6160,7 +6152,7 @@ namespace
       if (fx.fn->parms.size() != parms.size())
         return true;
 
-      if (is_throws(ctx, fx) && !(fntype->throwtype != ctx.voidtype))
+      if (is_throws(ctx, fx, parms, namedparms) && !(fntype->throwtype != ctx.voidtype))
         return true;
 
       if (find_returntype(ctx, fx).type != fntype->returntype)
@@ -6182,7 +6174,7 @@ namespace
     if (fntype->throwtype != ctx.voidtype)
       callee.fx.throwtype = fntype->throwtype;
 
-    if (is_throws(ctx, callee.fx, &callee.fx.throwtype))
+    if (is_throws(ctx, callee.fx, parms, namedparms, &callee.fx.throwtype))
     {
       if (callee.fx.throwtype != fntype->throwtype)
       {
@@ -6654,27 +6646,16 @@ namespace
 
     // throw type
 
-    if (is_throws(ctx, callee, &callee.throwtype))
-    {
-      if (!ctx.errorarg)
-        callee.throwtype = ctx.voidtype;
-
-      if (!callee.throwtype)
-        callee.throwtype = ctx.mir.locals[ctx.errorarg].type;
-    }
-
-    if ((callee.fn->flags & FunctionDecl::Builtin) && callee.fn->builtin == Builtin::CallOp && is_function_type(parms[0].type.type) && type_cast<FunctionType>(parms[0].type.type)->throwtype != ctx.voidtype)
-    {
-      callee.throwtype = type_cast<FunctionType>(parms[0].type.type)->throwtype;
-    }
-
-    if (callee.throwtype)
+    if (is_throws(ctx, callee, parms, namedparms, &callee.throwtype))
     {
       if (!ctx.errorarg)
       {
         ctx.diag.error("throwing call outside try block", ctx.stack.back(), loc);
         return false;
       }
+
+      if (is_typearg_type(callee.throwtype))
+        callee.throwtype = ctx.mir.locals[ctx.errorarg].type;
 
       if (callee.throwtype != ctx.mir.locals[ctx.errorarg].type)
       {
@@ -8662,58 +8643,6 @@ namespace
     result.value = ctx.mir.make_expr<BoolLiteralExpr>(match, call->loc());
   }
 
-  //|///////////////////// lower_throws /////////////////////////////////////
-  void lower_expr(LowerContext &ctx, MIR::Fragment &result, ThrowsExpr *call)
-  {
-    Diag diag(ctx.diag.leader());
-
-    LowerContext cttx(ctx.typetable, diag);
-
-    cttx.stack = ctx.stack;
-    cttx.translationunit = decl_cast<TranslationUnitDecl>(get<Decl*>(cttx.stack[0].owner));
-    cttx.module = decl_cast<ModuleDecl>(get<Decl*>(cttx.stack[1].owner));
-    cttx.symbols = ctx.symbols;
-
-    cttx.add_local();
-    cttx.errorarg = cttx.add_local();
-    cttx.push_barrier();
-
-    for (auto sx = cttx.stack.rbegin(); sx != cttx.stack.rend(); ++sx)
-    {
-      if (!is_fn_scope(*sx))
-        continue;
-
-      auto fn = decl_cast<FunctionDecl>(get<Decl*>(sx->owner));
-
-      for (auto &parm : FnSig(fn).parameters())
-      {
-        lower_decl(cttx, decl_cast<ParmVarDecl>(parm));
-      }
-
-      if (fn == ctx.mir.fx.fn)
-      {
-        for (auto &[var, arg] : ctx.locals)
-        {
-          cttx.locals[var] = cttx.mir.add_local(ctx.mir.locals[arg]);
-        }
-      }
-
-      break;
-    }
-
-    lower_expr(cttx, result, call->expr);
-
-    if (cttx.diag.has_errored())
-      ctx.diag << cttx.diag;
-
-    cttx.errorarg = 0;
-
-    lower_expr(cttx, result, call->expr);
-
-    result.type = MIR::Local(ctx.booltype, MIR::Local::Const | MIR::Local::Literal);
-    result.value = ctx.mir.make_expr<BoolLiteralExpr>(cttx.diag.has_errored(), call->loc());
-  }
-
   //|///////////////////// lower_typeid /////////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, TypeidExpr *call)
   {
@@ -9323,10 +9252,6 @@ namespace
 
       case Expr::Instanceof:
         lower_expr(ctx, result, expr_cast<InstanceofExpr>(expr));
-        break;
-
-      case Expr::Throws:
-        lower_expr(ctx, result, expr_cast<ThrowsExpr>(expr));
         break;
 
       case Expr::Typeid:

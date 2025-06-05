@@ -2654,10 +2654,8 @@ namespace
 
     stackframe[0] = fx.locals[dst];
 
-    if (callee.throwtype)
-    {
+    if (mir.fx.throwtype)
       stackframe[1] = fx.locals[fx.errorarg];
-    }
 
     auto paramtuple = type_cast<TupleType>(remove_const_type(remove_pointer_type(fx.locals[args[1]].type)));
 
@@ -2670,7 +2668,10 @@ namespace
       stackframe[mir.args_beg + i] = { 0, argtype, sizeof_type(argtype), ptr };
     }
 
-    return eval_function(ctx, mir.fx.fn, mir, stackframe);
+    if (!eval_function(ctx, mir.fx.fn, mir, stackframe))
+      return false;
+
+    return true;
   }
 
   //|///////////////////// bool /////////////////////////////////////////////
@@ -3814,7 +3815,7 @@ namespace
   {
     auto &[callee, args, loc] = call;
 
-    enum flags
+    enum oflags
     {
       open = 0x0,
       create = 0x01,
@@ -3843,13 +3844,13 @@ namespace
 
     const char *mode = "r+";
 
-    if (oflags.value & flags::create)
+    if (oflags.value & oflags::create)
       mode = "w+";
 
-    if (fdflags.value & flags::append)
+    if (fdflags.value & oflags::append)
       mode = "a+";
 
-    if (oflags.value & flags::exclusive)
+    if (oflags.value & oflags::exclusive)
       mode = "w";
 
     auto file = fopen(std::string(path.data, path.len).c_str(), mode);
@@ -4497,27 +4498,21 @@ namespace
     {
       auto &mir = lower(callee, ctx.typetable, ctx.diag);
 
-#if 0
-      dump_mir(mir);
-#endif
-
       if (ctx.diag.has_errored())
         return false;
 
       auto stackframe = ctx.push<FunctionContext::Local>(mir.locals.size());
 
-      if (remove_qualifiers_type(fx.locals[dst].type) != remove_qualifiers_type(mir.locals[0].type))
+      stackframe[0] = fx.locals[dst];
+
+      if (mir.fx.throwtype)
+        stackframe[1] = fx.locals[fx.errorarg];
+
+      if (remove_qualifiers_type(stackframe[0].type) != remove_qualifiers_type(mir.locals[0].type))
       {
         ctx.diag.error("type mismatch", fx.scope, loc);
         ctx.diag << "  return type: '" << *mir.locals[0].type << "' wanted: '" << *fx.locals[dst].type << "'\n";
         return false;
-      }
-
-      stackframe[0] = fx.locals[dst];
-
-      if (callee.throwtype)
-      {
-        stackframe[1] = fx.locals[fx.errorarg];
       }
 
       for (size_t i = 0; i < args.size(); ++i)
@@ -4525,7 +4520,10 @@ namespace
         stackframe[mir.args_beg + i] = fx.locals[args[i]];
       }
 
-      return eval_function(ctx, callee.fn, mir, stackframe);
+      if (!eval_function(ctx, mir.fx.fn, mir, stackframe))
+        return false;
+
+      return true;
     }
   }
 

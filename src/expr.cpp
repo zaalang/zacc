@@ -247,10 +247,6 @@ std::ostream &operator <<(std::ostream &os, Expr const &expr)
       os << "__is_instance";
       break;
 
-    case Expr::Throws:
-      os << "throws";
-      break;
-
     case Expr::Typeid:
       os << "typeid " << *static_cast<TypeidExpr const &>(expr).decl;
       break;
@@ -892,28 +888,6 @@ void InstanceofExpr::dump(int indent) const
   if (type)
   {
     type->dump(indent + 2);
-  }
-}
-
-
-//|--------------------- ThrowsExpr -----------------------------------------
-//|--------------------------------------------------------------------------
-
-//|///////////////////// ThrowsExpr::Constructor ////////////////////////////
-ThrowsExpr::ThrowsExpr(Expr *expr, SourceLocation loc)
-  : Expr(Throws, loc),
-    expr(expr)
-{
-}
-
-//|///////////////////// ThrowsExpr::dump ///////////////////////////////////
-void ThrowsExpr::dump(int indent) const
-{
-  cout << spaces(indent) << "ThrowsExpr " << this << " <" << m_loc << "> " << *this << "\n";
-
-  if (expr)
-  {
-    expr->dump(indent + 2);
   }
 }
 

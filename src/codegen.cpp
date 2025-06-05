@@ -344,11 +344,8 @@ namespace
         ss << '.' << hex << static_cast<void*>(type);
         break;
 
-      case Type::Tuple:
-        ss << prefix << '.' << hex << static_cast<void*>(type);
-        break;
-
       case Type::Array:
+      case Type::Tuple:
         ss << prefix << '.' << hex << static_cast<void*>(type);
         break;
 
@@ -4199,11 +4196,9 @@ namespace
       if (fx.locals[dst].firstarg_return)
       {
         parms.push_back(fx.locals[dst].alloca);
-      }
 
-      if (callee.throwtype)
-      {
-        parms.push_back(fx.locals[fx.mir.blocks[fx.currentblockid].terminator.value].alloca);
+        if (callee.throwtype)
+          parms.push_back(fx.locals[fx.mir.blocks[fx.currentblockid].terminator.value].alloca);
       }
 
       for (auto &arg : args)

@@ -52,7 +52,6 @@ class Expr
       Alignof,
       Offsetof,
       Instanceof,
-      Throws,
       Typeid,
       Cast,
       New,
@@ -528,20 +527,6 @@ class InstanceofExpr : public Expr
 };
 
 
-//---------------------- ThrowsExpr -----------------------------------------
-//---------------------------------------------------------------------------
-
-class ThrowsExpr : public Expr
-{
-  public:
-    ThrowsExpr(Expr *expr, SourceLocation loc);
-
-    Expr *expr;
-
-    void dump(int indent) const override;
-};
-
-
 //---------------------- TypeidExpr -----------------------------------------
 //---------------------------------------------------------------------------
 
@@ -696,7 +681,6 @@ template<> inline auto expr_cast<SizeofExpr>(Expr *expr) { assert(expr && expr->
 template<> inline auto expr_cast<AlignofExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Alignof); return static_cast<AlignofExpr*>(expr); };
 template<> inline auto expr_cast<OffsetofExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Offsetof); return static_cast<OffsetofExpr*>(expr); };
 template<> inline auto expr_cast<InstanceofExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Instanceof); return static_cast<InstanceofExpr*>(expr); };
-template<> inline auto expr_cast<ThrowsExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Throws); return static_cast<ThrowsExpr*>(expr); };
 template<> inline auto expr_cast<TypeidExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Typeid); return static_cast<TypeidExpr*>(expr); };
 template<> inline auto expr_cast<CastExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::Cast); return static_cast<CastExpr*>(expr); };
 template<> inline auto expr_cast<NewExpr>(Expr *expr) { assert(expr && expr->kind() == Expr::New); return static_cast<NewExpr*>(expr); };

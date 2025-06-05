@@ -325,12 +325,6 @@ namespace
     return new InstanceofExpr(copier_type(ctx, call->type), copier_type(ctx, call->instance), call->loc());
   }
 
-  //|///////////////////// throws_expression ////////////////////////////////
-  Expr *copier_expr(CopierContext &ctx, ThrowsExpr *call)
-  {
-    return new ThrowsExpr(copier_expr(ctx, call->expr), call->loc());
-  }
-
   //|///////////////////// typeid_expression ////////////////////////////////
   Expr *copier_expr(CopierContext &ctx, TypeidExpr *call)
   {
@@ -465,9 +459,6 @@ namespace
 
       case Expr::Instanceof:
         return copier_expr(ctx, expr_cast<InstanceofExpr>(expr));
-
-      case Expr::Throws:
-        return copier_expr(ctx, expr_cast<ThrowsExpr>(expr));
 
       case Expr::Typeid:
         return copier_expr(ctx, expr_cast<TypeidExpr>(expr));

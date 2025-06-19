@@ -1524,7 +1524,12 @@ namespace
       if (decl->kind() != Decl::FieldVar)
         continue;
 
-      kindtype->decls.push_back(ctx.mir.make_decl<EnumConstantDecl>(decl_cast<FieldVarDecl>(decl)->name, unnion->loc()));
+      auto kindconstant = ctx.mir.make_decl<EnumConstantDecl>(decl_cast<FieldVarDecl>(decl)->name, unnion->loc());
+
+      if (decl->flags & VarDecl::Public)
+        kindconstant->flags |= VarDecl::Public;
+
+      kindtype->decls.push_back(kindconstant);
     }
 
     for (auto &decl : kindtype->decls)

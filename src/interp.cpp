@@ -3903,6 +3903,31 @@ namespace
     return true;
   }
 
+  //|///////////////////// eval_runtime_fd_read /////////////////////////////
+  bool eval_runtime_fd_read(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    struct fd_result
+    {
+      uint32_t erno;
+      uint64_t length;
+    };
+
+    auto fd = load_int(ctx, fx, args[0]);
+    auto buffer = (char*)load_ptr(ctx, fx, args[1]);
+    auto length = load_int(ctx, fx, args[2]);
+
+    fd_result result = {};
+
+    result.length = fread(buffer, 1, length.value, (FILE*)fd.value);
+    result.erno = ferror((FILE*)fd.value);
+
+    memcpy(fx.locals[dst].alloc, &result, fx.locals[dst].size);
+
+    return true;
+  }
+
   //|///////////////////// eval_runtime_fd_readv ////////////////////////////
   bool eval_runtime_fd_readv(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -3931,6 +3956,7 @@ namespace
       auto cnt = fread(iovs[i].data, 1, iovs[i].len, (FILE*)fd.value);
 
       result.length += cnt;
+      result.erno = ferror((FILE*)fd.value);
 
       if (cnt != iovs[i].len)
         break;
@@ -3952,6 +3978,40 @@ namespace
     fseek((FILE*)fd.value, offset.value, SEEK_SET);
 
     return eval_runtime_fd_readv(ctx, fx, dst, call);
+  }
+
+  //|///////////////////// eval_runtime_fd_write ///////////////////////////
+  bool eval_runtime_fd_write(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    struct fd_result
+    {
+      uint32_t erno;
+      uint64_t length;
+    };
+
+    auto fd = load_int(ctx, fx, args[0]);
+    auto buffer = (char*)load_ptr(ctx, fx, args[1]);
+    auto length = load_int(ctx, fx, args[2]);
+
+    fd_result result = {};
+
+    if (fd.value == 1 || fd.value == 2)
+    {
+      ctx.diag << string_view(buffer, length.value);
+
+      result.length = length.value;
+    }
+    else
+    {
+      result.length = fwrite(buffer, 1, length.value, (FILE*)fd.value);
+      result.erno = ferror((FILE*)fd.value);
+    }
+
+    memcpy(fx.locals[dst].alloc, &result, fx.locals[dst].size);
+
+    return true;
   }
 
   //|///////////////////// eval_runtime_fd_writev ///////////////////////////
@@ -3988,6 +4048,7 @@ namespace
       else
       {
         result.length += fwrite(iovs[i].data, 1, iovs[i].len, (FILE*)fd.value);
+        result.erno = ferror((FILE*)fd.value);
       }
     }
 
@@ -4460,11 +4521,17 @@ namespace
       if (callee.fn->name == "fd_stat"sv)
         return eval_runtime_fd_stat(ctx, fx, dst, call);
 
+      if (callee.fn->name == "fd_read"sv)
+        return eval_runtime_fd_read(ctx, fx, dst, call);
+
       if (callee.fn->name == "fd_readv"sv)
         return eval_runtime_fd_readv(ctx, fx, dst, call);
 
       if (callee.fn->name == "fd_preadv"sv)
         return eval_runtime_fd_preadv(ctx, fx, dst, call);
+
+      if (callee.fn->name == "fd_write"sv)
+        return eval_runtime_fd_write(ctx, fx, dst, call);
 
       if (callee.fn->name == "fd_writev"sv)
         return eval_runtime_fd_writev(ctx, fx, dst, call);

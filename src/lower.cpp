@@ -5527,7 +5527,7 @@ namespace
       if (callee.overloads.size() != 1)
       {
         ctx.diag.error("in vtable resolution", ctx.stack.back(), loc);
-        ctx.diag.error("cannot resolve vtable function", thistype->fieldvars[index], var->loc());
+        ctx.diag.error("cannot resolve vtable function", decl, decl->loc());
         diag_callee(ctx, callee, parms, namedparms);
         continue;
       }
@@ -5546,7 +5546,7 @@ namespace
         }
       }
 
-      elements.push_back(ctx.mir.make_expr<FunctionPointerExpr>(callee.fx, var->loc()));
+      elements.push_back(ctx.mir.make_expr<FunctionPointerExpr>(callee.fx, decl->loc()));
     }
 
     result.type = MIR::Local(thistype, MIR::Local::Const | MIR::Local::Literal);

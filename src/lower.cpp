@@ -5488,7 +5488,7 @@ namespace
         }
       }
 
-      FindContext tx(ctx, var->name);
+      FindContext tx(ctx, decl->name);
 
       auto impltype = remove_qualifiers_type(selftype);
 

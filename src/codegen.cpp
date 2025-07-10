@@ -1246,7 +1246,11 @@ namespace
         global->setName(get_mangled_name(fx.fn, fx.locals[dst].info->vardecl->name->sv()));
 
       if (fx.locals[dst].flags & MIR::Local::ThreadLocal)
+      {
         global->setThreadLocalMode(llvm::GlobalVariable::GeneralDynamicTLSModel);
+
+        fx.locals[dst].alloca = ctx.builder.CreateThreadLocalAddress(fx.locals[dst].alloca);
+      }
 
       if (ctx.genopts.debuginfo != GenOpts::DebugInfo::None && ctx.genopts.optlevel == GenOpts::OptLevel::None)
       {
@@ -3797,13 +3801,13 @@ namespace
   //|///////////////////// rdtsc ////////////////////////////////////////////
   void codegen_builtin_rdtsc(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
-    store(ctx, fx, dst, ctx.builder.CreateIntrinsic(llvm::Function::lookupIntrinsicID("llvm.x86.rdtsc"), {}, {}));
+    store(ctx, fx, dst, ctx.builder.CreateIntrinsic(llvm::Intrinsic::lookupIntrinsicID("llvm.x86.rdtsc"), {}, {}));
   }
 
   //|///////////////////// rdtscp ///////////////////////////////////////////
   void codegen_builtin_rdtscp(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
-    store(ctx, fx, dst, ctx.builder.CreateIntrinsic(llvm::Function::lookupIntrinsicID("llvm.x86.rdtscp"), {}, {}));
+    store(ctx, fx, dst, ctx.builder.CreateIntrinsic(llvm::Intrinsic::lookupIntrinsicID("llvm.x86.rdtscp"), {}, {}));
   }
 
   //|///////////////////// relax ////////////////////////////////////////////

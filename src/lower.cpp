@@ -675,12 +675,6 @@ namespace
     return false;
   }
 
-  //|///////////////////// is_impl_type /////////////////////////////////////
-  bool is_impl_type(LowerContext &ctx, ParmVarDecl *parm, MIR::Local const &rhs)
-  {
-    return rhs.flags & MIR::Local::ImplRef;
-  }
-
   //|///////////////////// is_refn_type /////////////////////////////////////
   bool is_refn_type(LowerContext &ctx, ParmVarDecl *parm)
   {
@@ -693,6 +687,12 @@ namespace
     }
 
     return false;
+  }
+
+  //|///////////////////// is_impl_type /////////////////////////////////////
+  bool is_impl_type(LowerContext &ctx, Type *lhs, MIR::Local const &rhs)
+  {
+    return (rhs.flags & MIR::Local::ImplRef);
   }
 
   //|///////////////////// is_lambda_decay //////////////////////////////////
@@ -3055,6 +3055,17 @@ namespace
       return true;
     }
 
+    if (is_impl_type(ctx, lhs, rhs))
+    {
+      if (is_unresolved_type(lhs))
+        lhs = resolve_type(ctx, fx, lhs);
+
+      if (!is_vtable_type(remove_const_type(remove_pointference_type(lhs))))
+        return false;
+
+      return true;
+    }
+
     if (is_reference_type(lhs))
     {
       lhs = type_cast<ReferenceType>(lhs)->type;
@@ -3064,11 +3075,6 @@ namespace
 
       if (!(is_const_type(lhs) || (rhs.flags & MIR::Local::Const)))
         tx.pointerdepth += 1;
-
-      if (is_impl_type(ctx, parm, rhs))
-      {
-        return true;
-      }
 
       if (is_refn_type(ctx, parm))
       {
@@ -5485,12 +5491,12 @@ namespace
 
       FindContext tx(ctx, var->name);
 
-      for (auto scope = type_scope(ctx, remove_qualifiers_type(selftype)); scope; scope = base_scope(ctx, scope, QueryFlags::Public))
+      for (auto scope = type_scope(ctx, selftype); scope; scope = base_scope(ctx, scope, QueryFlags::Public))
       {
         find_overloads(ctx, tx, scope, parms, namedparms, callee.candidates, callee.overloads);
       }
 
-      find_overloads(ctx, tx, scopeof_type(ctx, remove_qualifiers_type(selftype)), parms, namedparms, callee.candidates, callee.overloads);
+      find_overloads(ctx, tx, scopeof_type(ctx, selftype), parms, namedparms, callee.candidates, callee.overloads);
       find_overloads(ctx, tx, scopeof_type(ctx, thistype), parms, namedparms, callee.candidates, callee.overloads);
       find_overloads(ctx, tx, ctx.stack, parms, namedparms, callee.candidates, callee.overloads);
 
@@ -6102,6 +6108,26 @@ namespace
 
     result.type = expr.type;
     result.value = expr.value;
+
+    return true;
+  }
+
+  //|///////////////////// lower_impl_type //////////////////////////////////
+  bool lower_impl_type(LowerContext &ctx, MIR::Fragment &result, MIR::Fragment &expr, Type *type, SourceLocation loc)
+  {
+    auto lhs = remove_const_type(remove_pointference_type(type));
+    auto rhs = remove_qualifiers_type(expr.type.type);
+
+    if (!lower_vtor(ctx, result, type_cast<TagType>(lhs), rhs, loc))
+      return false;
+
+    if (is_pointer_type(type))
+    {
+      if (!(result.type.flags & MIR::Local::Reference))
+        lower_ref(ctx, result, result);
+
+      result.type = resolve_as_value(ctx, result.type);
+    }
 
     return true;
   }
@@ -6757,17 +6783,6 @@ namespace
         }
       }
 
-      if (is_impl_type(ctx, parm, parms[k].type))
-      {
-        if (!is_vtable_type(parmtype))
-        {
-          ctx.diag.error("impl param type must be a vtable", ctx.stack.back(), parms[k].value.loc());
-          return false;
-        }
-
-        lower_vtor(ctx, parms[k], type_cast<TagType>(parmtype), parms[k].type.type, parms[k].value.loc());
-      }
-
       if (is_refn_type(ctx, parm))
       {
         if (auto refn = find_refn(ctx, scope, parm, parms[k].type); refn.fn)
@@ -6781,6 +6796,12 @@ namespace
 
           parmtype = parms[k].type.type;
         }
+      }
+
+      if (is_impl_type(ctx, parmtype, parms[k].type))
+      {
+        if (!lower_impl_type(ctx, parms[k], parms[k], parmtype, parms[k].value.loc()))
+          return false;
       }
 
       if (is_lambda_decay(ctx, parmtype, parms[k].type.type))
@@ -7893,6 +7914,12 @@ namespace
     if ((!callee || !(callee.fx.fn->flags & FunctionDecl::Builtin)) && binaryop == BinaryOpExpr::Assign)
     {
       auto base_type = [&](Type *type) { while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
+
+      if (is_impl_type(ctx, parms[0].type.type, parms[1].type))
+      {
+        if (!lower_impl_type(ctx, parms[1], parms[1], parms[0].type.type, parms[1].value.loc()))
+          return false;
+      }
 
       if (!(parms[0].type.flags & MIR::Local::Const) && is_pointference_type(parms[0].type.type) && is_pointference_type(base_type(parms[1].type.type)))
       {

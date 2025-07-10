@@ -5459,7 +5459,7 @@ namespace
     {
       auto type = thistype->fields[index];
       auto fntype = type_cast<FunctionType>(remove_qualifiers_type(type));
-      auto var = decl_cast<FieldVarDecl>(thistype->fieldvars[index]);
+      auto decl = decl_cast<FieldVarDecl>(thistype->fieldvars[index]);
 
       Callee callee;
       vector<MIR::Fragment> parms;
@@ -5475,7 +5475,7 @@ namespace
         parms.push_back(value);
       }
 
-      if (var->flags & VarDecl::SelfImplicit)
+      if (decl->flags & VarDecl::SelfImplicit)
       {
         parms[0].type.type = selftype;
 
@@ -5490,12 +5490,14 @@ namespace
 
       FindContext tx(ctx, var->name);
 
-      for (auto scope = type_scope(ctx, selftype); scope; scope = base_scope(ctx, scope, QueryFlags::Public))
+      auto impltype = remove_qualifiers_type(selftype);
+
+      for (auto scope = type_scope(ctx, impltype); scope; scope = base_scope(ctx, scope, QueryFlags::Public))
       {
         find_overloads(ctx, tx, scope, parms, namedparms, callee.candidates, callee.overloads);
       }
 
-      find_overloads(ctx, tx, scopeof_type(ctx, selftype), parms, namedparms, callee.candidates, callee.overloads);
+      find_overloads(ctx, tx, scopeof_type(ctx, impltype), parms, namedparms, callee.candidates, callee.overloads);
       find_overloads(ctx, tx, scopeof_type(ctx, thistype), parms, namedparms, callee.candidates, callee.overloads);
       find_overloads(ctx, tx, ctx.stack, parms, namedparms, callee.candidates, callee.overloads);
 
@@ -6115,9 +6117,8 @@ namespace
   bool lower_impl_type(LowerContext &ctx, MIR::Fragment &result, MIR::Fragment &expr, Type *type, SourceLocation loc)
   {
     auto lhs = remove_const_type(remove_pointference_type(type));
-    auto rhs = remove_qualifiers_type(expr.type.type);
 
-    if (!lower_vtor(ctx, result, type_cast<TagType>(lhs), rhs, loc))
+    if (!lower_vtor(ctx, result, type_cast<TagType>(lhs), expr.type.type, loc))
       return false;
 
     if (is_pointer_type(type))

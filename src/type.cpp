@@ -779,6 +779,7 @@ SliceType::SliceType(Type *type)
   flags |= Type::TrivialDestroy;
   flags |= type->flags & Type::Concrete;
   flags |= type->flags & Type::Indefinite;
+  flags |= type->flags & Type::Unresolved;
 }
 
 //|///////////////////// SliceType::dump ////////////////////////////////////
@@ -878,6 +879,7 @@ CompoundType::CompoundType(Klass klass, vector<Type*> &&resolved_fields)
 TupleType::TupleType(vector<Type*> const &fields)
   : CompoundType(Tuple, vector<Type*>(fields))
 {
+  flags |= Type::Unresolved;
 }
 
 TupleType::TupleType(vector<Type*> &&resolved_defns, vector<Type*> &&resolved_fields)
@@ -1094,11 +1096,14 @@ ConstantType::ConstantType(Decl *decl, Type *type)
     decl(decl),
     type(type)
 {
+  flags |= Type::Unresolved;
 }
 
 //|///////////////////// ConstantType::resolve //////////////////////////////
 void ConstantType::resolve(Type *resolved_expr)
 {
+  flags &= ~Type::Unresolved;
+
   expr = resolved_expr;
 }
 
@@ -1117,6 +1122,7 @@ TypeRefType::TypeRefType(Decl *decl)
   : Type(TypeRef),
     decl(decl)
 {
+  flags |= Type::Unresolved;
 }
 
 //|///////////////////// TypeRefType::dump //////////////////////////////////
@@ -1135,7 +1141,7 @@ TagType::TagType(Decl *decl, vector<pair<Decl*, Type*>> const &args)
     decl(decl),
     args(args)
 {
-  flags |= Type::Concrete; // assume concrete until resolve (for self ref)
+  flags |= Type::Unresolved;
   flags |= Type::Incomplete;
 
   if (decl->flags & TagDecl::Packed)
@@ -1145,6 +1151,9 @@ TagType::TagType(Decl *decl, vector<pair<Decl*, Type*>> const &args)
 //|///////////////////// TagType::resolve ///////////////////////////////////
 void TagType::resolve(vector<Decl*> &&resolved_decls)
 {
+  flags |= Type::Concrete;
+  flags &= ~Type::Unresolved;
+
   decls = std::move(resolved_decls);
 }
 
@@ -1234,8 +1243,8 @@ FunctionType::FunctionType(Type *returntype, Type *paramtuple, Type *throwtype)
     paramtuple(paramtuple),
     throwtype(throwtype)
 {
-  if (is_concrete_type(returntype) && is_concrete_type(paramtuple))
-    flags |= Type::Concrete;
+  flags |= (returntype->flags & Type::Concrete) & (paramtuple->flags & Type::Concrete);
+  flags |= (returntype->flags & Type::Unresolved) | (paramtuple->flags & Type::Unresolved);
 }
 
 

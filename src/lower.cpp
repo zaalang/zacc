@@ -3057,8 +3057,7 @@ namespace
 
     if (is_impl_type(ctx, lhs, rhs))
     {
-      if (is_unresolved_type(lhs))
-        lhs = resolve_type(ctx, fx, lhs);
+      lhs = resolve_type(ctx, fx, lhs);
 
       if (!is_vtable_type(remove_const_type(remove_pointference_type(lhs))))
         return false;

@@ -272,7 +272,7 @@ namespace
   //|///////////////////// exprref_expression /////////////////////////////////
   void semantic_expr(SemanticContext &ctx, ExprRefExpr *exprref, Sema &sema)
   {
-    semantic_expr(ctx, exprref->expr, sema);
+    semantic_expr(ctx, exprref->subexpr, sema);
   }
 
   //|///////////////////// paren_expression /////////////////////////////////

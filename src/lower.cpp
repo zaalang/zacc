@@ -6551,7 +6551,7 @@ namespace
           break;
 
         case Expr::ExprRef:
-          stack.push_back(expr_cast<ExprRefExpr>(expr)->expr);
+          stack.push_back(expr_cast<ExprRefExpr>(expr)->subexpr);
           break;
 
         default:
@@ -7702,13 +7702,13 @@ namespace
   //|///////////////////// lower_exprref ////////////////////////////////////
   void lower_expr(LowerContext &ctx, MIR::Fragment &result, ExprRefExpr *exprref)
   {
-    if (!lower_expr(ctx, result, exprref->expr))
+    if (!lower_expr(ctx, result, exprref->subexpr))
       return;
 
     if (exprref->qualifiers & ExprRefExpr::Mut)
     {
       if (result.type.flags & MIR::Local::Const)
-        ctx.diag.error("invalid mut reference type", ctx.stack.back(), exprref->expr->loc());
+        ctx.diag.error("invalid mut reference type", ctx.stack.back(), exprref->subexpr->loc());
 
       result.type.flags |= MIR::Local::MutRef;
     }

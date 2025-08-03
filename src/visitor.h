@@ -46,7 +46,7 @@ struct Visitor
         break;
 
       case Expr::ExprRef:
-        visit(expr_cast<ExprRefExpr>(expr)->expr);
+        visit(expr_cast<ExprRefExpr>(expr)->subexpr);
         break;
 
       case Expr::Paren:

@@ -514,10 +514,10 @@ void CompoundLiteralExpr::dump(int indent) const
 //|--------------------------------------------------------------------------
 
 //|///////////////////// ExprRefExpr::Constructor ///////////////////////////
-ExprRefExpr::ExprRefExpr(Expr *expr, long qualifiers, SourceLocation loc)
+ExprRefExpr::ExprRefExpr(Expr *subexpr, long qualifiers, SourceLocation loc)
   : Expr(ExprRef, loc),
     qualifiers(qualifiers),
-    expr(expr)
+    subexpr(subexpr)
 {
 }
 
@@ -526,9 +526,9 @@ void ExprRefExpr::dump(int indent) const
 {
   cout << spaces(indent) << "ExprRefExpr " << this << " " << *this << '\n';
 
-  if (expr)
+  if (subexpr)
   {
-    expr->dump(indent + 2);
+    subexpr->dump(indent + 2);
   }
 }
 

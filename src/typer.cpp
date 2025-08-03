@@ -1512,7 +1512,7 @@ namespace
   //|///////////////////// exprref_expression ///////////////////////////////
   void resolve_expr(TyperContext &ctx, Scope const &scope, ExprRefExpr *exprref, Sema &sema)
   {
-    resolve_expr(ctx, scope, exprref->expr, sema);
+    resolve_expr(ctx, scope, exprref->subexpr, sema);
   }
 
   //|///////////////////// paren_expression /////////////////////////////////

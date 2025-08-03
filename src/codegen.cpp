@@ -4182,6 +4182,11 @@ namespace
         case Builtin::StringCreate:
         case Builtin::StringAppend:
         case Builtin::StringSlice:
+        case Builtin::SliceBegin:
+        case Builtin::SliceEnd:
+        case Builtin::SliceLen:
+        case Builtin::SliceData:
+        case Builtin::SliceIndex:
         case Builtin::SliceSlice:
           fx.diag.error("function not callable in runtime context", fx.fn, loc);
           break;

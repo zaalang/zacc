@@ -816,25 +816,31 @@ namespace
 
       if (expr->kind() == Expr::ExprRef)
       {
-        auto ref = expr_cast<ExprRefExpr>(expr);
+        auto refexpr = expr_cast<ExprRefExpr>(expr);
 
-        if (ref->expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(ref->expr)->op() == UnaryOpExpr::Unpack)
+        if (!refexpr->subexpr)
+          break;
+
+        if (refexpr->subexpr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(refexpr->subexpr)->op() == UnaryOpExpr::Unpack)
         {
-          expr = ref->expr;
-          ref->expr = expr_cast<UnaryOpExpr>(ref->expr)->subexpr;
-          expr_cast<UnaryOpExpr>(expr)->subexpr = ref;
+          expr = refexpr->subexpr;
+          refexpr->subexpr = expr_cast<UnaryOpExpr>(refexpr->subexpr)->subexpr;
+          expr_cast<UnaryOpExpr>(expr)->subexpr = refexpr;
         }
       }
 
       if (expr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(expr)->op() == UnaryOpExpr::Fwd)
       {
-        auto fwd = expr_cast<UnaryOpExpr>(expr);
+        auto fwdexpr = expr_cast<UnaryOpExpr>(expr);
 
-        if (fwd->subexpr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(fwd->subexpr)->op() == UnaryOpExpr::Unpack)
+        if (!fwdexpr->subexpr)
+          break;
+
+        if (fwdexpr->subexpr->kind() == Expr::UnaryOp && expr_cast<UnaryOpExpr>(fwdexpr->subexpr)->op() == UnaryOpExpr::Unpack)
         {
-          expr = fwd->subexpr;
-          fwd->subexpr = expr_cast<UnaryOpExpr>(fwd->subexpr)->subexpr;
-          expr_cast<UnaryOpExpr>(expr)->subexpr = fwd;
+          expr = fwdexpr->subexpr;
+          fwdexpr->subexpr = expr_cast<UnaryOpExpr>(fwdexpr->subexpr)->subexpr;
+          expr_cast<UnaryOpExpr>(expr)->subexpr = fwdexpr;
         }
       }
 

@@ -265,9 +265,9 @@ class ExprRefExpr : public Expr
     long qualifiers = 0;
 
   public:
-    ExprRefExpr(Expr *expr, long qualifiers, SourceLocation loc);
+    ExprRefExpr(Expr *subexpr, long qualifiers, SourceLocation loc);
 
-    Expr *expr;
+    Expr *subexpr;
 
     void dump(int indent) const override;
 };

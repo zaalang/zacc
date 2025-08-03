@@ -234,7 +234,7 @@ namespace
   //|///////////////////// exprref_expression ///////////////////////////////
   Expr *copier_expr(CopierContext &ctx, ExprRefExpr *exprref)
   {
-    return new ExprRefExpr(copier_expr(ctx, exprref->expr), exprref->qualifiers, exprref->loc());
+    return new ExprRefExpr(copier_expr(ctx, exprref->subexpr), exprref->qualifiers, exprref->loc());
   }
 
   //|///////////////////// paren_expression /////////////////////////////////

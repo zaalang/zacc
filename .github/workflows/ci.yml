@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Create Build Environment
         run: |
           sudo wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Create Build Environment
         run: |
           sudo wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
@@ -55,20 +55,20 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Cache LLVM
         id: cache-llvm
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: llvm
-          key: llvm-libs-20.1.8
+          key: llvmorg-20.1.8
       - name: Download LLVM
         if: steps.cache-llvm.outputs.cache-hit != 'true'
-        run: |
-          iwr https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/llvm-project-20.1.8.src.tar.xz -OutFile llvm.tar.xz
-          7z x llvm.tar.xz
-          7z x llvm.tar
-          mv llvm-* llvm-project
+        uses: actions/checkout@v4
+        with:
+          repository: llvm/llvm-project
+          ref: llvmorg-20.1.8 
+          path: llvm-project
       - name: Build LLVM
         if: steps.cache-llvm.outputs.cache-hit != 'true'
         working-directory: ${{github.workspace}}/llvm-project/llvm

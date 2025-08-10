@@ -105,12 +105,12 @@ Create a test.zaa file containing the hello world text listed above. Then the co
 
 #### Linux
 ```
-$ zacc/bin/zacc -I ./std -L ./zrt/lib test.zaa -lzrt
+$ ./zaalang/zacc/bin/zacc -I ./zaalang/std -L ./zaalang/zrt/lib test.zaa -lzrt
 ```
 
 #### Windows
 ```
-> zacc\bin\zacc.exe -I .\std -L .\zrt\lib test.zaa -lzrt -lkernel32
+> zaalang\zacc\bin\zacc.exe -I zaalang\std -L zaalang\zrt\lib test.zaa -lzrt -lkernel32
 ```
 
 ## Another Example

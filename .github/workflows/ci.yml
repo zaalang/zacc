@@ -11,8 +11,8 @@ jobs:
       - name: Create Build Environment
         run: |
           sudo wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-          sudo add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-20 main"
-          sudo apt-get install -y gcc-14 llvm-20
+          sudo add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main"
+          sudo apt-get install -y gcc-14 llvm-21
           cmake -E make_directory ${{github.workspace}}/build
       - name: Configure
         env:
@@ -35,13 +35,13 @@ jobs:
       - name: Create Build Environment
         run: |
           sudo wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-          sudo add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-20 main"
-          sudo apt-get install -y clang-20 llvm-20
+          sudo add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main"
+          sudo apt-get install -y clang-21 llvm-21
           cmake -E make_directory ${{github.workspace}}/build
       - name: Configure
         env:
-          CC: clang-20
-          CXX: clang++-20
+          CC: clang-21
+          CXX: clang++-21
         shell: bash
         working-directory: ${{github.workspace}}/build
         run: |
@@ -61,13 +61,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: llvm
-          key: llvmorg-20.1.8
+          key: llvmorg-21.1.0
       - name: Download LLVM
         if: steps.cache-llvm.outputs.cache-hit != 'true'
         uses: actions/checkout@v4
         with:
           repository: llvm/llvm-project
-          ref: llvmorg-20.1.8 
+          ref: llvmorg-21.1.0
           path: llvm-project
       - name: Build LLVM
         if: steps.cache-llvm.outputs.cache-hit != 'true'

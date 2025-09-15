@@ -293,8 +293,8 @@ struct Visitor
       case Decl::Case:
         if (decl_cast<CaseDecl>(decl)->label)
           visit(decl_cast<CaseDecl>(decl)->label);
-        if (decl_cast<CaseDecl>(decl)->parm)
-          visit(decl_cast<CaseDecl>(decl)->parm);
+        for (auto &decl : decl_cast<CaseDecl>(decl)->parms)
+          visit(decl);
         if (decl_cast<CaseDecl>(decl)->body)
           visit(decl_cast<CaseDecl>(decl)->body);
         break;

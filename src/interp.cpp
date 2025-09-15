@@ -2927,6 +2927,46 @@ namespace
     return true;
   }
 
+  //|///////////////////// rotl /////////////////////////////////////////////
+  bool eval_builtin_rotl(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto lhs = load_int(ctx, fx, args[0]);
+    auto rhs = load_int(ctx, fx, args[1]);
+    auto width = 8*sizeof_type(fx.locals[args[0]].type);
+
+    auto r = rhs.value % width;
+    auto result = Numeric::int_literal(+1, (lhs.value << r) | (lhs.value >> (width - r)));
+
+    if (rhs.sign < 0)
+      result = Numeric::int_literal(+1, (lhs.value >> r) | (lhs.value << (width - r)));
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
+
+    return true;
+  }
+
+  //|///////////////////// rotr /////////////////////////////////////////////
+  bool eval_builtin_rotr(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto lhs = load_int(ctx, fx, args[0]);
+    auto rhs = load_int(ctx, fx, args[1]);
+    auto width = 8*sizeof_type(fx.locals[args[0]].type);
+
+    auto r = rhs.value % width;
+    auto result = Numeric::int_literal(+1, (lhs.value >> r) | (lhs.value << (width - r)));
+
+    if (rhs.sign < 0)
+      result = Numeric::int_literal(+1, (lhs.value << r) | (lhs.value >> (width - r)));
+
+    store(ctx, fx.locals[dst].alloc, fx.locals[dst].type, result);
+
+    return true;
+  }
+
   //|///////////////////// byteswap /////////////////////////////////////////
   bool eval_builtin_byteswap(EvalContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -4381,6 +4421,12 @@ namespace
 
         case Builtin::signbit:
           return eval_builtin_signbit(ctx, fx, dst, call);
+
+        case Builtin::rotl:
+          return eval_builtin_rotl(ctx, fx, dst, call);
+
+        case Builtin::rotr:
+          return eval_builtin_rotr(ctx, fx, dst, call);
 
         case Builtin::byteswap:
           return eval_builtin_byteswap(ctx, fx, dst, call);

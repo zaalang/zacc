@@ -394,10 +394,16 @@ namespace
   {
     switch (auto tok = ctx.tok; tok.type)
     {
-      case Token::identifier:
-      case Token::kw_move:
+      case Token::kw_let:
+      case Token::kw_var:
+      case Token::kw_nil:
+      case Token::kw_new:
       case Token::kw_impl:
+      case Token::kw_move:
+      case Token::kw_void:
+      case Token::kw_null:
       case Token::kw_vtable:
+      case Token::identifier:
          ctx.consume_token();
 
         return Ident::from(tok.text);
@@ -422,13 +428,6 @@ namespace
       case Token::questionexclaim:
       case Token::spaceship:
       case Token::tildeequal:
-      case Token::kw_yield:
-      case Token::kw_await:
-      case Token::kw_void:
-      case Token::kw_null:
-      case Token::kw_new:
-      case Token::kw_nil:
-      case Token::kw_var:
         ctx.consume_token();
 
         if (usage != IdentUsage::FunctionName && usage != IdentUsage::ScopedName)
@@ -2465,11 +2464,6 @@ namespace
       case Token::l_square:
         return parse_expression_post(ctx, parse_array_literal(ctx, sema), sema);
 
-      case Token::kw_void:
-      case Token::kw_null:
-      case Token::kw_move:
-        return parse_expression_post(ctx, parse_callee(ctx, sema), sema);
-
       case Token::kw_sizeof:
         return parse_sizeof(ctx, sema);
 
@@ -2506,6 +2500,11 @@ namespace
           return parse_typeid(ctx, sema);
         [[fallthrough]];
 
+      case Token::kw_nil:
+      case Token::kw_null:
+      case Token::kw_void:
+      case Token::kw_impl:
+      case Token::kw_move:
       case Token::kw_typeof:
       case Token::coloncolon:
       case Token::identifier:
@@ -3994,10 +3993,15 @@ namespace
             decl = parse_typealias_declaration(ctx, sema);
             break;
 
+          case Token::kw_nil:
+          case Token::kw_new:
+          case Token::kw_null:
+          case Token::kw_void:
+          case Token::kw_impl:
+          case Token::kw_move:
+          case Token::kw_typeof:
           case Token::identifier:
           case Token::coloncolon:
-          case Token::kw_move:
-          case Token::kw_impl:
           case Token::dollar:
             if (unnion->name == tok.text || tok.text == "this")
             {
@@ -4580,9 +4584,14 @@ namespace
             decl = parse_enum_declaration(ctx, sema);
             break;
 
-          case Token::identifier:
-          case Token::kw_move:
+          case Token::kw_nil:
+          case Token::kw_new:
+          case Token::kw_null:
+          case Token::kw_void:
           case Token::kw_impl:
+          case Token::kw_move:
+          case Token::kw_typeof:
+          case Token::identifier:
           case Token::dollar:
             if (enumm->name == tok.text || tok.text == "this")
             {
@@ -4738,43 +4747,49 @@ namespace
 
       if (ctx.try_consume_token(Token::l_square))
       {
-        auto var = sema.casevar_declaration(ctx.tok.loc);
-
-        if (ctx.tok == Token::kw_let || ctx.tok == Token::kw_var)
+        while (ctx.tok != Token::r_square && ctx.tok != Token::semi && ctx.tok != Token::eof)
         {
-          var->type = parse_var_defn(ctx, var->flags, sema.make_typearg(Ident::kw_var, ctx.tok.loc), sema);
+          auto var = sema.casevar_declaration(ctx.tok.loc);
 
-          auto loc = ctx.tok.loc;
-
-          if (ctx.tok != Token::l_square)
+          if (ctx.tok == Token::kw_let || ctx.tok == Token::kw_var)
           {
+            var->type = parse_var_defn(ctx, var->flags, sema.make_typearg(Ident::kw_var, ctx.tok.loc), sema);
+
+            auto loc = ctx.tok.loc;
+
+            if (ctx.tok != Token::l_square)
+            {
+              var->name = parse_ident(ctx, IdentUsage::VarName, sema);
+            }
+
+            if (ctx.try_consume_token(Token::l_square))
+            {
+              var->pattern = sema.tuple_pattern(parse_var_bindings_list(ctx, var->flags, sema), loc);
+
+              if (!ctx.try_consume_token(Token::r_square))
+              {
+                ctx.diag.error("expected bracket", ctx.text, ctx.tok.loc);
+                goto resume;
+              }
+            }
+
+            if (ctx.try_consume_token(Token::equal))
+            {
+              var->value = parse_expression(ctx, sema);
+            }
+          }
+          else
+          {
+            var->type = sema.make_reference(sema.make_qualarg(sema.make_typearg(sema.make_typearg(Ident::kw_var, var->loc()))));
+
             var->name = parse_ident(ctx, IdentUsage::VarName, sema);
           }
 
-          if (ctx.try_consume_token(Token::l_square))
-          {
-            var->pattern = sema.tuple_pattern(parse_var_bindings_list(ctx, var->flags, sema), loc);
+          casse->parms.push_back(var);
 
-            if (!ctx.try_consume_token(Token::r_square))
-            {
-              ctx.diag.error("expected bracket", ctx.text, ctx.tok.loc);
-              goto resume;
-            }
-          }
-
-          if (ctx.try_consume_token(Token::equal))
-          {
-            var->value = parse_expression(ctx, sema);
-          }
+          if (!ctx.try_consume_token(Token::comma))
+            break;
         }
-        else
-        {
-          var->name = parse_ident(ctx, IdentUsage::VarName, sema);
-
-          var->type = sema.make_reference(sema.make_qualarg(sema.make_typearg(sema.make_typearg(Ident::kw_var, var->loc()))));
-        }
-
-        casse->parm = var;
 
         if (!ctx.try_consume_token(Token::r_square))
         {
@@ -4787,6 +4802,23 @@ namespace
     if (ctx.tok == Token::kw_else)
     {
       ctx.consume_token(Token::kw_else);
+
+      if (ctx.try_consume_token(Token::l_square))
+      {
+        auto var = sema.casevar_declaration(ctx.tok.loc);
+
+        var->type = sema.make_reference(sema.make_qualarg(sema.make_typearg(sema.make_typearg(Ident::kw_var, var->loc()))));
+
+        var->name = parse_ident(ctx, IdentUsage::VarName, sema);
+
+        casse->parms.push_back(var);
+
+        if (!ctx.try_consume_token(Token::r_square))
+        {
+          ctx.diag.error("expected colon", ctx.text, ctx.tok.loc);
+          goto resume;
+        }
+      }
     }
 
     if (!ctx.try_consume_token(Token::colon))
@@ -4840,7 +4872,7 @@ namespace
       casse->body = compound;
     }
 
-    if (casse->parm && !casse->body)
+    if (casse->parms.size() != 0 && !casse->body)
     {
       ctx.diag.error("parameterised case requires body", ctx.text, ctx.tok.loc);
       goto resume;

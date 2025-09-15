@@ -1105,9 +1105,9 @@ namespace
       semantic_expr(ctx, casse->label, sema);
     }
 
-    if (casse->parm)
+    for (auto &parm : casse->parms)
     {
-      semantic_decl(ctx, casse->parm, sema);
+      semantic_decl(ctx, parm, sema);
     }
 
     if (casse->body)

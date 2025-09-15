@@ -735,8 +735,6 @@ namespace
       case 't':
         if (identifier == "true")
           type = Token::kw_true;
-        else if (identifier == "typedef")
-          type = Token::kw_typedef;
         else if (identifier == "typeof")
           type = Token::kw_typeof;
         else if (identifier == "try")

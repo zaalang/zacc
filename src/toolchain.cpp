@@ -157,6 +157,7 @@ int ToolChain::ld(string_view input, string_view output, vector<string> librarie
     cmd = m_base + "\\bin\\ld.lld.exe";
 
     //cmd += " -nostdlib";
+	cmd += " -m i386pep";
     cmd += " --stack 8388608";
 
     // --subsystem console/windows

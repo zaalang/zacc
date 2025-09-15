@@ -204,6 +204,8 @@ namespace Builtin
     ctz,
     popcnt,
     signbit,
+    rotl,
+    rotr,
     byteswap,
     bitreverse,
 

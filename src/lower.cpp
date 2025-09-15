@@ -9602,7 +9602,7 @@ namespace
     auto fn = ctx.mir.fx.fn;
     auto thistype = type_cast<TagType>(ctx.mir.locals[0].type);
 
-    if (is_struct_type(thistype) || is_union_type(thistype) || is_lambda_type(thistype))
+    if (is_struct_type(thistype) || is_union_type(thistype) || is_lambda_type(thistype) || is_enum_type(thistype))
     {
       auto sm = ctx.push_barrier();
 
@@ -9668,6 +9668,9 @@ namespace
         }
         else
         {
+          if (is_enum_type(thistype))
+            continue;
+
           if (is_union_type(thistype) && index != 0)
             continue;
 
@@ -11867,9 +11870,9 @@ namespace
           if (!lower_label(ctx, labels, condition.type.type, casse->label))
             return;
 
-          if (casse->parm)
+          for (auto &parm : casse->parms)
           {
-            auto casevar = decl_cast<CaseVarDecl>(casse->parm);
+            auto casevar = decl_cast<CaseVarDecl>(parm);
 
             if (!base)
             {
@@ -11916,6 +11919,16 @@ namespace
           if (ctx.mir.blocks[block_cond].terminator.blockid != block_cond)
             ctx.diag.error("duplicate else in switch", ctx.stack.back(), decl->loc());
 
+          for (auto &parm : casse->parms)
+          {
+            MIR::Fragment value;
+
+            value.type = ctx.mir.locals[cond];
+            value.value = MIR::RValue::local(MIR::RValue::Val, cond, decl->loc());
+
+            lower_decl(ctx, decl_cast<CaseVarDecl>(parm), value);
+          }
+
           ctx.mir.blocks[block_cond].terminator.blockid = ctx.currentblockid;
         }
       }
@@ -11936,7 +11949,7 @@ namespace
           if (!is_constant(ctx, parms[0]))
             ctx.diag.error("case not a literal value", ctx.stack.back(), decl->loc());
 
-          if (casse->parm)
+          if (casse->parms.size() != 0)
             ctx.diag.error("case parameter requires union condition", ctx.stack.back(), decl->loc());
 
           parms[1].type = ctx.mir.locals[cond];
@@ -11952,6 +11965,18 @@ namespace
           commit_type(ctx, flg, testcase.type.type, testcase.type.flags);
 
           block_conds.push_back(block_cond = ctx.add_block(MIR::Terminator::switcher(flg, ctx.currentblockid)));
+        }
+        else
+        {
+          for (auto &parm : casse->parms)
+          {
+            MIR::Fragment value;
+
+            value.type = ctx.mir.locals[cond];
+            value.value = MIR::RValue::local(MIR::RValue::Val, cond, decl->loc());
+
+            lower_decl(ctx, decl_cast<CaseVarDecl>(parm), value);
+          }
         }
 
         if (casse->body)

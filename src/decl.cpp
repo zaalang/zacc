@@ -1001,7 +1001,7 @@ void CaseDecl::dump(int indent) const
     label->dump(indent + 2);
   }
 
-  if (parm)
+  for (auto &parm : parms)
   {
     parm->dump(indent + 2);
   }

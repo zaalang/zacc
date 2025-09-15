@@ -397,8 +397,8 @@ void find_decls(Scope const &scope, Ident *name, long flags, vector<Decl*> &resu
         break;
 
       case Decl::Case:
-        if (decl_cast<CaseDecl>(*owner)->parm)
-          find_decl(decl_cast<CaseDecl>(*owner)->parm, name, flags, results);
+        for (auto &decl : decl_cast<CaseDecl>(*owner)->parms)
+          find_decl(decl, name, flags, results);
         break;
 
       case Decl::If:

@@ -2009,9 +2009,9 @@ namespace
       resolve_expr(ctx, ctx.stack.back(), casse->label, sema);
     }
 
-    if (casse->parm)
+    for (auto &parm : casse->parms)
     {
-      typer_decl(ctx, casse->parm, sema);
+      typer_decl(ctx, parm, sema);
     }
 
     if (casse->body)

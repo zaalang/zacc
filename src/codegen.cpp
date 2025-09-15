@@ -94,7 +94,7 @@ namespace
     {
       triple = llvm::Triple(genopts.triple);
 
-      module.setTargetTriple(genopts.triple);
+      module.setTargetTriple(triple);
 
       voidtype = type(Builtin::Type_Void);
       booltype = type(Builtin::Type_Bool);
@@ -3408,6 +3408,32 @@ namespace
     }
   }
 
+  //|///////////////////// rotl /////////////////////////////////////////////
+  void codegen_builtin_rotl(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto lhs = load(ctx, fx, args[0]);
+    auto rhs = load(ctx, fx, args[1]);
+
+    auto result = ctx.builder.CreateIntrinsic(lhs->getType(), llvm::Intrinsic::fshl, { lhs, lhs, ctx.builder.CreateIntCast(rhs, lhs->getType(), true) });
+
+    store(ctx, fx, dst, result);
+  }
+
+  //|///////////////////// rotr ////////////////////////////////////////////
+  void codegen_builtin_rotr(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
+  {
+    auto &[callee, args, loc] = call;
+
+    auto lhs = load(ctx, fx, args[0]);
+    auto rhs = load(ctx, fx, args[1]);
+
+    auto result = ctx.builder.CreateIntrinsic(lhs->getType(), llvm::Intrinsic::fshr, { lhs, lhs, ctx.builder.CreateIntCast(rhs, lhs->getType(), true) });
+
+    store(ctx, fx, dst, result);
+  }
+
   //|///////////////////// byteswap /////////////////////////////////////////
   void codegen_builtin_byteswap(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
@@ -3801,13 +3827,13 @@ namespace
   //|///////////////////// rdtsc ////////////////////////////////////////////
   void codegen_builtin_rdtsc(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
-    store(ctx, fx, dst, ctx.builder.CreateIntrinsic(llvm::Intrinsic::lookupIntrinsicID("llvm.x86.rdtsc"), {}, {}));
+    store(ctx, fx, dst, ctx.builder.CreateIntrinsic(llvm::Intrinsic::lookupIntrinsicID("llvm.x86.rdtsc"), {}));
   }
 
   //|///////////////////// rdtscp ///////////////////////////////////////////
   void codegen_builtin_rdtscp(GenContext &ctx, FunctionContext &fx, MIR::local_t dst, MIR::RValue::CallData const &call)
   {
-    store(ctx, fx, dst, ctx.builder.CreateIntrinsic(llvm::Intrinsic::lookupIntrinsicID("llvm.x86.rdtscp"), {}, {}));
+    store(ctx, fx, dst, ctx.builder.CreateIntrinsic(llvm::Intrinsic::lookupIntrinsicID("llvm.x86.rdtscp"), {}));
   }
 
   //|///////////////////// relax ////////////////////////////////////////////
@@ -4063,6 +4089,14 @@ namespace
 
         case Builtin::signbit:
           codegen_builtin_signbit(ctx, fx, dst, call);
+          break;
+
+        case Builtin::rotl:
+          codegen_builtin_rotl(ctx, fx, dst, call);
+          break;
+
+        case Builtin::rotr:
+          codegen_builtin_rotr(ctx, fx, dst, call);
           break;
 
         case Builtin::byteswap:
@@ -5410,10 +5444,10 @@ namespace
   bool write_module(GenContext &ctx, string const &file)
   {
     string error;
-    string triple = ctx.genopts.triple;
+    auto triple = ctx.triple;
 
-    if (auto j = triple.find("zaos"); j != std::string::npos)
-      triple.replace(j, 4, "linux");
+    if (triple.getOS() == llvm::Triple::UnknownOS)
+      triple.setOS(llvm::Triple::Linux);
 
     auto target = llvm::TargetRegistry::lookupTarget(triple, error);
 

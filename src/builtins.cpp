@@ -577,6 +577,8 @@ namespace Builtin
     make_function(ctz, "pub const fn __ctz<T>(T) -> int", __LINE__);
     make_function(popcnt, "pub const fn __popcnt<T>(T) -> int", __LINE__);
     make_function(signbit, "pub const fn __signbit<T>(T) -> int", __LINE__);
+    make_function(rotl, "pub const fn __rotl<T>(T, int) -> T", __LINE__);
+    make_function(rotr, "pub const fn __rotr<T>(T, int) -> T", __LINE__);
     make_function(byteswap, "pub const fn __byteswap<T>(T) -> T", __LINE__);
     make_function(bitreverse, "pub const fn __bitreverse<T>(T) -> T", __LINE__);
 
@@ -949,6 +951,8 @@ namespace Builtin
       case Builtin::clz:
       case Builtin::ctz:
       case Builtin::popcnt:
+      case Builtin::rotl:
+      case Builtin::rotr:
       case Builtin::byteswap:
       case Builtin::bitreverse:
         if (auto T = find_type(fn->args[0]); T != typeargs.end())

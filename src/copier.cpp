@@ -874,8 +874,8 @@ namespace
     if (casse->label)
       result->label = copier_expr(ctx, casse->label);
 
-    if (casse->parm)
-      result->parm = copier_decl(ctx, casse->parm);
+    for (auto &parm : casse->parms)
+      result->parms.push_back(copier_decl(ctx, parm));
 
     if (casse->body)
       result->body = copier_stmt(ctx, casse->body);

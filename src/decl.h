@@ -649,7 +649,7 @@ class CaseDecl : public Decl
     CaseDecl(SourceLocation loc);
 
     Expr *label = nullptr;
-    Decl *parm = nullptr;
+    std::vector<Decl*> parms;
     Stmt *body = nullptr;
 
     void dump(int indent) const override;

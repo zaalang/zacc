@@ -456,7 +456,7 @@ namespace
 
     elements.push_back(llvm_type(ctx, type->fields[0], true));
 
-    auto max_align = size_t(0);
+    auto max_align = size_t(1);
     auto max_align_type = ctx.voidtype;
 
     for (size_t i = 1; i < type->fields.size(); ++i)
@@ -1238,12 +1238,22 @@ namespace
 
     if (auto value = llvm_constant(ctx, fx, fx.mir.locals[dst].type, literal))
     {
-      codegen_global(ctx, fx, dst, value, llvm::GlobalValue::InternalLinkage);
+      auto linkage = llvm::GlobalValue::InternalLinkage;
+
+      if (fx.locals[dst].info && fx.locals[dst].info->vardecl->flags & VarDecl::ExternC)
+        linkage = llvm::GlobalValue::ExternalLinkage;
+
+      codegen_global(ctx, fx, dst, value, linkage);
 
       auto global = llvm::cast<llvm::GlobalVariable>(fx.locals[dst].alloca);
 
       if (fx.locals[dst].info && fx.locals[dst].info->vardecl->name)
-        global->setName(get_mangled_name(fx.fn, fx.locals[dst].info->vardecl->name->sv()));
+      {
+        if (linkage == llvm::GlobalValue::ExternalLinkage)
+          global->setName(fx.locals[dst].info->vardecl->name->sv());
+        else
+          global->setName(get_mangled_name(fx.fn, fx.locals[dst].info->vardecl->name->sv()));
+      }
 
       if (fx.locals[dst].flags & MIR::Local::ThreadLocal)
       {
@@ -3650,6 +3660,11 @@ namespace
     auto asmty = llvm::FunctionType::get(ctx.builder.getInt64Ty(), false);
     auto asmfn = llvm::InlineAsm::get(asmty, "lea $0, [rip + " + name->value() + "]", "=r", false, false, llvm::InlineAsm::AD_Intel);
 
+    if (name->value().find("@tpoff") != string::npos)
+    {
+      asmfn = llvm::InlineAsm::get(asmty, "mov $0, fs:0x0; lea $0, [$0 - " + name->value() + "]", "=r", false, false, llvm::InlineAsm::AD_Intel);
+    }
+
     store(ctx, fx, dst, ctx.builder.CreateCall(asmfn));
   }
 
@@ -5487,6 +5502,7 @@ namespace
 
       case GenOpts::Reloc::PIC:
         relocmodel = llvm::Reloc::PIC_;
+        ctx.module.setPIELevel(llvm::PIELevel::Level::Large);
         break;
     }
 

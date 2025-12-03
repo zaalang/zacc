@@ -373,7 +373,7 @@ namespace
           return true;
       }
 
-#if 1
+  #if 1
       if (annotation.type == Lifetime::swap)
       {
         auto lhs = trim(annotation.text.substr(0, annotation.text.find(',')));
@@ -382,7 +382,7 @@ namespace
         if (decl_cast<ParmVarDecl>(parm)->name == lhs || decl_cast<ParmVarDecl>(parm)->name == rhs)
           return true;
       }
-#endif
+  #endif
     }
 
     return false;
@@ -407,7 +407,7 @@ namespace
         if (decl_cast<ParmVarDecl>(parm1)->name == lhs && decl_cast<ParmVarDecl>(parm2)->name == rhs)
           return true;
       }
-#if 1
+  #if 1
       if (annotation.type == Lifetime::swap)
       {
         auto lhs = trim(annotation.text.substr(0, annotation.text.find(',')));
@@ -419,7 +419,7 @@ namespace
         if (decl_cast<ParmVarDecl>(parm1)->name == rhs && decl_cast<ParmVarDecl>(parm2)->name == lhs)
           return true;
       }
-#endif
+  #endif
     }
 
     return false;
@@ -1405,26 +1405,23 @@ namespace
   {
     auto &[op, arg, fields, loc] = variable;
 
-    if (op == MIR::RValue::Fer)
+    if ((fields.empty() && op == MIR::RValue::Fer) || (!fields.empty() && fields[0].op == MIR::RValue::Val))
     {
-      switch (ctx.state(arg))
-      {
-        case State::ok:
-          break;
+      if (ctx.is_dangling(arg))
+        ctx.diag.error("potentially dangling dereference", mir.fx.fn, loc);
+    }
 
-        case State::dangling:
-          ctx.diag.error("potentially dangling dereference", mir.fx.fn, loc);
-          break;
+    if ((fields.empty() && op == MIR::RValue::Fer) || (!fields.empty() && fields[0].op == MIR::RValue::Val))
+    {
+      if (ctx.is_poisoned(arg))
+        ctx.diag.error("potentially poisoned dereference", mir.fx.fn, loc);
+    }
 
-        case State::consumed:
-          if ((mir.fx.fn->flags & (FunctionDecl::Safe | FunctionDecl::Unsafe)) == 0)
-            ctx.diag.error("potentially consumed dereference", mir.fx.fn, loc);
-          break;
-
-        case State::poisoned:
-          ctx.diag.error("potentially poisoned dereference", mir.fx.fn, loc);
-          break;
-      }
+    if (op != MIR::RValue::Ref)
+    {
+      for (auto fld : ctx.threads[0].locals[arg].consumed_fields)
+        if (ctx.is_common_field(get<2>(*fld), fields))
+          ctx.diag.error("potentially consumed reference", mir.fx.fn, loc);
     }
 
     if ((mir.locals[dst].flags & MIR::Local::Reference) || is_pointference_type(mir.locals[dst].type))
@@ -1455,9 +1452,6 @@ namespace
 
       if (any_of(fields.begin(), fields.end(), [](auto k){ return k.op == MIR::RValue::Val; }))
       {
-        if (ctx.is_poisoned(arg))
-          ctx.diag.error("potentially poisoned reference", mir.fx.fn, loc);
-
         ctx.threads[0].locals[dst].depends_upon.clear();
 
         switch (op)
@@ -1495,6 +1489,9 @@ namespace
     if (mir.locals[dst].flags & MIR::Local::MoveRef)
     {
       ctx.threads[0].locals[arg].consumed = true;
+
+      if (fields.size() != 0 && op != MIR::RValue::Ref)
+        ctx.threads[0].locals[arg].consumed_fields.push_back(&variable);
     }
 
     if (is_reference_type(mir.locals[dst].type))
@@ -1986,18 +1983,15 @@ namespace
 
         switch (ctx.state(arg))
         {
-          case State::ok:
-            break;
-
           case State::dangling:
             ctx.diag.error("potentially dangling output value", mir.fx.fn, parm->loc());
             break;
 
-          case State::consumed:
-            break;
-
           case State::poisoned:
             ctx.diag.error("potentially poisoned output value", mir.fx.fn, parm->loc());
+            break;
+
+          default:
             break;
         }
 

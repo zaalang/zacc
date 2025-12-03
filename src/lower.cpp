@@ -3940,10 +3940,10 @@ namespace
 
           if (auto j = sx->find_type(decl); j != sx->typeargs.end())
           {
-            tx = FindContext(ctx, j->second, tx.queryflags);
+            tx = FindContext(ctx, remove_const_type(j->second), tx.queryflags);
 
-            if (is_lambda_type(j->second))
-              tx.decls.push_back(type_cast<TagType>(j->second)->decl);
+            if (auto type = remove_const_type(j->second); is_lambda_type(type))
+              tx.decls.push_back(type_cast<TagType>(type)->decl);
 
             find_overloads(ctx, tx, scopeof_type(ctx, j->second), parms, namedparms, candidates, results);
           }
@@ -7036,7 +7036,7 @@ namespace
     if (type->klass() == Type::TypeLit)
     {
       result.type = type;
-      return false;
+      return true;
     }
 
     if (parms.size() == 1 && namedparms.size() == 0 && parms[0].type.type == type && (parms[0].type.flags & MIR::Local::RValue))
@@ -7582,6 +7582,9 @@ namespace
 
             return true;
           }
+
+          ctx.diag.error("cannot resolve function reference", ctx.stack.back(), declref->loc());
+          return false;
         }
 
         for (auto type = parms[0].type.type; is_tag_type(type); )
@@ -7596,7 +7599,7 @@ namespace
               {
                 if (auto field = find_field(ctx, ctx.stack, parms[0].type.type, Ident::kw_super))
                 {
-                  lower_field(ctx, parms[0], parms[0], field, declref->base->loc());
+                  lower_field(ctx, parms[0], parms[0], field, declref->loc());
                 }
               }
 
@@ -8657,7 +8660,7 @@ namespace
             if (is_unresolved_type(type_cast<TagType>(lhs)->args[i].second))
               continue;
 
-            if (type_cast<TagType>(lhs)->args[i].second != type_cast<TagType>(rhs)->args[i].second)
+            if (resolve_type(ctx, type_cast<TagType>(lhs)->args[i].second) != type_cast<TagType>(rhs)->args[i].second)
               match = false;
           }
 

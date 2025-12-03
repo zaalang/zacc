@@ -32,7 +32,7 @@ Sema::Sema()
 
 //|///////////////////// translation_unit ///////////////////////////////////
 TranslationUnitDecl *Sema::translation_unit(string_view file)
-{ 
+{
   ast = new AST(new TranslationUnitDecl);
 
   auto unit = decl_cast<TranslationUnitDecl>(ast->root);
@@ -67,33 +67,28 @@ ModuleDecl *Sema::module_declaration(Ident *name)
   string dirbase = dirname(path);
   string filebase = basename(path);
   string filename = filebase + ".zaa";
+  string sourcepath = dirname(decl_cast<ModuleDecl>(unit->mainmodule)->file());
 
-  path = dirname(decl_cast<ModuleDecl>(unit->mainmodule)->file()) + dirbase + filename;
-
-  if (access(path.c_str(), F_OK) != 0)
+  for (;;)
   {
-    if (auto test = dirname(path) + filebase; access(test.c_str(), F_OK) == 0)
-    {
-      path = test + '/' + filename;
-    }
-  }
+    if (path = sourcepath + dirbase + filename; access(path.c_str(), F_OK) == 0)
+      break;
 
-  if (access(path.c_str(), F_OK) != 0)
-  {
+    if (path = sourcepath + dirbase + filebase + '/' + filename; access(path.c_str(), F_OK) == 0)
+      break;
+
     for (auto &includepath : m_include_paths)
     {
-      if (auto test = includepath + '/' + dirbase + filename; access(test.c_str(), F_OK) == 0)
-      {
-        path = test;
+      if (path = includepath + '/' + dirbase + filename; access(path.c_str(), F_OK) == 0)
         break;
-      }
 
-      if (auto test = includepath + '/' + dirbase + filebase; access(test.c_str(), F_OK) == 0)
-      {
-        path = test + '/' + filename;
+      if (path = includepath + '/' + dirbase + filebase + '/' + filename; access(path.c_str(), F_OK) == 0)
         break;
-      }
+
+      path.clear();
     }
+
+    break;
   }
 
   auto module = ast->make_decl<ModuleDecl>(name, path);

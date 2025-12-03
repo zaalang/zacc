@@ -2901,6 +2901,9 @@ namespace
   {
     auto var = sema.var_declaration(ctx.tok.loc);
 
+    if (ctx.try_consume_token(Token::kw_extern))
+      var->flags |= VarDecl::ExternC;
+
     var->type = parse_var_defn(ctx, var->flags, sema.make_typearg(Ident::kw_var, ctx.tok.loc), sema);
 
     auto loc = ctx.tok.loc;
@@ -4408,6 +4411,10 @@ namespace
             decl = parse_const_declaration(ctx, sema);
             break;
 
+          case Token::kw_fn:
+            decl = parse_function_declaration(ctx, sema);
+            break;
+
           case Token::kw_using:
             decl = parse_using_declaration(ctx, sema);
             break;
@@ -5128,10 +5135,6 @@ namespace
         stmt->decl = parse_lambda_declaration(ctx, sema);
         break;
 
-      case Token::kw_extern:
-        stmt->decl = parse_function_declaration(ctx, sema);
-        break;
-
       case Token::kw_struct:
         stmt->decl = parse_struct_declaration(ctx, sema);
         break;
@@ -5161,6 +5164,13 @@ namespace
           stmt->decl = parse_typealias_declaration(ctx, sema);
         else
           stmt->decl = parse_using_declaration(ctx, sema);
+        break;
+
+      case Token::kw_extern:
+        if (ctx.token(1) == Token::kw_static)
+          stmt->decl = parse_var_declaration(ctx, sema);
+        else
+          stmt->decl = parse_function_declaration(ctx, sema);
         break;
 
       case Token::kw_let:
@@ -6015,6 +6025,37 @@ namespace
         tok = ctx.token(nexttok++);
       }
 
+      if (tok == Token::kw_extern)
+      {
+        tok = ctx.token(nexttok++);
+
+        if (tok == Token::string_literal)
+          tok = ctx.token(nexttok++);
+
+        switch (tok.type)
+        {
+          case Token::kw_fn:
+            break;
+
+          default:
+            goto unhandled;
+        }
+      }
+
+      if (tok == Token::kw_static)
+      {
+        tok = ctx.token(nexttok++);
+
+        switch (tok.type)
+        {
+          case Token::kw_fn:
+            break;
+
+          default:
+            goto unhandled;
+        }
+      }
+
       if (tok == Token::kw_const)
       {
         switch (ctx.token(nexttok).type)
@@ -6029,11 +6070,6 @@ namespace
           default:
             goto unhandled;
         }
-      }
-
-      if (tok == Token::kw_static)
-      {
-        tok = ctx.token(nexttok++);
       }
 
       switch (tok.type)
@@ -6058,10 +6094,6 @@ namespace
           ctx.diag.warn("extra semi", ctx.text, tok.loc);
           ctx.consume_token(Token::semi);
           continue;
-
-        case Token::kw_extern:
-          decl = parse_function_declaration(ctx, sema);
-          break;
 
         case Token::kw_const:
           decl = parse_const_declaration(ctx, sema);

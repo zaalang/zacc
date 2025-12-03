@@ -422,6 +422,7 @@ class VarDecl : public Decl
       CacheAligned = 0x200,
       PageAligned = 0x400,
       SelfImplicit = 0x1000,
+      ExternC = 0x100000,
     };
 
   public:

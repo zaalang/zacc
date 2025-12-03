@@ -32,7 +32,7 @@ void depgen(AST *ast, string const &outfile, string const &target)
 
   for (auto &decl : decl_cast<TranslationUnitDecl>(ast->root)->decls)
   {
-    if (decl->kind() == Decl::Module)
+    if (decl->kind() == Decl::Module && !decl_cast<ModuleDecl>(decl)->file().empty())
     {
       fout << " " << decl_cast<ModuleDecl>(decl)->file() << " \\\n";
     }

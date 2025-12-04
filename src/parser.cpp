@@ -4395,6 +4395,28 @@ namespace
           tok = ctx.token(nexttok++);
         }
 
+        if (tok == Token::kw_const)
+        {
+          switch (ctx.token(nexttok).type)
+          {
+            case Token::kw_fn:
+              tok = ctx.token(nexttok++);
+              break;
+
+            case Token::identifier:
+            case Token::dollar:
+              break;
+
+            default:
+              goto unhandled;
+          }
+        }
+
+        if (tok == Token::kw_static)
+        {
+          tok = ctx.token(nexttok++);
+        }
+
         if (tok == Token::kw_using && ctx.token(nexttok) == Token::identifier && (ctx.token(nexttok + 1) == Token::less || ctx.token(nexttok + 1) == Token::equal))
         {
           tok.type = Token::pseudo_alias;
@@ -4428,6 +4450,7 @@ namespace
             break;
 
           default:
+          unhandled:
             ctx.diag.error("expected concept declaration", ctx.text, tok.loc);
             goto resume;
         }

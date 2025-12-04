@@ -1141,7 +1141,7 @@ namespace
       module = sema.module_declaration(name);
 
       if (!load(module, sema, ctx.diag))
-        ctx.diag.error("opening file '" + module->file() + "'", ctx.file, imprt->loc());
+        ctx.diag.error("opening import '" + name->str() + "'", ctx.file, imprt->loc());
 
       semantic(module, sema, ctx.diag);
     }

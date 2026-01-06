@@ -1,7 +1,7 @@
 //
 // type.cpp
 //
-// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2026 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -1177,6 +1177,17 @@ void TagType::resolve(vector<Type*> &&resolved_fields)
 
     if (all_of(fields.begin(), fields.end(), [](auto k) { return (k->flags & Type::ZeroSized); }))
       flags |= Type::ZeroSized;
+
+    for(auto stack = fields; !stack.empty(); )
+    {
+      auto type = stack.back(); stack.pop_back();
+
+      if (type == this)
+        flags |= Type::Unresolved;
+
+      else if (is_compound_type(type))
+        stack.insert(stack.end(), type_cast<CompoundType>(type)->fields.begin(), type_cast<CompoundType>(type)->fields.end());
+    }
   }
 
   if (decl->kind() == Decl::Enum)

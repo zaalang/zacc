@@ -1,7 +1,7 @@
 //
 // toolchain.cpp
 //
-// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2026 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -50,7 +50,7 @@ ToolChain::ToolChain(string const &triple)
       }
     }
   }
-  
+
   if (m_os == "windows" && m_env == "gnu")
   {
     m_type = MinGW;
@@ -90,7 +90,7 @@ ToolChain::ToolChain(string const &triple)
         }
 
         add_library_path(paths.substr(i, j-i));
-      }      
+      }
     }
   }
 
@@ -112,27 +112,9 @@ ToolChain::ToolChain(string const &triple)
     }
   }
 
-  if (m_os == "zaos" && m_env == "gnu")
+  if (m_os == "zaos")
   {
     m_type = ZaOS;
-
-    if (string paths = "/usr/lib;"; !paths.empty())
-    {
-      for (size_t i = 0, j = paths.find_first_of(';'); j != string::npos; i = j + 1, j = paths.find_first_of(';', j + 1))
-      {
-        auto libdir = paths.substr(i, j-i) + "/gcc/" + triple;
-
-        if (access(libdir.c_str(), F_OK) == 0)
-        {
-          m_base = paths.substr(i, paths.substr(i, j-i).find_last_of('/'));
-
-          if (access((m_base + '/' + triple).c_str(), F_OK) == 0)
-            m_base = m_base + '/' + triple;
-        }
-
-        add_library_path(paths.substr(i, j-i));
-      }
-    }
   }
 
   if (m_arch == "wasm64")
@@ -157,7 +139,7 @@ int ToolChain::ld(string_view input, string_view output, vector<string> librarie
     cmd = m_base + "\\bin\\ld.lld.exe";
 
     //cmd += " -nostdlib";
-	cmd += " -m i386pep";
+    cmd += " -m i386pep";
     cmd += " --stack 8388608";
 
     // --subsystem console/windows
@@ -210,10 +192,21 @@ int ToolChain::ld(string_view input, string_view output, vector<string> librarie
 
   if (m_type == ZaOS)
   {
-    cmd = m_base + "/bin/ld";
+    if (m_env == "gnu")
+    {
+      cmd = "ld";
 
-    cmd += " -nostdlib";
-    cmd += " -pie --dynamic-linker=/zaos/lib/loader -z relro";
+      cmd += " -nostdlib";
+      cmd += " -pie --dynamic-linker=/zaos/lib/loader -z relro";
+    }
+
+    if (m_env == "llvm")
+    {
+      cmd = "ld.lld";
+
+      cmd += " -nostdlib";
+      cmd += " -pie --dynamic-linker=/zaos/lib/loader -z relro -z dynamic-undefined-weak";
+    }
 
     cmd += " " + string(input);
     cmd += " -o " + string(output);

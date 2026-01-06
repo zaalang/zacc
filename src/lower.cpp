@@ -1,7 +1,7 @@
 //
 // lower.cpp
 //
-// Copyright (c) 2020-2024 Peter Niekamp. All rights reserved.
+// Copyright (c) 2020-2026 Peter Niekamp. All rights reserved.
 //
 // This file is part of zaalang, which is BSD-2-Clause licensed.
 // See http://opensource.org/licenses/BSD-2-Clause
@@ -1311,12 +1311,10 @@ namespace
       break;
     }
 
-    if (decls.size() == 1 && is_var_decl(decls[0]))
-    {
-      return decl_cast<VarDecl>(decls[0]);
-    }
+    if (decls.empty() || !is_var_decl(decls.back()))
+      return nullptr;
 
-    return nullptr;
+    return decl_cast<VarDecl>(decls.back());
   }
 
   //|///////////////////// find_index ///////////////////////////////////////
@@ -1378,7 +1376,7 @@ namespace
 
     if (ident->kind() == Ident::String)
     {
-      for (size_t index = 0; index < decls.size(); ++index)
+      for (size_t index = decls.size(); index-- != 0; )
       {
         if (decl_name(decls[index]) == ident)
           return index;
@@ -1689,6 +1687,9 @@ namespace
 
     type->resolve(std::move(fields));
 
+    if (is_unresolved_type(type))
+      ctx.diag.error("incomplete type", tagdecl, tagdecl->loc());
+
     return type;
   }
 
@@ -1700,8 +1701,8 @@ namespace
     {
       arg = resolve_type(ctx, scope, arg);
 
-      if (is_unresolved_type(arg))
-        ctx.diag.error("unresolved type argument", decl, decl->loc());
+//      if (is_unresolved_type(arg))
+//        ctx.diag.error("unresolved type argument", decl, decl->loc());
     }
 
     for (auto sx = tagtype->decl; sx; sx = parent_decl(sx))
@@ -8038,7 +8039,7 @@ namespace
         }
       }
 
-      if (callee && is_struct_type(parms[0].type.type) && callee.fx.fn->owner != variant<Decl*, Stmt*>{type_cast<TagType>(parms[0].type.type)->decl})
+      if (callee && is_base_cast(ctx, remove_reference_type(decl_cast<ParmVarDecl>(callee.fx.fn->parms[0])->type), parms[0].type.type))
       {
         ctx.diag.error("invalid assignment to base expression", ctx.stack.back(), loc);
         return false;
@@ -8717,38 +8718,14 @@ namespace
 
       if (Scoped declref = find_scoped(ctx, ctx.stack, decl_cast<DeclScopedDecl>(call->decl), queryflags))
       {
-        if (declref.decl->argless)
-        {
-          vector<Decl*> decls;
-
-          for (auto sx = declref.scope; sx; sx = base_scope(ctx, sx, QueryFlags::Public))
-          {
-            find_decls(ctx, sx, declref.decl->name, QueryFlags::Variables | QueryFlags::Fields, decls);
-
-            if (decls.empty())
-              continue;
-
-            break;
-          }
-
-          if (decls.size() == 1)
-          {
-            if (is_var_decl(decls[0]))
-              typid = resolve_type(ctx, declref.scope, decl_cast<VarDecl>(decls[0]));
-          }
-        }
-
         if (is_type_scope(declref.scope))
         {
           auto type = resolve_type(ctx, declref.scope, get<Decl*>(declref.scope.owner));
 
           if (is_compound_type(type))
           {
-            if (declref.decl->name->kind() == Ident::Index || declref.decl->name->kind() == Ident::Hash)
-            {
-              if (auto field = find_field(ctx, ctx.stack, type, declref.decl->name))
-                typid = field.type;
-            }
+            if (auto field = find_field(ctx, ctx.stack, type, declref.decl->name))
+              typid = field.type;
           }
 
           if (is_enum_type(type))

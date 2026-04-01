@@ -3660,11 +3660,6 @@ namespace
     auto asmty = llvm::FunctionType::get(ctx.builder.getInt64Ty(), false);
     auto asmfn = llvm::InlineAsm::get(asmty, "lea $0, [rip + " + name->value() + "]", "=r", false, false, llvm::InlineAsm::AD_Intel);
 
-    if (name->value().find("@tpoff") != string::npos)
-    {
-      asmfn = llvm::InlineAsm::get(asmty, "mov $0, fs:0x0; lea $0, [$0 - " + name->value() + "]", "=r", false, false, llvm::InlineAsm::AD_Intel);
-    }
-
     store(ctx, fx, dst, ctx.builder.CreateCall(asmfn));
   }
 

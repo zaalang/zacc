@@ -55,6 +55,8 @@ namespace
 
     vector<Thread> threads;
 
+    vector<MIR::RValue::VariableData const *> poisons;
+
     void add_thread(MIR::block_t block, vector<Storage> locals)
     {
       threads.push_back(Thread(block, std::move(locals)));
@@ -191,6 +193,7 @@ namespace
       size_t args_beg;
       size_t args_end;
       vector<std::tuple<MIR::local_t, MIR::RValue::VariableData>> depends;
+      vector<std::tuple<MIR::local_t, MIR::RValue::VariableData>> poisons;
     };
 
     static entry const *lookup(FnSig const &fx)
@@ -597,10 +600,10 @@ namespace
   void poison(Context &ctx, MIR const &mir, MIR::local_t arg, MIR::RValue::VariableData const *dep)
   {
 #if 0
-    cout << "poison: " << *dep << endl;
+    cout << "poison: " << arg <<  " " << *dep << endl;
 #endif
 
-    if (get<1>(*ctx.threads[0].locals[arg].depends_upon.back()) >= mir.locals.size() && dep != ctx.threads[0].locals[arg].depends_upon.back())
+    if (get<1>(*ctx.threads[0].locals[arg].depends_upon.back()) >= mir.locals.size() + 3*mir.args_end && dep != ctx.threads[0].locals[arg].depends_upon.back())
       return;
 
     ctx.threads[0].locals[get<1>(*dep)].toxic = true;
@@ -631,6 +634,9 @@ namespace
         local.poisoned = true;
       }
     }
+
+    if (std::find(ctx.poisons.begin(), ctx.poisons.end(), dep) == ctx.poisons.end())
+      ctx.poisons.push_back(dep);
   }
 
   //|///////////////////// launder //////////////////////////////////////////
@@ -1196,18 +1202,38 @@ namespace
   //|///////////////////// apply ////////////////////////////////////////////
   void apply(Context &ctx, MIR const &mir, Cache::entry const *entry, MIR::local_t dst, FnSig const &callee, vector<MIR::local_t> const &args, SourceLocation loc)
   {
-    if (entry->depends.empty())
+    if (entry->depends.empty() && entry->poisons.empty())
       return;
 
     auto parms = vector<ParmVarDecl*>();
     for (auto &parm : callee.parameters())
       parms.push_back(decl_cast<ParmVarDecl>(parm));
 
-    for (auto &[lhs, depend] : entry->depends)
+    for (auto &[lhs, variable] : entry->poisons)
     {
-      auto op = get<0>(depend);
-      auto arg = get<1>(depend);
-      auto &fields = get<2>(depend);
+      auto arg = get<1>(variable);
+      auto &fields = get<2>(variable);
+
+      if (arg < entry->args_beg || arg >= entry->args_end)
+        continue;
+
+      if (entry->args_beg <= lhs && lhs < entry->args_end)
+      {
+        auto rhs = args[arg - entry->args_beg];
+
+        if (has_poison(ctx, callee.fn->lifetimes, parms[arg - entry->args_beg]))
+          continue;
+
+        for (auto dep : ctx.threads[0].locals[rhs].depends_upon)
+          poison(ctx, mir, rhs, ctx.make_field(dep, fields.begin(), fields.end()));
+      }
+    }
+
+    for (auto &[lhs, variable] : entry->depends)
+    {
+      auto op = get<0>(variable);
+      auto arg = get<1>(variable);
+      auto &fields = get<2>(variable);
 
       if (arg < entry->args_beg || arg >= entry->args_end)
         continue;
@@ -1286,7 +1312,7 @@ namespace
         }
       }
 
-      if (lhs >= entry->args_beg && lhs < entry->args_end)
+      if (entry->args_beg <= lhs && lhs < entry->args_end)
       {
         auto arg = lhs - entry->args_beg;
 
@@ -1333,17 +1359,17 @@ namespace
     {
       auto &[op, arg, fields, loc] = *dep;
 
-      if (arg >= mir.locals.size() && arg < mir.locals.size() + mir.args_end && arg - mir.locals.size() != 0)
+      if (mir.locals.size() <= arg && arg < mir.locals.size() + mir.args_end && arg - mir.locals.size() != 0)
       {
         entry.depends.emplace_back(0, MIR::RValue::field(MIR::RValue::Val, arg - mir.locals.size(), fields, loc));
       }
 
-      if (arg >= mir.locals.size() + 1*mir.args_end && arg < mir.locals.size() + 2*mir.args_end && arg - mir.locals.size() - 1*mir.args_end != 0)
+      if (mir.locals.size() + 1*mir.args_end <= arg && arg < mir.locals.size() + 2*mir.args_end && arg - mir.locals.size() - 1*mir.args_end != 0)
       {
         entry.depends.emplace_back(0, MIR::RValue::field(MIR::RValue::Fer, arg - mir.locals.size() - 1*mir.args_end, fields, loc));
       }
 
-      if (arg >= mir.locals.size() + 2*mir.args_end && arg < mir.locals.size() + 3*mir.args_end && arg - mir.locals.size() - 2*mir.args_end != 0)
+      if (mir.locals.size() + 2*mir.args_end <= arg && arg < mir.locals.size() + 3*mir.args_end && arg - mir.locals.size() - 2*mir.args_end != 0)
       {
         entry.depends.emplace_back(0, MIR::RValue::field(MIR::RValue::Idx, arg - mir.locals.size() - 2*mir.args_end, fields, loc));
       }
@@ -1355,20 +1381,30 @@ namespace
       {
         auto &[op, arg, fields, loc] = *dep;
 
-        if (arg >= mir.locals.size() && arg < mir.locals.size() + mir.args_end && arg - mir.locals.size() != i)
+        if (mir.locals.size() <= arg && arg < mir.locals.size() + mir.args_end && arg - mir.locals.size() != i)
         {
           entry.depends.emplace_back(i, MIR::RValue::field(MIR::RValue::Val, arg - mir.locals.size(), fields, loc));
         }
 
-        if (arg >= mir.locals.size() + 1*mir.args_end && arg < mir.locals.size() + 2*mir.args_end && arg - mir.locals.size() - 1*mir.args_end != i)
+        if (mir.locals.size() + 1*mir.args_end <= arg && arg < mir.locals.size() + 2*mir.args_end && arg - mir.locals.size() - 1*mir.args_end != i)
         {
           entry.depends.emplace_back(i, MIR::RValue::field(MIR::RValue::Fer, arg - mir.locals.size() - 1*mir.args_end, fields, loc));
         }
 
-        if (arg >= mir.locals.size() + 2*mir.args_end && arg < mir.locals.size() + 3*mir.args_end && arg - mir.locals.size() - 2*mir.args_end != i)
+        if (mir.locals.size() + 2*mir.args_end <= arg && arg < mir.locals.size() + 3*mir.args_end && arg - mir.locals.size() - 2*mir.args_end != i)
         {
           entry.depends.emplace_back(i, MIR::RValue::field(MIR::RValue::Idx, arg - mir.locals.size() - 2*mir.args_end, fields, loc));
         }
+      }
+    }
+
+    for (auto &dep : ctx.poisons)
+    {
+      auto &[op, arg, fields, loc] = *dep;
+
+      if (mir.locals.size() <= arg && arg < mir.locals.size() + mir.args_end)
+      {
+        entry.poisons.emplace_back(arg - mir.locals.size(), MIR::RValue::field(op, arg - mir.locals.size(), fields, loc));
       }
     }
 
@@ -1393,7 +1429,14 @@ namespace
     {
       auto &[op, arg, fields, loc] = get<1>(dep);
 
-      cout << "  " << get<0>(dep) << ": " << varname(mir, arg) << " " << get<1>(dep) << endl;
+      cout << "  depend: " << get<0>(dep) << " " << varname(mir, arg) << " " << get<1>(dep) << endl;
+    }
+
+    for (auto &dep : entry.poisons)
+    {
+      auto &[op, arg, fields, loc] = get<1>(dep);
+
+      cout << "  poison: " << get<0>(dep) << " " << varname(mir, arg) << " " << get<1>(dep) << endl;
     }
 #endif
 

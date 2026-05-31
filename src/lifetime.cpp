@@ -34,6 +34,7 @@ namespace
       bool live = false;
       bool consumed = false;
       bool immune = false;
+      bool barrier = false;
       bool poisoned = false;
       bool toxic = false;
       size_t borrowed = 0;
@@ -616,7 +617,7 @@ namespace
       if (local.immune)
         continue;
 
-      if (local.depends_upon.empty() || (get<1>(*local.depends_upon.back()) >= mir.locals.size() + 3*mir.args_end && local.depends_upon.back() == dep))
+      if (local.barrier && local.depends_upon.back() == dep)
         continue;
 
       for (auto fld : local.depends_upon)
@@ -1547,6 +1548,7 @@ namespace
       for (auto &thread : ctx.threads)
         thread.locals[arg].live = true;
 
+      ctx.threads[0].locals[dst].barrier = true;
       ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(arg));
     }
   }
@@ -1724,6 +1726,7 @@ namespace
       for (auto &thread : ctx.threads)
         thread.locals[arg].live = true;
 
+      ctx.threads[0].locals[dst].barrier = true;
       ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(arg));
     }
   }

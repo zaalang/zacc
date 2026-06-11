@@ -1461,13 +1461,6 @@ namespace
         ctx.diag.error("potentially poisoned dereference", mir.fx.fn, loc);
     }
 
-    if (op != MIR::RValue::Ref)
-    {
-      for (auto fld : ctx.threads[0].locals[arg].consumed_fields)
-        if (ctx.is_common_field(get<2>(*fld), fields))
-          ctx.diag.error("potentially consumed reference", mir.fx.fn, loc);
-    }
-
     if ((mir.locals[dst].flags & MIR::Local::Reference) || is_pointference_type(mir.locals[dst].type))
     {
       switch (op)
@@ -1532,10 +1525,14 @@ namespace
 
     if (mir.locals[dst].flags & MIR::Local::MoveRef)
     {
-      ctx.threads[0].locals[arg].consumed = true;
+      for (auto fld : ctx.threads[0].locals[arg].consumed_fields)
+        if (ctx.is_common_field(get<2>(*fld), fields))
+          ctx.diag.error("potentially consumed reference", mir.fx.fn, loc);
 
-      if (fields.size() != 0 && op != MIR::RValue::Ref)
-        ctx.threads[0].locals[arg].consumed_fields.push_back(&variable);
+      ctx.threads[0].locals[dst].consumed = false;
+
+      ctx.threads[0].locals[arg].consumed = true;
+      ctx.threads[0].locals[arg].consumed_fields.push_back(&variable);
     }
 
     if (is_reference_type(mir.locals[dst].type))

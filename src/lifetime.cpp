@@ -590,8 +590,6 @@ namespace
       }
     }
 
-    ctx.threads[0].locals[arg].consumed = true;
-
 #if 0
     cout << "consume: " << *dep << endl;
     for (auto fld : ctx.threads[0].locals[get<1>(*dep)].consumed_fields)
@@ -1530,43 +1528,26 @@ namespace
       if (ctx.is_consumed(dst))
         ctx.diag.error("potentially consumed reference", mir.fx.fn, loc);
 
-      switch (op)
-      {
-        case MIR::RValue::Ref:
-          if (fields.empty())
-            consume(ctx, mir, arg, &variable);
-          for (auto dep : ctx.threads[0].locals[arg].depends_upon)
-            consume(ctx, mir, arg, ctx.make_field(dep, fields.begin(), fields.end()));
-          break;
+      for (auto dep : ctx.threads[0].locals[dst].depends_upon)
+        consume(ctx, mir, dst, dep);
 
-        case MIR::RValue::Val:
-          consume(ctx, mir, arg, &variable);
-          break;
-
-        case MIR::RValue::Fer:
-          break;
-
-        case MIR::RValue::Idx:
-          assert(false);
-          break;
-      }
-
+      ctx.threads[0].locals[arg].consumed = true;
       ctx.threads[0].locals[dst].consumed = false;
     }
 
-    if (is_reference_type(mir.locals[dst].type))
-    {
-      auto arg = ctx.threads[0].locals.size();
-
-      for (auto &thread : ctx.threads)
-        thread.locals.push_back(Context::Storage());
-
-      for (auto &thread : ctx.threads)
-        thread.locals[arg].live = true;
-
-      ctx.threads[0].locals[dst].barrier = true;
-      ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(arg));
-    }
+//    if (is_reference_type(mir.locals[dst].type))
+//    {
+//      auto arg = ctx.threads[0].locals.size();
+//
+//      for (auto &thread : ctx.threads)
+//        thread.locals.push_back(Context::Storage());
+//
+//      for (auto &thread : ctx.threads)
+//        thread.locals[arg].live = true;
+//
+//      ctx.threads[0].locals[dst].barrier = true;
+//      ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(arg));
+//    }
   }
 
   //|///////////////////// analyse_call /////////////////////////////////////
@@ -1621,14 +1602,14 @@ namespace
       }
     }
 
-    for (auto const &[parm, arg] : zip(callee.parameters(), args))
-    {
-      if (mir.locals[arg].flags & MIR::Local::MoveRef)
-      {
-        for (auto dep : ctx.threads[0].locals[arg].depends_upon)
-          consume(ctx, mir, arg, dep);
-      }
-    }
+//    for (auto const &[parm, arg] : zip(callee.parameters(), args))
+//    {
+//      if (mir.locals[arg].flags & MIR::Local::MoveRef)
+//      {
+//        for (auto dep : ctx.threads[0].locals[arg].depends_upon)
+//          consume(ctx, mir, arg, dep);
+//      }
+//    }
 
     if (callee.fn->flags & FunctionDecl::Builtin)
     {

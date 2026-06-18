@@ -1535,19 +1535,10 @@ namespace
       ctx.threads[0].locals[dst].consumed = false;
     }
 
-//    if (is_reference_type(mir.locals[dst].type))
-//    {
-//      auto arg = ctx.threads[0].locals.size();
-//
-//      for (auto &thread : ctx.threads)
-//        thread.locals.push_back(Context::Storage());
-//
-//      for (auto &thread : ctx.threads)
-//        thread.locals[arg].live = true;
-//
-//      ctx.threads[0].locals[dst].barrier = true;
-//      ctx.threads[0].locals[dst].depends_upon.push_back(ctx.make_field(arg));
-//    }
+    if (is_reference_type(mir.locals[dst].type))
+    {
+      ctx.threads[0].locals[dst].barrier = true;
+    }
   }
 
   //|///////////////////// analyse_call /////////////////////////////////////

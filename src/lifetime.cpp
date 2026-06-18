@@ -1528,8 +1528,24 @@ namespace
       if (ctx.is_consumed(dst))
         ctx.diag.error("potentially consumed reference", mir.fx.fn, loc);
 
-      for (auto dep : ctx.threads[0].locals[dst].depends_upon)
-        consume(ctx, mir, dst, dep);
+      switch (op)
+      {
+        case MIR::RValue::Ref:
+          for (auto dep : ctx.threads[0].locals[dst].depends_upon)
+            consume(ctx, mir, dst, dep);
+          break;
+
+        case MIR::RValue::Val:
+          consume(ctx, mir, dst, &variable);
+          break;
+
+        case MIR::RValue::Fer:
+          break;
+
+        case MIR::RValue::Idx:
+          assert(false);
+          break;
+      }
 
       ctx.threads[0].locals[arg].consumed = true;
       ctx.threads[0].locals[dst].consumed = false;

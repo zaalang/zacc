@@ -101,7 +101,10 @@ Diag &Diag::operator=(Diag const &other)
   {
     Diag that(other);
 
-    std::swap(*this, that);
+    this->colored = that.colored;
+    this->m_leader = that.m_leader;
+    this->m_errored = that.m_errored;
+    this->os = std::move(that.os);
   }
 
   return *this;

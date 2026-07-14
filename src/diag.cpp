@@ -94,6 +94,19 @@ Diag::Diag(Diag const &other)
   os << other.str();
 }
 
+//|///////////////////// assignment /////////////////////////////////////////
+Diag &Diag::operator=(Diag const &other)
+{
+  if (this != &other)
+  {
+    Diag that(other);
+
+    std::swap(*this, that);
+  }
+
+  return *this;
+}
+
 //|///////////////////// info ///////////////////////////////////////////////
 void Diag::info(string_view msg)
 {

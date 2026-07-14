@@ -351,7 +351,7 @@ namespace
 
     static MIR const &commit(FnSig const &fx, MIR &&mir, Diag const &diag)
     {
-      return cache.emplace(fx, entry{ std::move(mir), diag }).first->second.mir;
+      return cache.insert_or_assign(fx, entry{ std::move(mir), diag }).first->second.mir;
     }
 
     static inline std::unordered_map<FnSig, entry> cache;

@@ -25,6 +25,8 @@ class Diag
     Diag(std::string_view leader);
     Diag(Diag const &other);
 
+    Diag &operator=(Diag const &other);
+
     std::string_view leader() const { return m_leader; }
 
     void info(std::string_view msg);

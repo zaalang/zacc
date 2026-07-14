@@ -356,7 +356,9 @@ namespace
     {
       if (annotation.type == Lifetime::consume)
       {
-        if (decl_cast<ParmVarDecl>(parm)->name == annotation.text)
+        auto lhs = trim(annotation.text.substr(0, annotation.text.find('.')));
+
+        if (decl_cast<ParmVarDecl>(parm)->name == lhs)
           return true;
       }
     }

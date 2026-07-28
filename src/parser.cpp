@@ -141,9 +141,10 @@ namespace
     Relational      = 7,    // >=, <=, >, <
     Spaceship       = 8,    // <=>
     Additive        = 9,    // -, +
-    BitwiseOr       = 10,   // |
-    BitwiseXOr      = 11,   // ^
-    BitwiseAnd      = 12,   // &
+    Bitwise         = 10,   // | ^ &
+    //BitwiseOr       = 10,   // |
+    //BitwiseXOr      = 11,   // ^
+    //BitwiseAnd      = 12,   // &
     Shift           = 13,   // <<, >>
     Multiplicative  = 14,   // *, /, %
     PointerToMember = 15,   // .*, ->*
@@ -203,13 +204,13 @@ namespace
         return PrecLevel::Additive;
 
       case Token::pipe:
-        return PrecLevel::BitwiseOr;
+        return PrecLevel::Bitwise;
 
       case Token::caret:
-        return PrecLevel::BitwiseXOr;
+        return PrecLevel::Bitwise;
 
       case Token::amp:
-        return PrecLevel::BitwiseAnd;
+        return PrecLevel::Bitwise;
 
       case Token::lessless:
       case Token::greatergreater:

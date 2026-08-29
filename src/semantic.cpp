@@ -718,7 +718,7 @@ namespace
       basefield->type = strct->basetype;
 
       if (strct->flags & TagDecl::PublicBase)
-        basefield->flags = VarDecl::Public;
+        basefield->flags |= VarDecl::Public;
 
       strct->decls.insert(strct->decls.begin(), basefield);
     }
@@ -755,7 +755,7 @@ namespace
       basefield->type = vtable->basetype;
 
       if (vtable->flags & TagDecl::PublicBase)
-        basefield->flags = VarDecl::Public;
+        basefield->flags |= VarDecl::Public;
 
       vtable->decls.insert(vtable->decls.begin(), basefield);
     }
@@ -1090,7 +1090,7 @@ namespace
     }
 
     for (auto &parm : init->parms)
-    {     
+    {
       semantic_expr(ctx, parm, sema);
     }
   }

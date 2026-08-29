@@ -487,6 +487,7 @@ class TagDecl : public Decl
       Public = 0x01,
       Packed = 0x100,
       PublicBase = 0x200,
+      MutableBase = 0x400,
     };
 
   public:

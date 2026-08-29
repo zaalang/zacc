@@ -31,6 +31,7 @@ namespace
     vector<Decl*> attributes;
     vector<Expr*> substitutions;
 
+    Token ftok;
     Ident *fname = nullptr;
 
     ParseContext(SourceText const &text, Diag &diag)
@@ -475,6 +476,12 @@ namespace
 
         return Ident::make_dollar_ident(ctx.substitutions.size() - 1);
 
+      case Token::pseudo_fnptr:
+        ctx.tok.type = ctx.ftok.type;
+        ctx.ftok.type = Token::Type::unknown;
+
+        return ctx.fname;
+
       default:
         break;
     }
@@ -769,15 +776,7 @@ namespace
       if (ctx.try_consume_token(Token::ellipsis))
         parm->type = sema.make_pack(parm->type);
 
-      if (is_pointference_type(parm->type) && is_function_type(remove_const_type(remove_pointference_type(parm->type))))
-      {
-        parm->name = ctx.fname;
-
-        if (ctx.tok == Token::identifier || ctx.tok == Token::dollar)
-          break;
-      }
-
-      if (ctx.tok == Token::identifier || ctx.tok == Token::dollar)
+      if (ctx.tok == Token::identifier || ctx.tok == Token::dollar || ctx.tok == Token::pseudo_fnptr)
       {
         parm->name = parse_ident(ctx, IdentUsage::VarName, sema);
       }
@@ -1213,14 +1212,34 @@ namespace
         bool pointer = (ctx.tok == Token::l_paren && ctx.token(1) == Token::star);
         bool reference = (ctx.tok == Token::l_paren && ctx.token(1) == Token::amp);
 
+        Type *arraysize = nullptr;
+
         if (pointer || reference)
         {
           ctx.consume_token(Token::l_paren);
 
           ctx.consume_token();
 
+          if (ctx.try_consume_token(Token::l_square))
+          {
+            arraysize = parse_type_ex(ctx, sema);
+
+            if (!arraysize)
+            {
+              ctx.diag.error("expected expression", ctx.text, ctx.tok.loc);
+              break;
+            }
+
+            if (!ctx.try_consume_token(Token::r_square))
+            {
+              ctx.diag.error("expected bracket", ctx.text, ctx.tok.loc);
+              break;
+            }
+          }
+
           if (ctx.tok == Token::identifier || ctx.tok == Token::dollar)
           {
+            ctx.ftok = { Token::pseudo_fnptr };
             ctx.fname = parse_ident(ctx, IdentUsage::VarName, sema);
           }
 
@@ -1241,6 +1260,12 @@ namespace
 
         if (reference)
           type = sema.make_reference(sema.make_const(type));
+
+        if (arraysize)
+          type = sema.make_array(type, arraysize);
+
+        if (ctx.ftok != Token::unknown)
+          std::swap(ctx.tok.type, ctx.ftok.type);
 
         break;
       }
@@ -3509,10 +3534,7 @@ namespace
       field->type = remove_const_type(field->type);
     }
 
-    if (is_pointference_type(field->type) && is_function_type(remove_const_type(remove_pointference_type(field->type))))
-      field->name = ctx.fname;
-    else
-      field->name = parse_ident(ctx, IdentUsage::VarName, sema);
+    field->name = parse_ident(ctx, IdentUsage::VarName, sema);
 
     if (ctx.try_consume_token(Token::equal))
     {
@@ -3564,6 +3586,9 @@ namespace
     {
       if (ctx.try_consume_token(Token::kw_pub))
         strct->flags |= TagDecl::PublicBase;
+
+      if (ctx.try_consume_token(Token::kw_mut))
+        strct->flags |= TagDecl::MutableBase;
 
       strct->basetype = parse_type(ctx, sema);
     }

@@ -771,7 +771,7 @@ namespace Builtin
     auto is_pointer = [&](Type *type) { return is_pointer_type(type); };
     auto is_reference = [&](Type *type) { return is_reference_type(type); };
 
-    auto base_type = [&](Type *type) {
+    auto base_type = [](Type *type) {
       while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype && (type_cast<TagType>(type)->decl->flags & TagDecl::PublicBase))
         type = type_cast<TagType>(type)->fields[0];
 

@@ -2954,14 +2954,17 @@ namespace
   {
     DeduceContext tx;
 
-    auto qualifiers = [](MIR::Local const &local) {
+    auto qualifiers = [](Type *lhs, MIR::Local const &rhs) {
 
       auto qualifiers = 0;
 
-      if (local.flags & MIR::Local::Const)
+      if (rhs.flags & MIR::Local::Const)
         qualifiers |= QualArgType::Const;
 
-      if (local.flags & MIR::Local::RValue)
+      if (rhs.flags & MIR::Local::RValue)
+        qualifiers |= QualArgType::RValue;
+
+      if (is_voidpointer_type(type_cast<QualArgType>(lhs)->type) && is_pointference_type(rhs.type) && !is_voidpointer_type(rhs.type))
         qualifiers |= QualArgType::RValue;
 
       return qualifiers;
@@ -3089,7 +3092,7 @@ namespace
             return false;
 
           if (is_qualarg_type(lhs))
-            fx.set_type(parm, ctx.typetable.find_or_create<QualArgType>(qualifiers(rhs), ctx.typetable.var_defn));
+            fx.set_type(parm, ctx.typetable.find_or_create<QualArgType>(qualifiers(lhs, rhs), ctx.typetable.var_defn));
 
           return true;
         }
@@ -3100,14 +3103,7 @@ namespace
       return false;
 
     if (is_qualarg_type(lhs))
-    {
-      auto flags = qualifiers(rhs);
-
-      if (is_voidpointer_type(type_cast<QualArgType>(lhs)->type) && is_pointference_type(rhs.type) && !is_voidpointer_type(rhs.type))
-        flags |= QualArgType::RValue;
-
-      fx.set_type(parm, ctx.typetable.find_or_create<QualArgType>(flags, ctx.typetable.var_defn));
-    }
+      fx.set_type(parm, ctx.typetable.find_or_create<QualArgType>(qualifiers(lhs, rhs), ctx.typetable.var_defn));
 
     return true;
   }
@@ -5980,8 +5976,17 @@ namespace
     {
       if (is_pointer_type(expr.type.type))
       {
-        if (auto rhs = remove_pointer_type(expr.type.type); !is_const_type(rhs))
-          expr.type.type = ctx.typetable.find_or_create<PointerType>(ctx.typetable.find_or_create<ConstType>(rhs));
+        auto n = 0;
+
+        for (n = 0; is_pointer_type(expr.type.type); ++n)
+        {
+          expr.type.type = remove_const_type(remove_pointer_type(expr.type.type));
+        }
+
+        for (auto k = 0; k < n; ++k)
+        {
+          expr.type.type = ctx.typetable.find_or_create<PointerType>(ctx.typetable.find_or_create<ConstType>(expr.type.type));
+        }
       }
 
       if (is_reference_type(expr.type.type))
@@ -7917,7 +7922,12 @@ namespace
 
     if ((!callee || !(callee.fx.fn->flags & FunctionDecl::Builtin)) && binaryop == BinaryOpExpr::Assign)
     {
-      auto base_type = [&](Type *type) { while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype) type = type_cast<TagType>(type)->fields[0]; return type; };
+      auto base_type = [](Type *type) {
+        while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype)
+          type = type_cast<TagType>(type)->fields[0];
+
+        return type;
+      };
 
       if (is_impl_type(ctx, parms[0].type.type, parms[1].type))
       {
@@ -7957,7 +7967,7 @@ namespace
 
     if ((!callee || !(callee.fx.fn->flags & FunctionDecl::Builtin)) && (binaryop == BinaryOpExpr::LT || binaryop == BinaryOpExpr::GT || binaryop == BinaryOpExpr::LE || binaryop == BinaryOpExpr::GE || binaryop == BinaryOpExpr::EQ || binaryop == BinaryOpExpr::NE || binaryop == BinaryOpExpr::Cmp))
     {
-      auto base_type = [&](Type *type) {
+      auto base_type = [](Type *type) {
         while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype && (type_cast<TagType>(type)->decl->flags & TagDecl::PublicBase))
           type = type_cast<TagType>(type)->fields[0];
 
@@ -7970,11 +7980,10 @@ namespace
         auto lhs = parms[0].type.type;
         auto rhs = parms[1].type.type;
 
-        while (is_pointference_type(lhs) && is_pointference_type(rhs))
+        for (n = 0; is_pointference_type(lhs) && is_pointference_type(rhs); ++n)
         {
           lhs = remove_const_type(remove_pointference_type(lhs));
           rhs = remove_const_type(remove_pointference_type(rhs));
-          n += 1;
         }
 
         if (lhs != rhs)
@@ -7986,7 +7995,9 @@ namespace
         if (lhs == rhs)
         {
           for (auto k = 0; k < n; ++k)
+          {
             lhs = ctx.typetable.find_or_create<PointerType>(ctx.typetable.find_or_create<ConstType>(lhs));
+          }
 
           callee.fx = map_builtin(ctx, binaryop, lhs);
         }
@@ -8173,7 +8184,7 @@ namespace
 
     if (!callee && (binaryop == BinaryOpExpr::LT || binaryop == BinaryOpExpr::GT || binaryop == BinaryOpExpr::LE || binaryop == BinaryOpExpr::GE || binaryop == BinaryOpExpr::EQ || binaryop == BinaryOpExpr::NE || binaryop == BinaryOpExpr::Cmp))
     {
-      auto base_type = [&](Type *type) {
+      auto base_type = [](Type *type) {
         while (is_tag_type(type) && decl_cast<TagDecl>(type_cast<TagType>(type)->decl)->basetype && (type_cast<TagType>(type)->decl->flags & TagDecl::PublicBase))
           type = type_cast<TagType>(type)->fields[0];
 
@@ -11904,7 +11915,8 @@ namespace
             MIR::Fragment value;
 
             value.type = ctx.mir.locals[cond];
-            value.value = MIR::RValue::local(MIR::RValue::Val, cond, decl->loc());
+            value.type.flags |= MIR::Local::Reference;
+            value.value = MIR::RValue::local(MIR::RValue::Ref, cond, decl->loc());
 
             lower_decl(ctx, decl_cast<CaseVarDecl>(parm), value);
           }
